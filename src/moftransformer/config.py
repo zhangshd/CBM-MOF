@@ -8,22 +8,6 @@ from pathlib import Path
 ex = Experiment("pretrained_mof", save_git_info=False)
 
 
-# def _loss_names(d):
-#     ret = {
-#         "ggm": 0,  # graph grid matching
-#         "mpp": 0,  # masked patch prediction
-#         "mtp": 0,  # mof topology prediction
-#         "vfp": 0,  # (accessible) void fraction prediction
-#         "moc": 0,  # metal organic classification
-#         "bbc": 0,  # building block classification
-#         "tsr": 0,  # thermal stability regression
-#         "ssc": 0,  # solvent stability classification
-#         "classification": 0,  # classification
-#         "regression": 0,  # regression
-#     }
-#     ret.update(d)
-#     return ret
-
 @ex.config
 def config():
     """
@@ -37,7 +21,7 @@ def config():
 
     # model
     exp_name = "pretrained_mof"
-    model_name = "extranformerv1" # extranformerv2, extranformerv1
+    model_name = "moftransformer" # 
     seed = 42
     noise_var = 0.1
     limit_train_batches = None
@@ -118,147 +102,35 @@ def config():
 def test():
     exp_name = "test"
     tasks = {
-        'logAdsCO2': "regression", 
-        'logAdsN2': "regression", 
-        # 'QstCO2': "regression", 
-        # 'QstN2': "regression", 
+        'logAdsCH4_10kPa': "regression", 
+        'logAdsCH4_100kPa': "regression", 
+        'logAdsCH4_1000kPa': "regression", 
+        'logAdsN2_10kPa': "regression", 
+        'logAdsN2_100kPa': "regression", 
+        'logAdsN2_1000kPa': "regression",
+        'QstCH4': "regression",
+        'QstN2': "regression",
     }
-    root_dataset = "data/ddmof/mof_split_val10_test10_seed0"
-    root_dataset = str(Path(__file__).parent.parent/"CGCNN_MT"/root_dataset)
+    root_dataset = "src/moftransformer/data/round1/mof_split_val10_test0_seed0"
+    root_dataset = str(Path(__file__).parent.parent.parent/root_dataset)
     max_epochs = 2
     # batch_size = 16
     per_gpu_batchsize = 16
-    use_cell_params = False  # Use cell parameters flag
 
 @ex.named_config
-def ads_qst_co2_n2():
-    exp_name = "ads_qst_co2_n2"
-    root_dataset = 'data/ddmof/mof_split_val1000_test1000_seed0'  # Data directory
-    root_dataset = str(Path(__file__).parent.parent/"CGCNN_MT"/root_dataset)
+def ads_qst_ch4_n2():
+    exp_name = "ads_qst_ch4_n2"
+    root_dataset = 'src/moftransformer/data/round1/mof_split_val500_test0_seed0'  # Data directory
+    root_dataset = str(Path(__file__).parent.parent.parent/root_dataset)
     tasks = {
-        'logAdsCO2': "regression", 
-        'logAdsN2': "regression", 
-        'QstCO2': "regression", 
-        'QstN2': "regression", 
+        'logAdsCH4_10kPa': "regression",
+        'logAdsCH4_100kPa': "regression",
+        'logAdsCH4_1000kPa': "regression",
+        'logAdsN2_10kPa': "regression",
+        'logAdsN2_100kPa': "regression",
+        'logAdsN2_1000kPa': "regression",
+        'QstCH4': "regression",
+        'QstN2': "regression",
     }
     max_epochs = 50
     per_gpu_batchsize = 32
-    use_cell_params = False  # Use cell parameters flag
-    
-@ex.named_config
-def ads_co2_n2():
-    exp_name = "ads_co2_n2"
-    root_dataset = 'data/ddmof/mof_split_val1000_test1000_seed0'  # Data directory
-    root_dataset = str(Path(__file__).parent.parent/"CGCNN_MT"/root_dataset)
-    tasks = {
-        'logAdsCO2': "regression", 
-        'logAdsN2': "regression", 
-    }
-    max_epochs = 50
-    per_gpu_batchsize = 32
-    use_cell_params = False  # Use cell parameters flag
-
-@ex.named_config
-def ads_co2():
-    exp_name = "ads_co2"
-    root_dataset = 'data/ddmof/mof_split_val1000_test1000_seed0'  # Data directory
-    root_dataset = str(Path(__file__).parent.parent/"CGCNN_MT"/root_dataset)
-    tasks = {
-        'logAdsCO2': "regression", 
-    }
-    max_epochs = 50
-    per_gpu_batchsize = 32
-    use_cell_params = False  # Use cell parameters flag
-
-@ex.named_config
-def ads_n2():
-    exp_name = "ads_n2"
-    root_dataset = 'data/ddmof/mof_split_val1000_test1000_seed0'  # Data directory
-    root_dataset = str(Path(__file__).parent.parent/"CGCNN_MT"/root_dataset)
-    tasks = {
-        'logAdsN2': "regression", 
-    }
-    max_epochs = 50
-    per_gpu_batchsize = 32
-    use_cell_params = False  # Use cell parameters flag
-
-@ex.named_config
-def ads_s_qst_co2_n2():
-    exp_name = "ads_s_qst_co2_n2"
-    root_dataset = 'data/ddmof/mof_split_val1000_test1000_seed0'  # Data directory
-    root_dataset = str(Path(__file__).parent.parent/"CGCNN_MT"/root_dataset)
-    tasks = {
-        'logAdsCO2': "regression", 
-        'logAdsN2': "regression", 
-        'logAdsS': "regression",
-        'QstCO2': "regression", 
-        'QstN2': "regression", 
-    }
-    max_epochs = 50
-    per_gpu_batchsize = 32
-    use_cell_params = False  # Use cell parameters flag
-
-@ex.named_config
-def ads_s_co2_n2():
-    exp_name = "ads_s_co2_n2"
-    root_dataset = 'data/ddmof/mof_split_val1000_test1000_seed0'  # Data directory
-    root_dataset = str(Path(__file__).parent.parent/"CGCNN_MT"/root_dataset)
-    tasks = {
-        'logAdsCO2': "regression", 
-        'logAdsN2': "regression", 
-        'logAdsS': "regression",
-    }
-    max_epochs = 50
-    per_gpu_batchsize = 32
-    use_cell_params = False  # Use cell parameters flag
-
-@ex.named_config
-def ads_co2_pure():
-    exp_name = "ads_co2_pure"
-    root_dataset = 'data/ddmof/mof_split_val1000_test1000_seed0_co2'  # Data directory
-    root_dataset = str(Path(__file__).parent.parent/"CGCNN_MT"/root_dataset)
-    tasks = {
-        'logAdsCO2': "regression", 
-    }
-    max_epochs = 50
-    per_gpu_batchsize = 32
-    use_cell_params = False  # Use cell parameters flag
-
-@ex.named_config
-def ads_n2_pure():
-    exp_name = "ads_n2_pure"
-    root_dataset = 'data/ddmof/mof_split_val1000_test1000_seed0_n2'  # Data directory
-    root_dataset = str(Path(__file__).parent.parent/"CGCNN_MT"/root_dataset)
-    tasks = {
-        'logAdsN2': "regression", 
-    }
-    max_epochs = 50
-    per_gpu_batchsize = 32
-    use_cell_params = False  # Use cell parameters flag
-
-@ex.named_config
-def ads_co2_n2_pure():
-    exp_name = "ads_co2_n2_pure"
-    root_dataset = 'data/ddmof/mof_split_val1000_test1000_seed0_co2_n2'  # Data directory
-    root_dataset = str(Path(__file__).parent.parent/"CGCNN_MT"/root_dataset)
-    tasks = {
-        'logAdsCO2': "regression", 
-        'logAdsN2': "regression", 
-    }
-    max_epochs = 50
-    per_gpu_batchsize = 32
-    use_cell_params = False  # Use cell parameters flag
-
-@ex.named_config
-def ads_s_co2_n2_mix():
-    exp_name = "ads_s_co2_n2_mix"
-    root_dataset = 'data/ddmof/mof_split_val1000_test1000_seed0_mixture'  # Data directory
-    root_dataset = str(Path(__file__).parent.parent/"CGCNN_MT"/root_dataset)
-    tasks = {
-        'logAdsCO2': "regression", 
-        'logAdsN2': "regression", 
-        'logAdsS': "regression",
-    }
-    max_epochs = 50
-    per_gpu_batchsize = 32
-    use_cell_params = False  # Use cell parameters flag

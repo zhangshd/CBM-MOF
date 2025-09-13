@@ -16,7 +16,9 @@ inference/*
 test.ipynb
 */data
 *.sh
+*.csv
 *.ckpt
 */feature_folders
 */figures
 results/
+**/graphs_grids

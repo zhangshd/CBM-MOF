@@ -114,8 +114,6 @@ class InferenceDataset(torch.utils.data.Dataset):
         self.max_num_nbr = kwargs.get("max_num_nbr", 12)
         self.dmin = kwargs.get("dmin", 0)
         self.step = kwargs.get("step", 0.2)
-        self.use_cell_params = kwargs.get("use_cell_params", False)
-        self.use_extra_fea = kwargs.get("use_extra_fea", True)
         self.task_id = kwargs.get("task_id", 0)
         self.cif_ids = [cif.stem for cif in self.cif_list]
         self.log_press = kwargs.get("log_press", True)
@@ -265,28 +263,16 @@ class InferenceDataset(torch.utils.data.Dataset):
         
         ret = dict()
         cif_id = self.inputs[idx][0]
-        if self.use_extra_fea:
-            extra_fea = self.inputs[idx][1:]
-            # print(extra_fea)
-        else:
-            extra_fea = []
-
-        extra_fea = torch.FloatTensor(extra_fea)
 
         ret.update(copy.deepcopy(self.grid_data[cif_id]))
         ret.update(copy.deepcopy(self.graph_data[cif_id]))
         # ret.update(self.get_grid_data(cif_id, self.draw_false_grid))
         # ret.update(self.get_graph(cif_id))
 
-        if self.use_cell_params and "cell_params" in ret.keys():
-            cell_params = torch.FloatTensor(ret["cell_params"])
-            extra_fea = torch.cat([extra_fea, cell_params], dim=-1)
-
         ret.update(
             {
                 "cif_id": cif_id,
-                "task_id": self.task_id,
-                "extra_fea": extra_fea,
+                "task_id": self.task_id
             }
         )
 
@@ -368,9 +354,6 @@ class InferenceDataset(torch.utils.data.Dataset):
             new_false_grids = torch.concat(new_false_grids, axis=0)
             dict_batch["false_grid"] = new_false_grids
 
-        ## extra_fea
-        if "extra_fea" in dict_batch.keys():
-            dict_batch["extra_fea"] = torch.stack(dict_batch["extra_fea"], dim=0)
         if "task_id" in dict_batch.keys():
             dict_batch["task_id"] = torch.IntTensor(dict_batch["task_id"])
         dict_batch["target_mask"] = torch.ones(batch_size, task_num, dtype=torch.bool)
@@ -437,23 +420,11 @@ def inference(cif_list, model_dir, saved_dir, co2frac=None, press=None, inputs=N
         # print(outputs)
         # print(outputs[0].keys())
         all_outputs = {}
-        # all_outputs[f"cif_ids"] = [d["cif_id"] for d in infer_dataset]
-        # all_outputs["Pressure[bar]"] = [10**(d["extra_fea"][0].item()) - 1e-5 for d in infer_dataset]
-        # all_outputs["CO2Fraction"] = [d["extra_fea"][1].item() for d in infer_dataset]
         for task, task_tp in model.hparams["config"].get("tasks").items():
             task_outputs = {}
             task_outputs[f"Predicted"] = torch.cat([d[f"{task}_pred"] for d in outputs], dim=0).cpu().numpy().squeeze()
             task_outputs[f'last_layer_fea'] = torch.cat([d[f'{task}_cls_feats'] for d in outputs], dim=0).cpu().numpy().squeeze()
             task_outputs[f"CifId"] = np.concatenate([d[f"{task}_cif_id"] for d in outputs], axis=0)
-            task_outputs[f"Pressure[bar]"] = torch.cat([10**(d[f"{task}_extra_fea"][:,0]) - 1e-5 for d in outputs], dim=0).cpu().numpy().squeeze()
-            if outputs[0][f"{task}_extra_fea"].shape[1] > 1:
-                task_outputs[f"CO2Fraction"] = torch.cat([d[f"{task}_extra_fea"][:,1] for d in outputs], dim=0).cpu().numpy().squeeze()
-            elif "CO2" in task:
-                task_outputs[f"CO2Fraction"] = 1
-            elif "N2" in task:
-                task_outputs[f"CO2Fraction"] = 0
-            else:
-                task_outputs[f"CO2Fraction"] = None
             if "classification" in task_tp:
                 task_outputs[f"PredictedProb"] = torch.cat([d[f"{task}_logits"] for d in outputs], dim=0).cpu().numpy()
             all_outputs[task] = task_outputs
@@ -477,7 +448,7 @@ def inference(cif_list, model_dir, saved_dir, co2frac=None, press=None, inputs=N
                                                                 task_outputs[f'last_layer_fea'], 
                                                                 k=uncertainty_trees[task]["k"])
         df_res = pd.DataFrame({k:v for k,v in task_outputs.items() if k not in ["last_layer_fea"]})
-        out_cols = ["CifId", "Pressure[bar]", "CO2Fraction", "Predicted", "PredictedStd", "Uncertainty"]
+        out_cols = ["CifId", "Predicted", "PredictedStd", "Uncertainty"]
         if "PredictedProb" in task_outputs:
             out_cols.append("PredictedProb")
             out_cols.append("PredictedProbStd")

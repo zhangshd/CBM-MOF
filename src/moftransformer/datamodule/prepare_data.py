@@ -490,8 +490,10 @@ def main(cif_dir, radius=8, max_num_nbr=12, n_cpus=1, saved_dir=None, cif_list_f
         saved_dir = cif_dir.parent / f"graphs_grids"
     else:
         saved_dir = Path(saved_dir)
-    logger = get_logger(filename=str(cif_dir.parent/f"logs/prepare_data{suffix}.log"))
-    eg_logger = get_logger(filename=str(cif_dir.parent/f"logs/prepare_energy_grid{suffix}.log"))
+    saved_dir.mkdir(exist_ok=True, parents=True)
+    (saved_dir.parent/"logs").mkdir(exist_ok=True, parents=True)
+    logger = get_logger(filename=str(saved_dir.parent/f"logs/prepare_data{suffix}.log"))
+    eg_logger = get_logger(filename=str(saved_dir.parent/f"logs/prepare_energy_grid{suffix}.log"))
     if n_cpus > 1:
         with mp.Pool(processes=n_cpus) as pool:
             pool.map(partial(make_prepared_data, root_dataset_total=saved_dir, 

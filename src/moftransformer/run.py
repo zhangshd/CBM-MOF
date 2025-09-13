@@ -58,7 +58,7 @@ def main(_config):
     for k, v in _config.items():
         print(f"{k}: {v}")
     dm = Datamodule(_config)
-    dm.setup()
+    dm.setup("fit")
     _config["normalizers"] = dm.normalizers
     _config["task_weights"] = dm.task_weights
     
@@ -142,7 +142,7 @@ def main(_config):
         log_dir = Path(logger.log_dir)/'checkpoints'
         if best_model:= next(log_dir.glob('*/*epoch=*.ckpt')):
             shutil.copy(best_model, log_dir/'best.ckpt')
-        trainer.test(model, datamodule=dm, ckpt_path="best")
+        # trainer.test(model, datamodule=dm, ckpt_path="best")
             
     else:
         trainer.test(model, datamodule=dm)

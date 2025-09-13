@@ -41,6 +41,7 @@ parser.add_argument("--noise_var", type=float, nargs="?")
 args = parser.parse_args()
 
 conf = config()
+print(args.task_cfg)
 task_conf = eval(args.task_cfg + "()")
 conf.update(task_conf)
 conf.update({k: v for k, v in vars(args).items() if v not in (None, [], "", "None")})

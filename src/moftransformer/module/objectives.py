@@ -52,7 +52,6 @@ def compute_regression(pl_module, batch, task, infer, phase='train'):
 
     # logits = infer[f"{task}_logits"][mask_i]  # [B]
     logits = logits.to(torch.float32)
-    extra_fea = batch["extra_fea"][mask_i, :]  # [B, extra_fea_dim]
 
     if "target" not in batch.keys():
         return {
@@ -61,7 +60,6 @@ def compute_regression(pl_module, batch, task, infer, phase='train'):
             # f"{task}_loss": torch.tensor(0.0),
             f"{task}_logits": pl_module.denormalize(logits, task),
             # f"{task}_labels": torch.zeros_like(logits),
-            f"{task}_extra_fea": extra_fea,
             
         }
 
@@ -81,7 +79,6 @@ def compute_regression(pl_module, batch, task, infer, phase='train'):
         f"{task}_loss": loss,
         f"{task}_logits": pl_module.denormalize(logits, task),
         f"{task}_labels": pl_module.denormalize(labels, task),
-        f"{task}_extra_fea": extra_fea,
     }
 
     # call update() loss and acc
@@ -127,7 +124,6 @@ def compute_classification(pl_module, batch, task, infer, phase='train'):
 
     # logits = infer[f"{task}_logits"][mask_i] # [B, C]
     # binary = infer[f"{task}_binary"]
-    extra_fea = batch["extra_fea"][mask_i, :]  # [B, extra_fea_dim]
     if "target" not in batch.keys():
         return {
             f"{task}_cif_id": np.array(infer["cif_id"])[mask_i.cpu().numpy().tolist()],
@@ -135,7 +131,6 @@ def compute_classification(pl_module, batch, task, infer, phase='train'):
             # f"{task}_loss": torch.tensor(0.0),
             f"{task}_logits": logits,
             # f"{task}_labels": torch.zeros_like(logits),
-            f"{task}_extra_fea": extra_fea,
         }
     
     labels = batch["target"][mask_i, task_id].clone().detach().long()  # [B]
@@ -154,7 +149,6 @@ def compute_classification(pl_module, batch, task, infer, phase='train'):
         f"{task}_loss": loss,
         f"{task}_logits": logits,
         f"{task}_labels": labels,
-        f"{task}_extra_fea": extra_fea,
     }
 
     # call update() loss and acc
