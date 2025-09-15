@@ -9,12 +9,13 @@
 *perf_logs.txt
 *events.out.tfevents.*
 logs*
+slurm_logs*
 inference/*
 */inference/*
 *.ipynb
 *.ipynb_checkpoints
 test.ipynb
-*/data
+**/data
 *.sh
 *.csv
 *.ckpt

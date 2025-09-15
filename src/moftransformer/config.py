@@ -132,5 +132,5 @@ def ads_qst_ch4_n2():
         'QstCH4': "regression",
         'QstN2': "regression",
     }
-    max_epochs = 50
+    max_epochs = 200
     per_gpu_batchsize = 32
