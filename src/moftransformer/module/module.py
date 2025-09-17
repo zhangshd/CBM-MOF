@@ -22,6 +22,7 @@ from sklearn.metrics import accuracy_score, confusion_matrix, roc_curve, auc, ro
 import os
 import csv
 import matplotlib.pyplot as plt
+import pandas as pd
 
 
 class Module(LightningModule):
@@ -84,8 +85,6 @@ class Module(LightningModule):
             print(f"load model : {config['load_path']}")
 
         module_utils.set_metrics(self)
-        objectives.collections_init(self, phase="test")
-        objectives.collections_init(self, phase="val")
         self.current_tasks = dict()
         # ===================== load downstream ======================
         self.best_metric = -10e10
@@ -99,6 +98,18 @@ class Module(LightningModule):
 
         self.write_log = True
 
+    def collections_init(self, phase='val'):
+
+        self.outputs = {}
+        if phase in ['test', 'val']:
+            for task, task_tp in self.hparams["config"]["tasks"].items():
+                self.outputs[f'{phase}_{task}_logits'] = []
+                self.outputs[f'{phase}_{task}_preds'] = []
+                self.outputs[f'{phase}_{task}_labels'] = []
+                self.outputs[f'{phase}_{task}_cifids'] = []
+        else:
+            raise ValueError(f"Unsupported phase: {phase}")
+     
     def normalize(self, input, task):
         self.normalizer = self.normalizers[task]
         if self.normalizer.device.type != self.device.type:
@@ -172,7 +183,7 @@ class Module(LightningModule):
     def on_validation_start(self):
         module_utils.set_task(self)
         self.write_log = True
-        objectives.collections_init(self, phase="val")
+        self.collections_init(phase="val")
 
     def validation_step(self, batch, batch_idx):
         self.eval()
@@ -188,7 +199,7 @@ class Module(LightningModule):
 
     def on_test_start(self,):
         module_utils.set_task(self)
-        objectives.collections_init(self, phase="test")
+        self.collections_init(phase="test")
     
     def test_step(self, batch, batch_idx):
         self.eval()
@@ -212,37 +223,18 @@ class Module(LightningModule):
                     output[f"{task}_logits_index"] = torch.argmax(output[f"{task}_logits"], dim=1)
 
 
-        output = {
-            k: (v.cpu() if torch.is_tensor(v) else v) for k, v in output.items()
-        }  # update cpu for memory
+        # output = {
+        #     k: (v.cpu() if torch.is_tensor(v) else v) for k, v in output.items()
+        # }  # update cpu for memory
 
         for task_id, (task, task_tp) in enumerate(self.current_tasks.items()):
-            if phase == "test":
-                # if task in self.pretrain_tasks:
-                #     continue
-                if 'regression' in task_tp:
-                    self.test_logits[task_id] += output[f"{task}_logits"].tolist()
-                    self.test_labels[task_id] += output[f"{task}_labels"].tolist()
-                    self.test_preds[task_id] += output[f"{task}_logits"].tolist()
-                    self.test_cifids[task_id] += output[f"{task}_cif_id"].tolist()
-
-                elif 'classification' in task_tp:
-                    self.test_labels[task_id] += output[f"{task}_labels"].tolist()
-                    self.test_preds[task_id] += output[f"{task}_logits_index"].tolist()
-                    self.test_logits[task_id] += output[f"{task}_logits"].tolist()
-                    self.test_cifids[task_id] += output[f"{task}_cif_id"].tolist()
-
-            elif phase == "val":
-                if 'regression' in task_tp:
-                    self.val_logits[task_id] += output[f"{task}_logits"].tolist()
-                    self.val_labels[task_id] += output[f"{task}_labels"].tolist()
-                    self.val_preds[task_id] += output[f"{task}_logits"].tolist()
-                    self.val_cifids[task_id] += output[f"{task}_cif_id"].tolist()
-                elif 'classification' in task_tp:
-                    self.val_labels[task_id] += output[f"{task}_labels"].tolist()
-                    self.val_preds[task_id] += output[f"{task}_logits_index"].tolist()
-                    self.val_logits[task_id] += output[f"{task}_logits"].tolist()
-                    self.val_cifids[task_id] += output[f"{task}_cif_id"].tolist()
+            self.outputs[f'{phase}_{task}_logits'].append(output[f"{task}_logits"])
+            self.outputs[f'{phase}_{task}_preds'].append(output.get(f"{task}_logits_index", output[f"{task}_logits"]))
+            self.outputs[f'{phase}_{task}_labels'].append(output[f"{task}_labels"])
+            # Convert cif_ids to tensor for multi-GPU gathering
+            cif_ids = output[f"{task}_cif_id"].tolist()
+            cif_ids_tensor = module_utils._encode_strings_to_tensor(cif_ids, max_length=80, device=self.device)
+            self.outputs[f'{phase}_{task}_cifids'].append(cif_ids_tensor)
 
         return output
     
@@ -252,26 +244,22 @@ class Module(LightningModule):
         for task_id, (task, task_tp) in enumerate(self.current_tasks.items()):
             if task in self.pretrain_tasks:
                 continue
-            if phase == "test":
-                cifids = self.test_cifids[task_id]
-                labels = self.test_labels[task_id]
-                preds = self.test_preds[task_id]
-                logits = self.test_logits[task_id]
-            elif phase == "val":
-                cifids = self.val_cifids[task_id]
-                labels = self.val_labels[task_id]
-                preds = self.val_preds[task_id]
-                logits = self.val_logits[task_id]
+            logits_all = self.all_gather(self.outputs[f'{phase}_{task}_logits'])
+            preds_all = self.all_gather(self.outputs[f'{phase}_{task}_preds'])
+            labels_all = self.all_gather(self.outputs[f'{phase}_{task}_labels'])
+            cifids_tensor_all = self.all_gather(self.outputs[f'{phase}_{task}_cifids'])
+
+            # Flatten the lists
+            # Convert cifids tensor back to strings
+            cifids_tensors = [item for sublist in cifids_tensor_all for item in sublist]
+            cifids_combined = torch.cat(cifids_tensors, dim=0) if cifids_tensors else torch.empty(0, dtype=torch.uint8)
+            cifids = module_utils._decode_tensor_to_strings(cifids_combined) if cifids_combined.numel() > 0 else []
+            
+            labels = torch.cat([item for sublist in labels_all for item in sublist]).cpu().numpy().tolist()
+            preds = torch.cat([item for sublist in preds_all for item in sublist]).cpu().numpy().tolist()
+            logits = torch.cat([item for sublist in logits_all for item in sublist]).cpu().numpy().tolist()
+
             if 'regression' in task_tp:
-            # calculate r2 score when regression
-                csv_file = os.path.join(self.logger.log_dir, f"{phase}_results_{task}.csv")
-                with open(csv_file, "w") as f:
-                    writer = csv.writer(f)
-                    writer.writerow(["CifId", "GroundTruth", "Predicted"])
-                    for cif_id, true_value, predicted_value in zip(
-                        cifids, labels, preds
-                    ):
-                        writer.writerow([cif_id, true_value, predicted_value])
                 r2 = r2_score(
                     np.array(labels), np.array(preds)
                 )
@@ -282,38 +270,46 @@ class Module(LightningModule):
                     np.array(labels), np.array(preds)
                 )
                 
-                self.log(f"{task}/{phase}/r2_score", r2, sync_dist=True)
-                self.log(f"{task}/{phase}/mae", mae, sync_dist=True)
-                self.log(f"{task}/{phase}/mape", mape, sync_dist=True)
+                self.log(f"{task}/{phase}/r2_score", r2, batch_size=self.hparams["config"]["per_gpu_batchsize"], sync_dist=True)
+                self.log(f"{task}/{phase}/mae", mae, batch_size=self.hparams["config"]["per_gpu_batchsize"], sync_dist=True)
+                self.log(f"{task}/{phase}/mape", mape, batch_size=self.hparams["config"]["per_gpu_batchsize"], sync_dist=True)
 
-                img_file = os.path.join(self.logger.log_dir, f"{phase}_scatter_{task}.png")
-                fig, ax = plot_scatter(
-                    np.array(labels),
-                    np.array(preds),
-                    title=f"{task}/{phase}/scatter",
-                    metrics={"R2": r2, "MAE": mae},
-                    outfile=img_file,
-                )
-                logger_exp.add_figure(f'{task}/{phase}/scatter', fig, self.current_epoch)
-                plt.close(fig)
+                if self.trainer.is_global_zero:
+                    df_results = pd.DataFrame({
+                        "CifId": cifids,
+                        "GroundTruth": labels,
+                        "Predicted": preds,
+                    })
+                    csv_file = os.path.join(self.logger.log_dir, f"{phase}_results_{task}.csv")
+                    df_results.to_csv(csv_file, index=False)
+                    img_file = os.path.join(self.logger.log_dir, f"{phase}_scatter_{task}.png")
+                    fig, ax = module_utils.plot_scatter(
+                        np.array(labels),
+                        np.array(preds),
+                        title=f"{task}/{phase}/scatter",
+                        metrics={"R2": r2, "MAE": mae, "MAPE": mape},
+                        outfile=img_file,
+                    )
+                    logger_exp.add_figure(f'{task}/{phase}/scatter', fig, self.current_epoch)
 
             # calculate accuracy when classification
             # if len(preds) > 1 and "classification" in self.current_tasks:
             if 'classification' in task_tp:
-                csv_file = os.path.join(self.logger.log_dir, f"{phase}_results_{task}.csv")
-                with open(csv_file, "w") as f:
-                    writer = csv.writer(f)
-                    writer.writerow(["CifId", "GroundTruth", "Predicted", "PredictedLogits"])
-                    for cif_id, true_value, predicted_value, predicted_logit in zip(
-                        cifids, labels, preds, logits
-                    ):
-                        writer.writerow([cif_id, true_value, predicted_value, predicted_logit])
                 acc = accuracy_score(
                     np.array(labels), np.array(preds)
                 )
                 conf_matrix = confusion_matrix(
                     np.array(labels), np.array(preds)
                 )
+                if self.trainer.is_global_zero:
+                    csv_file = os.path.join(self.logger.log_dir, f"{phase}_results_{task}.csv")
+                    df_results = pd.DataFrame({
+                        "CifId": cifids,
+                        "GroundTruth": labels,
+                        "Predicted": preds,
+                        "PredictedLogits": logits,
+                    })
+                    df_results.to_csv(csv_file, index=False)
                 n_classes = task_tp.split("_")[-1] if "_" in task_tp else 2
                 if n_classes == 2:
                     fpr, tpr, thresholds = roc_curve(
@@ -321,34 +317,33 @@ class Module(LightningModule):
                         drop_intermediate=False
                     )
                     auc_score = auc(fpr, tpr)
-                    img_file = os.path.join(self.logger.log_dir, f"{phase}_roc_curve_{task}.png")
-                    fig, ax = plot_roc_curve(
-                        fpr,
-                        tpr,
-                        auc_score,
-                        title=f"{task}/{phase}/roc_curve",
-                        outfile=img_file,
-                    )
-                    logger_exp.add_figure(f'{task}/{phase}/roc_curve', fig, self.current_epoch)
-                    plt.close(fig)
+                    if self.trainer.is_global_zero:
+                        img_file = os.path.join(self.logger.log_dir, f"{phase}_roc_curve_{task}.png")
+                        fig, ax = plot_roc_curve(
+                            fpr,
+                            tpr,
+                            auc_score,
+                            title=f"{task}/{phase}/roc_curve",
+                            outfile=img_file,
+                        )
+                        logger_exp.add_figure(f'{task}/{phase}/roc_curve', fig, self.current_epoch)
                 else:
                     auc_score = roc_auc_score(
                         np.array(labels), np.array(logits),
                         multi_class='ovo', average='macro'
                     )
-                self.log(f"{task}/{phase}/auc_score", auc_score, sync_dist=True)
-                self.log(f"{task}/{phase}/accuracy", acc, sync_dist=True)
-
-                img_file = os.path.join(self.logger.log_dir, f"{phase}_confusion_matrix_{task}.png")
-                fig, ax = plot_confusion_matrix(
-                    conf_matrix,
-                    title=f"{task}/{phase}/confusion_matrix",
-                    outfile=img_file,
-                )
-                logger_exp.add_figure(f'{task}/{phase}/confusion_matrix', fig, self.current_epoch)
-                plt.close(fig)
+                self.log(f"{task}/{phase}/auc_score", auc_score, batch_size=self.hparams["config"]["per_gpu_batchsize"], sync_dist=True)
+                self.log(f"{task}/{phase}/accuracy", acc, batch_size=self.hparams["config"]["per_gpu_batchsize"], sync_dist=True)
+                if self.trainer.is_global_zero:
+                    img_file = os.path.join(self.logger.log_dir, f"{phase}_confusion_matrix_{task}.png")
+                    fig, ax = plot_confusion_matrix(
+                        conf_matrix,
+                        title=f"{task}/{phase}/confusion_matrix",
+                        outfile=img_file,
+                    )
+                    logger_exp.add_figure(f'{task}/{phase}/confusion_matrix', fig, self.current_epoch)
         print(f"Best epoch: {self.best_epoch}, Best metric: {self.best_metric}")
-        objectives.collections_init(self, phase=phase)
+        self.collections_init(phase=phase)
 
     def configure_optimizers(self):
         return module_utils.set_schedule(self)
@@ -356,6 +351,7 @@ class Module(LightningModule):
     def on_predict_start(self):
         self.write_log = False
         module_utils.set_task(self)
+        self.collections_init(phase='test')
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         self.eval()
@@ -388,7 +384,7 @@ class Module(LightningModule):
         return output
     
     def on_predict_epoch_end(self, *args):
-        objectives.collections_init(self, phase='test')
+        self.collections_init(phase='test')
 
     def on_predict_end(self, ):
         self.write_log = True

@@ -80,7 +80,7 @@ def config():
 
     # below params varies with the environment
     root_dataset = os.path.join(__root_dir__, "examples/dataset")
-    log_dir = os.path.join(ROOT_DIR, 'results/cgcnn_models')  # Log directory
+    log_dir = os.path.join(ROOT_DIR, 'results/moftransformer_models')  # Log directory
     batch_size = 64  # desired batch size; for gradient accumulation
     per_gpu_batchsize = 8  # you should define this manually with per_gpu_batch_size
     accelerator = "auto"
@@ -92,10 +92,6 @@ def config():
 
     num_workers = 2  # the number of cpu's core
     precision = "16-mixed"  #  "32-true", "16-mixed"
-
-    # normalization target
-    mean = None
-    std = None
 
     # visualize
     visualize = False  # return attention map

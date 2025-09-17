@@ -85,14 +85,12 @@ def compute_regression(pl_module, batch, task, infer, phase='train'):
         mean_absolute_error(ret[f"{task}_logits"], ret[f"{task}_labels"])
     )
     mape = getattr(pl_module, f"{phase}_{task}_mape")(
-        mean_absolute_percentage_error(ret[f"{task}_logits"], ret[f"{task}_labels"])
+        ret[f"{task}_logits"], ret[f"{task}_labels"]
     )
     if ret[f"{task}_labels"].shape[0] > 1:
-        r2 = getattr(pl_module, f"{phase}_{task}_r2")(
-            r2_score(ret[f"{task}_logits"], ret[f"{task}_labels"])
-        )
+        r2 = getattr(pl_module, f"{phase}_{task}_r2")(ret[f"{task}_logits"], ret[f"{task}_labels"])
     else:
-        r2 = getattr(pl_module, f"{phase}_{task}_r2")(torch.tensor(0.0))
+        r2 = torch.tensor(0.0)
     if pl_module.write_log:
         pl_module.log(f"{task}/{phase}/loss", loss, batch_size=pl_module.hparams["per_gpu_batchsize"], sync_dist=True)
         pl_module.log(f"{task}/{phase}/mae", mae, batch_size=pl_module.hparams["per_gpu_batchsize"], sync_dist=True)

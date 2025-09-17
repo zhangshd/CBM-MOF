@@ -13,7 +13,8 @@ from transformers import (
 )
 
 from moftransformer.gadgets.my_metrics import Accuracy, Scalar
-from moftransformer.utils.validation import _set_load_path, _check_valid_num_gpus, _set_valid_batchsize
+from torchmetrics import R2Score, MeanAbsolutePercentageError
+from moftransformer.utils.validation import _set_load_path
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -25,11 +26,16 @@ def set_metrics(pl_module):
             if "regression" in v:
                 setattr(pl_module, f"{split}_{k}_loss", Scalar())
                 setattr(pl_module, f"{split}_{k}_mae", Scalar())
-                setattr(pl_module, f"{split}_{k}_r2", Scalar())
-                setattr(pl_module, f"{split}_{k}_mape", Scalar())
+                setattr(pl_module, f"{split}_{k}_r2", R2Score())
+                setattr(pl_module, f"{split}_{k}_mape", MeanAbsolutePercentageError())
             else:
-                setattr(pl_module, f"{split}_{k}_accuracy", Accuracy())
                 setattr(pl_module, f"{split}_{k}_loss", Scalar())
+                n_classes = int(v.split("_")[-1]) if "_" in v else 2
+                task_type = "binary" if n_classes == 2 else "multiclass"
+                if task_type == "multiclass":
+                    setattr(pl_module, f"{split}_{k}_accuracy", Accuracy(task="multiclass", num_classes=n_classes))
+                else:
+                    setattr(pl_module, f"{split}_{k}_accuracy", Accuracy(task="binary"))
 
 
 def set_task(pl_module):
@@ -103,6 +109,45 @@ def epoch_wrapup(pl_module, phase="val"):
     pl_module.log(f"{phase}/the_metric", the_metric, sync_dist=True)
     return the_metric
 
+def _encode_strings_to_tensor(string_list, max_length=50, device=None):
+    """
+    Encode list of strings to ByteTensor for multi-GPU gathering.
+    
+    Args:
+        string_list: List of strings to encode
+        max_length: Maximum length of each string (padding/truncation)
+        
+    Returns:
+        torch.ByteTensor: Encoded tensor
+    """
+    encoded_strings = []
+    for s in string_list:
+        # Convert string to bytes and pad/truncate to max_length
+        bytes_data = s.encode('utf-8')[:max_length]
+        padded_bytes = bytes_data + b'\x00' * (max_length - len(bytes_data))
+        encoded_strings.append(list(padded_bytes))
+    
+    return torch.tensor(encoded_strings, dtype=torch.uint8, device=device)
+
+def _decode_tensor_to_strings(tensor):
+    """
+    Decode ByteTensor back to list of strings.
+    
+    Args:
+        tensor: torch.ByteTensor to decode
+        
+    Returns:
+        List[str]: Decoded strings
+    """
+    strings = []
+    for row in tensor:
+        # Convert back to bytes and decode, removing null padding
+        bytes_data = bytes(row.cpu().numpy())
+        # Remove null bytes padding
+        bytes_data = bytes_data.rstrip(b'\x00')
+        strings.append(bytes_data.decode('utf-8'))
+    
+    return strings
 
 def set_schedule(pl_module):
 
@@ -136,6 +181,11 @@ def set_schedule(pl_module):
             ],
             "weight_decay": wd,
             "lr": lr,
+            "param_names": [n for n, p in pl_module.named_parameters() 
+                            if not any(nd in n for nd in no_decay)  # not within no_decay
+                            and not any(bb in n for bb in head_names)  # not within head_names
+                            ],
+            "group_name": "normal_decay",
         },
         {
             "params": [
@@ -146,6 +196,11 @@ def set_schedule(pl_module):
             ],
             "weight_decay": 0.0,
             "lr": lr,
+            "param_names": [n for n, p in pl_module.named_parameters() 
+                            if any(nd in n for nd in no_decay)  # within no_decay
+                            and not any(bb in n for bb in head_names)  # not within head_names
+                            ],
+            "group_name": "normal_no_decay",
         },
         {
             "params": [
@@ -156,6 +211,11 @@ def set_schedule(pl_module):
             ],
             "weight_decay": wd,
             "lr": lr * lr_mult,
+            "param_names": [n for n, p in pl_module.named_parameters() 
+                            if not any(nd in n for nd in no_decay)  # not within no_decay
+                            and any(bb in n for bb in head_names)  # within head_names
+                            ],
+            "group_name": "head_decay",
         },
         {
             "params": [
@@ -166,9 +226,16 @@ def set_schedule(pl_module):
             ],
             "weight_decay": 0.0,
             "lr": lr * lr_mult,
+            "param_names": [n for n, p in pl_module.named_parameters() 
+                            if any(nd in n for nd in no_decay) and any(bb in n for bb in head_names)
+                            ],
+            "group_name": "head_no_decay",
         },
     ]
-
+    for i, param_group in enumerate(optimizer_grouped_parameters):
+        print("="*50)
+        print(param_group["group_name"])
+        print(param_group["param_names"])
     if optim_type == "adamw":
         optimizer = AdamW(
             optimizer_grouped_parameters, lr=lr, eps=1e-8, betas=(0.9, 0.98)
@@ -333,12 +400,5 @@ def get_valid_config(_config):
 
     # set load_path to directory
     _config["load_path"] = _set_load_path(_config["load_path"])
-
-    # check_valid_num_gpus
-    devices = _check_valid_num_gpus(_config)
-
-    # Batch size must be larger than gpu_per_batch
-    if _config["batch_size"] < _config["per_gpu_batchsize"] * devices:
-        _set_valid_batchsize(_config, devices)
 
     return _config

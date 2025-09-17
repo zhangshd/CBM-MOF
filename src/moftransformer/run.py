@@ -97,16 +97,6 @@ def main(_config):
     num_device = get_num_devices(_config)
     print("num_device", num_device)
 
-    # gradient accumulation
-    if num_device == 0:
-        accumulate_grad_batches = _config["batch_size"] // (
-            _config["per_gpu_batchsize"] * _config["num_nodes"]
-        )
-    else:
-        accumulate_grad_batches = _config["batch_size"] // (
-            _config["per_gpu_batchsize"] * num_device * _config["num_nodes"]
-        )
-
     max_steps = _config["max_steps"] if _config["max_steps"] is not None else None
 
     if _IS_INTERACTIVE:
@@ -129,7 +119,6 @@ def main(_config):
         max_steps=max_steps,
         callbacks=callbacks,
         logger=logger,
-        accumulate_grad_batches=accumulate_grad_batches,
         log_every_n_steps=log_every_n_steps,
         val_check_interval=_config["val_check_interval"],
         deterministic=True,

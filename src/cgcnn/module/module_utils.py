@@ -13,40 +13,12 @@ import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchmetrics import Metric, Accuracy
+from torchmetrics import Metric, Accuracy, R2Score, MeanAbsolutePercentageError
 from sklearn.metrics.pairwise import pairwise_distances
 from scipy.spatial import distance_matrix
 from typing import Any, Dict, List, Optional, Union
 
-class Scalar(Metric):
-    def __init__(self, dist_sync_on_step=False):
-        super().__init__(dist_sync_on_step=dist_sync_on_step)
-        self.add_state("scalar", default=torch.tensor(0.0), dist_reduce_fx="sum")
-        self.add_state("total", default=torch.tensor(0.0), dist_reduce_fx="sum")
 
-    def update(self, scalar):
-        if isinstance(scalar, torch.Tensor):
-            scalar = scalar.detach().to(self.scalar.device)
-        else:
-            scalar = torch.tensor(scalar).float().to(self.scalar.device)
-        self.scalar += scalar
-        self.total += 1
-
-    def compute(self):
-        return self.scalar / self.total
-
-def set_metrics(pl_module):
-    for split in ["train", "val", "test"]:
-        for k, v in pl_module.hparams["tasks"].items():
-            
-            if "regression" in v:
-                setattr(pl_module, f"{split}_{k}_loss", Scalar())
-                setattr(pl_module, f"{split}_{k}_mae", Scalar())
-                setattr(pl_module, f"{split}_{k}_r2", Scalar())
-                setattr(pl_module, f"{split}_{k}_mape", Scalar())
-            else:
-                setattr(pl_module, f"{split}_{k}_accuracy", Accuracy())
-                setattr(pl_module, f"{split}_{k}_loss", Scalar())
 
 def set_task(pl_module):
     pl_module.current_tasks = pl_module.hparams["tasks"]
@@ -221,6 +193,42 @@ def group_model_params(pl_module: pl.LightningModule):
         print(param_group["param_names"])
     return optimizer_grouped_parameters
 
+
+class Scalar(Metric):
+    def __init__(self, dist_sync_on_step=False):
+        super().__init__(dist_sync_on_step=dist_sync_on_step)
+        self.add_state("scalar", default=torch.tensor(0.0), dist_reduce_fx="sum")
+        self.add_state("total", default=torch.tensor(0.0), dist_reduce_fx="sum")
+
+    def update(self, scalar):
+        if isinstance(scalar, torch.Tensor):
+            scalar = scalar.detach().to(self.scalar.device)
+        else:
+            scalar = torch.tensor(scalar).float().to(self.scalar.device)
+        self.scalar += scalar
+        self.total += 1
+
+    def compute(self):
+        return self.scalar / self.total
+
+def set_metrics(pl_module):
+    for split in ["train", "val", "test"]:
+        for k, v in pl_module.hparams["tasks"].items():
+            
+            if "regression" in v:
+                setattr(pl_module, f"{split}_{k}_loss", Scalar())
+                setattr(pl_module, f"{split}_{k}_mae", Scalar())
+                setattr(pl_module, f"{split}_{k}_r2", R2Score())
+                setattr(pl_module, f"{split}_{k}_mape", MeanAbsolutePercentageError())
+            else:
+                setattr(pl_module, f"{split}_{k}_loss", Scalar())
+                n_classes = int(v.split("_")[-1]) if "_" in v else 2
+                task_type = "binary" if n_classes == 2 else "multiclass"
+                if task_type == "multiclass":
+                    setattr(pl_module, f"{split}_{k}_accuracy", Accuracy(task="multiclass", num_classes=n_classes))
+                else:
+                    setattr(pl_module, f"{split}_{k}_accuracy", Accuracy(task="binary"))
+
 def epoch_wrapup(pl_module, phase="val"):
     
     the_metric = 0
@@ -286,6 +294,46 @@ def epoch_wrapup(pl_module, phase="val"):
     the_metric /= len(pl_module.hparams["tasks"])
     pl_module.log(f"{phase}/the_metric", the_metric, batch_size=pl_module.hparams["per_gpu_batchsize"], sync_dist=True)
     return the_metric
+
+def _encode_strings_to_tensor(string_list, max_length=50, device=None):
+    """
+    Encode list of strings to ByteTensor for multi-GPU gathering.
+    
+    Args:
+        string_list: List of strings to encode
+        max_length: Maximum length of each string (padding/truncation)
+        
+    Returns:
+        torch.ByteTensor: Encoded tensor
+    """
+    encoded_strings = []
+    for s in string_list:
+        # Convert string to bytes and pad/truncate to max_length
+        bytes_data = s.encode('utf-8')[:max_length]
+        padded_bytes = bytes_data + b'\x00' * (max_length - len(bytes_data))
+        encoded_strings.append(list(padded_bytes))
+    
+    return torch.tensor(encoded_strings, dtype=torch.uint8, device=device)
+
+def _decode_tensor_to_strings(tensor):
+    """
+    Decode ByteTensor back to list of strings.
+    
+    Args:
+        tensor: torch.ByteTensor to decode
+        
+    Returns:
+        List[str]: Decoded strings
+    """
+    strings = []
+    for row in tensor:
+        # Convert back to bytes and decode, removing null padding
+        bytes_data = bytes(row.cpu().numpy())
+        # Remove null bytes padding
+        bytes_data = bytes_data.rstrip(b'\x00')
+        strings.append(bytes_data.decode('utf-8'))
+    
+    return strings
 
 def plot_scatter(targets, predictions, title: str=None, metrics: dict=None, outfile: str=None, ax=None):
 

@@ -80,16 +80,6 @@ def main(_config, trial: optuna.trial.Trial = None):
     num_device = get_num_devices(_config)
     print("num_device", num_device)
 
-    # gradient accumulation
-    if num_device == 0:
-        accumulate_grad_batches = _config["batch_size"] // (
-            _config["per_gpu_batchsize"] * _config["num_nodes"]
-        )
-    else:
-        accumulate_grad_batches = _config["batch_size"] // (
-            _config["per_gpu_batchsize"] * num_device * _config["num_nodes"]
-        )
-
     max_steps = _config["max_steps"] if _config["max_steps"] is not None else None
 
     if _IS_INTERACTIVE:
@@ -112,7 +102,6 @@ def main(_config, trial: optuna.trial.Trial = None):
         max_steps=max_steps,
         callbacks=callbacks,
         logger=logger,
-        accumulate_grad_batches=accumulate_grad_batches,
         log_every_n_steps=log_every_n_steps,
         val_check_interval=_config["val_check_interval"],
         deterministic=True,
@@ -135,14 +124,10 @@ def main(_config, trial: optuna.trial.Trial = None):
 
 def objective(trial: optuna.trial.Trial):
     config = copy.deepcopy(_config())
-    if args.named_config == "mof_ssc":
-        config.update(mof_ssc())
-    elif args.named_config == "mof_tsr":
-        config.update(mof_tsr())
-    else:
-        raise ValueError("Invalid downstream task")
+    config.update(eval(args.named_config() + "()"))
     config.update(other_args)
     config["learning_rate"] = trial.suggest_float("learning_rate", 1e-8, 1e-3, log=True)
+    config["lr_mult"] = trial.suggest_int("lr_mult", 1, 20, step=1)
     return main(config, trial)
 
 def bayesian_optimization(study_name, pruning=True):
@@ -177,15 +162,13 @@ if __name__ == "__main__":
     # parser.add_argument("--accelerator", type=str, default="auto")
     parser.add_argument("--devices", type=int, default=1)
     parser.add_argument("--max_epochs", type=int, default=1000)
-    # parser.add_argument("--mean", type=float, default=0.0)
-    # parser.add_argument("--std", type=float, default=1.0)
     # # parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--progress_bar", action="store_true")
     parser.add_argument("--load_path", type=str, default="models/pmtransformer.ckpt")
     # parser.add_argument("--n_classes", type=int, default=2)
     parser.add_argument("--resume_from", type=str, default=None)
-    parser.add_argument("--named_config", type=str, default="multi_tsr_ssc")
-    parser.add_argument("--patience", type=int, default=200)
+    parser.add_argument("--named_config", type=str, default="test")
+    parser.add_argument("--patience", type=int, default=50)
     parser.add_argument(
         "--pruning",
         "-p",
