@@ -74,7 +74,7 @@ if __name__ == '__main__':
     py_executor = "hyperopt.py"
     # py_executor = "main.py"
     model_conf = {
-                'batch_size': 32,
+                'per_gpu_batchsize': 32,
                 'max_epochs': 500, 
                 'max_graph_len': 200,
                 'atom_fea_len': 256,

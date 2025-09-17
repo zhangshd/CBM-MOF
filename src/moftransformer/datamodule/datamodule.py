@@ -109,6 +109,9 @@ class Datamodule(LightningDataModule):
                     split="test",
                     prop_cols=self.tasks, **{k: v for k,v in self.config.items() if k not in ["split", "prop_cols"]}
                     )
+        if len(self.test_dataset) == 0:
+            print("Warning: Test dataset does not exist")
+            return
 
     def setup(self, stage: Optional[str] = None):
         if stage in (None, "fit"):

@@ -66,14 +66,10 @@ class Dataset(torch.utils.data.Dataset):
         self.down_sampling = kwargs.get("down_sampling", False)
         self.cifid_col = kwargs.get("cifid_col", "MofName")
 
-        # Handle special case for WS24 datasets
-        if "WS24" in data_dir.name and len(data_dir.name.split("_")) == 2:
-            prop_cols = [data_dir.name.split("_")[1] + "_label"]
-            if "test" not in data_dir.name:
-                data_dir = data_dir.parent / "WS24"
-                
-        assert data_dir.exists(), f"Dataset directory not found: {data_dir}"
-        
+        if not data_dir.exists() or not (data_dir / self.csv_file_name).exists():
+            print(f"Warning: Dataset directory or CSV file not found: {data_dir}")
+            return
+
         self.data_dir = data_dir
         self.prop_cols = prop_cols if prop_cols is not None else ["Label"]
         
@@ -106,6 +102,8 @@ class Dataset(torch.utils.data.Dataset):
 
     def __len__(self) -> int:
         """Return the size of the dataset."""
+        if not hasattr(self, 'id_prop_df'):
+            return 0
         return len(self.id_prop_df)
 
     @functools.lru_cache(maxsize=None)  # cache loaded structures

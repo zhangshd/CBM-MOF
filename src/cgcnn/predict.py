@@ -65,7 +65,7 @@ def main(model_dir, data_dir, col2task, split="external_test", result_dir=None):
                 del hparams[k]
         dataset = dataset_cls(data_dir, split=split, task_id=task_id,
                                                prop_cols=[col], **hparams)
-        dataloader = DataLoader(dataset, batch_size=min(len(dataset), hparams["batch_size"]), 
+        dataloader = DataLoader(dataset, batch_size=min(len(dataset), hparams["per_gpu_batchsize"]), 
                                num_workers=hparams.get("num_workers", 2), shuffle=False,
                                collate_fn=dataset_cls.collate
                                )

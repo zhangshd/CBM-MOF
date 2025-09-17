@@ -150,6 +150,9 @@ class Datamodule(pl.LightningDataModule):
             prop_cols=task_names,
             **self.kwargs
         )
+        if len(self.test_dataset) == 0:
+            print("Warning: Test dataset does not exist")
+            return
         print(f"Number of test data: {len(self.test_dataset)}")
 
 

@@ -12,44 +12,28 @@ ROOT_DIR = os.path.dirname(os.path.dirname(SCRIPT_DIR))
 sys.path.append(os.path.dirname(SCRIPT_DIR))
 import torch
 from argparse import ArgumentParser
-import pytorch_lightning as pl
-from pytorch_lightning import Trainer
-import pytorch_lightning.callbacks as plc
-from pytorch_lightning.loggers import TensorBoardLogger
-from pytorch_lightning.accelerators import find_usable_cuda_devices
-from pytorch_lightning.profilers import AdvancedProfiler
-from pytorch_lightning.utilities.model_summary import ModelSummary
 from pytorch_lightning.tuner import Tuner
 import shutil
 from pathlib import Path
-from main import main
+from main import main, float_or_str
 import optuna
 from config import *
 from types import SimpleNamespace
-
-from cgcnn.module.module import MInterface
-from cgcnn.datamodule.data_interface import DInterface
-from cgcnn.utils import load_model_path_by_args
-from cgcnn.module.att_cgcnn import CrystalGraphConvNet
 
 
 if __name__ == '__main__':
     parser = ArgumentParser()
     # # Basic Training Control
-    parser.add_argument('--batch_size', type=int)
+    parser.add_argument('--per_gpu_batchsize', type=int)
     # parser.add_argument('--num_workers', default=2, type=int)
     # parser.add_argument('--random_seed', default=42, type=int)
     # parser.add_argument("--accelerator", default="gpu", type=str)
-    # parser.add_argument("--devices", default=1, type=int)
+    parser.add_argument("--devices", default=1, type=int)
     parser.add_argument("--max_epochs", type=int)
     # parser.add_argument("--limit_train_batches", default=None, type=float)
     # parser.add_argument("--limit_val_batches", default=None, type=float)
     parser.add_argument("--auto_lr_bs_find", action='store_true')
-    parser.add_argument("--progress_bar", action='store_false')
-
-    # # Loss Function
-    # parser.add_argument('--focal_alpha', default=0.25, type=float)
-    # parser.add_argument('--focal_gamma', default=2, type=int)
+    parser.add_argument("--progress_bar", action='store_true')
 
     # # Optimizer
     parser.add_argument('--optim', default='adam', type=str)
@@ -58,16 +42,11 @@ if __name__ == '__main__':
     # parser.add_argument('--weight_decay', default=1e-5, type=float)
     # parser.add_argument('--momentum', default=0.9, type=float)
     parser.add_argument('--group_lr', action='store_true')
-    parser.add_argument('--optim_config', type=str)
 
 
     # # LR Scheduler
-    # parser.add_argument('--lr_scheduler', default='multi_step', 
-    #                     choices=['step', 'cosine', 'multi_step', 'reduce_on_plateau'], type=str)
-    # parser.add_argument('--lr_decay_steps', default=10, type=int)
-    # parser.add_argument('--lr_milestones', default=[10, 20, 30, 50], nargs='+', type=int)
-    # parser.add_argument('--lr_decay_rate', default=0.5, type=float)
-    # parser.add_argument('--lr_decay_min_lr', default=1e-5, type=float)
+    parser.add_argument('--lr_scheduler', default='polynomial', type=str)
+    parser.add_argument('--decay_power', default=1.0, type=float_or_str)
 
     # # Restart Control
     # parser.add_argument('--load_best', action='store_true')
@@ -76,7 +55,7 @@ if __name__ == '__main__':
     # parser.add_argument('--load_v_num', default=None, type=int)
 
     # # Training Info
-    # parser.add_argument('--data_dir', default=os.path.join(ROOT_DIR, 'data/cgcnn_data'), type=str)
+    parser.add_argument('--root_dataset', type=str)
     parser.add_argument('--log_dir', default=os.path.join(ROOT_DIR, 'results/cgcnn_models'), type=str)  
     parser.add_argument('--patience', type=int)
     # parser.add_argument('--min_delta', default=0.01, type=float)
@@ -90,15 +69,10 @@ if __name__ == '__main__':
     # parser.add_argument('--step', default=0.2, type=float)
     parser.add_argument('--use_cell_params', action='store_true')
     parser.add_argument('--use_extra_fea', action='store_true')
-    parser.add_argument('--augment', action='store_true')
-    parser.add_argument('--down_sampling', action='store_true')
-    parser.add_argument('--csv_file_name', type=str, default="RAC_and_zeo_features_with_id_prop.csv")
-    # parser.add_argument('--tasks', nargs='+', default=['TSD', 'SSD'], type=str)
-    # parser.add_argument('--task_types', nargs='+', default=['regression', 'classification'], type=str)
 
     
     # # Model Hyperparameters
-    parser.add_argument('--model_cfg', default='cgcnn', type=str)
+    parser.add_argument('--model_cfg', default='att_cgcnn', type=str)
     parser.add_argument('--task_att_type', type=str)
     parser.add_argument('--atom_layer_norm', action='store_true')
     parser.add_argument('--loss_aggregation', type=str)
@@ -113,9 +87,6 @@ if __name__ == '__main__':
     parser.add_argument('--task_norm', action='store_true')
     parser.add_argument('--att_pooling', action='store_true')
     parser.add_argument('--reconstruct', action='store_true')
-
-
-    
 
     # # Extra Hyperparameters
     parser.add_argument('--task_cfg', default="tsd", type=str)
@@ -179,13 +150,15 @@ if __name__ == '__main__':
         return best_metric
 
     def bayesian_optimization(study_name, optuna_name):
+        if not os.path.exists(args.log_dir):
+            Path(args.log_dir).mkdir(parents=True, exist_ok=True)
         storage_name = f"sqlite:///{os.path.join(args.log_dir, optuna_name)}.db"
         print(f"Storage name: {storage_name}")
         pruner = optuna.pruners.MedianPruner(n_warmup_steps=3) if args.pruning else optuna.pruners.NopPruner()
         study = optuna.create_study(direction='maximize', study_name=study_name, 
                                     pruner=pruner, storage=storage_name, load_if_exists=True)
         
-        study.optimize(objective, n_trials=50, catch=(torch.cuda.OutOfMemoryError,), gc_after_trial=True)  # Adjust the number of trials as needed
+        study.optimize(objective, n_trials=20, catch=(torch.cuda.OutOfMemoryError,), gc_after_trial=True)  # Adjust the number of trials as needed
 
         # Print the best hyperparameters found
         print("Number of finished trials: {}".format(len(study.trials)))

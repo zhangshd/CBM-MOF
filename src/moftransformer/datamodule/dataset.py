@@ -48,7 +48,10 @@ class Dataset(torch.utils.data.Dataset):
             self.data_dir = Path(data_dir).absolute()
         else:
             self.data_dir = Path(data_dir).parent.absolute()
-        assert data_dir.exists(), "Dataset directory not found: {}".format(data_dir)
+        if not data_dir.exists() or not (data_dir / self.csv_file_name).exists():
+            print(f"Warning: Dataset directory or CSV file not found: {data_dir}")
+            return
+
         print(f"data_dir: {self.data_dir}")
         self.draw_false_grid = draw_false_grid
         self.split = split
@@ -98,6 +101,8 @@ class Dataset(torch.utils.data.Dataset):
 
 
     def __len__(self):
+        if not hasattr(self, 'id_prop_df'):
+            return 0
         return len(self.id_prop_df)
 
     @staticmethod

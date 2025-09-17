@@ -38,9 +38,9 @@ import tempfile
 warnings.filterwarnings("ignore", category=UserWarning, module="pymatgen.io.cif")
 warnings.filterwarnings("ignore", category=UserWarning, module="ase.io.cif")
 
-from cgcnn.module.module import MInterface
-from cgcnn.module.cgcnn import CrystalGraphConvNet
-from cgcnn.datamodule.data_interface import DInterface
+from cgcnn.module.module import Module
+from cgcnn.module.att_cgcnn import CrystalGraphConvNet
+from cgcnn.datamodule.data_interface import Datamodule
 from cgcnn.datamodule.prepare_data import _make_supercell, get_crystal_graph
 from cgcnn.datamodule.dataset import AtomCustomJSONInitializer, GaussianDistance
 from cgcnn.utils import load_model_from_dir, MODEL_NAME_TO_DATASET_CLS

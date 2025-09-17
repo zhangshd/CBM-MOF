@@ -53,7 +53,7 @@ def main(args, trial: optuna.trial.Trial = None) -> float:
     args.dataset_cls = MODEL_NAME_TO_DATASET_CLS[args.model_name]
 
     datamodule = Datamodule(**vars(args))
-    datamodule.setup("fit")
+    datamodule.setup()
 
     sample_dict = datamodule.train_dataset[0]
     if "extra_fea" in sample_dict:
@@ -127,6 +127,8 @@ def main(args, trial: optuna.trial.Trial = None) -> float:
     print(summary)
     if args.devices > 1:
         args.strategy = 'ddp_find_unused_parameters_true'
+    else:
+        args.strategy = 'auto'
 
     trainer = Trainer(default_root_dir=os.path.join(ROOT_DIR, args.log_dir), 
                       accelerator=args.accelerator,
@@ -168,7 +170,7 @@ def main(args, trial: optuna.trial.Trial = None) -> float:
         print(k, ":", v)
         
     ## Test the best model
-    if hasattr(datamodule, "test_dataset") and len()(datamodule.test_dataset) > 0:
+    if hasattr(datamodule, "test_dataset") and len(datamodule.test_dataset) > 0:
         trainer.test(datamodule=datamodule, ckpt_path="best")
         for k, v in trainer.callback_metrics.items():
             print(k, ":", v)
@@ -210,7 +212,7 @@ if __name__ == '__main__':
     # parser.add_argument('--load_v_num', default=None, type=int)
 
     # # Training Info
-    # parser.add_argument('--data_dir', default='/home/zhangsd/repos/MofS-CGCNN/data/processed', type=str)
+    parser.add_argument('--root_dataset', type=str)
     parser.add_argument('--log_dir', default=os.path.join(ROOT_DIR, 'results/cgcnn_models'), type=str)
     parser.add_argument('--patience', type=int)
     # parser.add_argument('--min_delta', default=0.01, type=float)

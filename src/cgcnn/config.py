@@ -20,7 +20,6 @@ ex = Experiment("cbm-mof", save_git_info=False)
 @ex.config
 def cfg():
     # Basic Training Control
-    batch_size = 8  # Batch size
     num_workers = 2  # Number of worker processes for data loading
     random_seed = 42  # Random seed
     accelerator = "gpu"  # Accelerator type
