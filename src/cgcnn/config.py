@@ -149,8 +149,8 @@ def cgcnn_uni_atom():
 
 
 @ex.named_config
-def ads_qst_ch4_n2():
-    exp_name = "ads_qst_ch4_n2"
+def ads_qst_ch4_n2_mini():
+    exp_name = "ads_qst_ch4_n2_mini"
     root_dataset = 'src/cgcnn/data/round1/mof_split_val500_test0_seed0'  # Data directory
     root_dataset = str(Path(__file__).parent.parent.parent/root_dataset)
     tasks = {
@@ -164,7 +164,27 @@ def ads_qst_ch4_n2():
         'QstN2': "regression",
     }
     max_epochs = 200
-    batch_size = 32
+    per_gpu_batchsize = 32
+    lr = 1e-3
+    loss_aggregation = 'fixed_weight_sum'  # Loss aggregation type: sum, trainable_weight_sum, sample_weight_sum, fixed_weight_sum
+    task_weights = None
+
+@ex.named_config
+def ads_qst_ch4_n2():
+    exp_name = "ads_qst_ch4_n2"
+    root_dataset = 'src/cgcnn/data/round2'  # Data directory
+    root_dataset = str(Path(__file__).parent.parent.parent/root_dataset)
+    tasks = {
+        'logAdsCH4_10kPa': "regression",
+        'logAdsCH4_100kPa': "regression",
+        'logAdsCH4_1000kPa': "regression",
+        'logAdsN2_10kPa': "regression",
+        'logAdsN2_100kPa': "regression",
+        'logAdsN2_1000kPa': "regression",
+        'QstCH4': "regression",
+        'QstN2': "regression",
+    }
+    max_epochs = 200
     per_gpu_batchsize = 32
     lr = 1e-3
     loss_aggregation = 'fixed_weight_sum'  # Loss aggregation type: sum, trainable_weight_sum, sample_weight_sum, fixed_weight_sum

@@ -29,7 +29,7 @@ class Datamodule(pl.LightningDataModule):
 
     def __init__(self, 
                  root_dataset: str,
-                 batch_size: int = 64,
+                 per_gpu_batchsize: int = 64,
                  num_workers: int = 4,
                  dataset_cls = Dataset,
                  **kwargs):
@@ -45,7 +45,7 @@ class Datamodule(pl.LightningDataModule):
         """
         super().__init__()
         self.root_dir = Path(root_dataset)
-        self.batch_size = batch_size
+        self.batch_size = per_gpu_batchsize
         self.num_workers = num_workers
         
         # Task configuration
@@ -222,23 +222,28 @@ class Datamodule(pl.LightningDataModule):
                     
                 # Handle log transformation
                 log_labels = "log" in task_type if isinstance(task_type, str) else False
-                normalizer = Normalizer(train_targets, log_labels=log_labels)
-                self.normalizers[task_name] = normalizer
+                normalizer = Normalizer(log_labels=log_labels)
+                normalizer.fit(train_targets)
+                self.normalizers[task_name] = normalizer.state_dict()
                 
         return self.normalizers
 
 class Normalizer(object):
     """Normalize a Tensor and restore it later."""
 
-    def __init__(self, tensor, log_labels=False, remove_value=None):
+    def __init__(self, log_labels=False, remove_value=None):
         """Initialize normalizer with tensor statistics."""
         super(Normalizer, self).__init__()
         self.log_labels = log_labels
+        self.remove_value = remove_value
+        self.device = torch.device('cpu')
         
+    def fit(self, tensor):
+        """Fit normalizer to tensor."""
         # Remove NaN and specified values for normalization
         tensor = tensor[torch.isnan(tensor) == False]
-        if remove_value is not None:
-            tensor = tensor[tensor != remove_value]
+        if self.remove_value is not None:
+            tensor = tensor[tensor != self.remove_value]
             
         if hasattr(self, 'log_labels') and self.log_labels:
             tensor = torch.log10(tensor + 1e-5)  # avoid log10(0)
@@ -267,14 +272,20 @@ class Normalizer(object):
 
     def state_dict(self):
         """Get state dictionary."""
-        return {'mean': self.mean, 'std': self.std}
+        return {'mean': self.mean_, 
+                'std': self.std_,
+                'log_labels': self.log_labels,
+                'remove_value': self.remove_value
+                }
 
     def load_state_dict(self, state_dict):
         """Load state dictionary."""
-        self.mean = state_dict['mean']
-        self.std = state_dict['std']
-        self.mean_ = float(self.mean.cpu().numpy())
-        self.std_ = float(self.std.cpu().numpy())
+        self.mean_ = state_dict['mean']
+        self.std_ = state_dict['std']
+        self.log_labels = state_dict.get('log_labels', False)
+        self.remove_value = state_dict.get('remove_value', None)
+        self.mean = torch.tensor(self.mean_).to(self.device)
+        self.std = torch.tensor(self.std_).to(self.device)
         
     def to(self, device):
         """Move normalizer to device."""
@@ -361,7 +372,3 @@ def split_dataset(data_df: pd.DataFrame,
             df_train = data_df_.loc[shuffled_idxs[val_size:]].reset_index()
         
         return df_train, df_val, df_test
-
-
-# Backward compatibility aliases
-DInterface = Datamodule

@@ -13,7 +13,7 @@ from module.moftransformer import *
 from moftransformer.modules.cgcnn import GraphEmbeddings
 from moftransformer.modules.vision_transformer_3d import VisionTransformer3D
 
-from module.module_utils import Normalizer
+from datamodule.datamodule import Normalizer
 from module.module_utils import plot_confusion_matrix, plot_roc_curve, plot_scatter
 
 import numpy as np
@@ -21,6 +21,7 @@ from sklearn.metrics import r2_score, mean_absolute_error, mean_absolute_percent
 from sklearn.metrics import accuracy_score, confusion_matrix, roc_curve, auc, roc_auc_score
 import os
 import csv
+import matplotlib.pyplot as plt
 
 
 class Module(LightningModule):
@@ -31,7 +32,11 @@ class Module(LightningModule):
         for k, v in self.hparams.items():
             print(f"{k}: {v}")
         print("hparams: ", "-"*50)
-        self.normalizers = config["normalizers"]
+        self.normalizers = {}
+        for task, state_dict in config["normalizers"].items():
+            normalizer = Normalizer()
+            normalizer.load_state_dict(state_dict)
+            self.normalizers[task] = normalizer
 
         # Use unified MOFTransformer model
         orig_model = MOFTransformer(config)
@@ -167,6 +172,7 @@ class Module(LightningModule):
     def on_validation_start(self):
         module_utils.set_task(self)
         self.write_log = True
+        objectives.collections_init(self, phase="val")
 
     def validation_step(self, batch, batch_idx):
         self.eval()
@@ -182,6 +188,7 @@ class Module(LightningModule):
 
     def on_test_start(self,):
         module_utils.set_task(self)
+        objectives.collections_init(self, phase="test")
     
     def test_step(self, batch, batch_idx):
         self.eval()
@@ -288,6 +295,7 @@ class Module(LightningModule):
                     outfile=img_file,
                 )
                 logger_exp.add_figure(f'{task}/{phase}/scatter', fig, self.current_epoch)
+                plt.close(fig)
 
             # calculate accuracy when classification
             # if len(preds) > 1 and "classification" in self.current_tasks:
@@ -322,6 +330,7 @@ class Module(LightningModule):
                         outfile=img_file,
                     )
                     logger_exp.add_figure(f'{task}/{phase}/roc_curve', fig, self.current_epoch)
+                    plt.close(fig)
                 else:
                     auc_score = roc_auc_score(
                         np.array(labels), np.array(logits),
@@ -337,6 +346,7 @@ class Module(LightningModule):
                     outfile=img_file,
                 )
                 logger_exp.add_figure(f'{task}/{phase}/confusion_matrix', fig, self.current_epoch)
+                plt.close(fig)
         print(f"Best epoch: {self.best_epoch}, Best metric: {self.best_metric}")
         objectives.collections_init(self, phase=phase)
 

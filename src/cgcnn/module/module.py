@@ -24,9 +24,11 @@ import torch.optim.lr_scheduler as lrs
 # Utility imports
 import warnings
 from module import module_utils, objectives
+from datamodule.data_interface import Normalizer
 import numpy as np
 import pandas as pd
 import csv
+import matplotlib.pyplot as plt
 
 # Sklearn metrics
 from sklearn.metrics import confusion_matrix, roc_curve
@@ -59,17 +61,24 @@ class Module(LightningModule):
             **config: Configuration parameters as keyword arguments
         """
         super().__init__()
-        self.save_hyperparameters()
+        
+        # Filter out object types and complex structures before saving hyperparameters
+        filtered_config = module_utils.filter_hyperparameters(self, config)
+        self.save_hyperparameters(filtered_config)
         
         print("-" * 50)
         print("Configuration Parameters:")
         for k, v in self.hparams.items():
-            if k != 'normalizers':  # Skip printing normalizers as they're complex objects
-                print(f"{k}: {v}")
+            print(f"{k}: {v}")
         print("-" * 50)
         
-        # Store normalizers and configuration
-        self.normalizers = config.get("normalizers", {})
+        # load normalizers and configuration
+        self.normalizers = {}
+        for task_name, norm_dict in config.get("normalizers", {}).items():
+            normalizer = Normalizer()
+            normalizer.load_state_dict(norm_dict)
+            self.normalizers[task_name] = normalizer
+
         self.config = config
         
         # Initialize model based on model_name
@@ -174,6 +183,8 @@ class Module(LightningModule):
     def on_validation_start(self):
         module_utils.set_task(self)
         self.write_log = True
+        # Clear validation collections at the start of each validation epoch
+        objectives.collections_init(self, phase="val")
 
     def validation_step(self, batch, batch_idx):
         self.eval()
@@ -189,6 +200,8 @@ class Module(LightningModule):
 
     def on_test_start(self,):
         module_utils.set_task(self)
+        # Clear test collections at the start of testing
+        objectives.collections_init(self, phase="test")
     
     def test_step(self, batch, batch_idx):
         self.eval()
@@ -280,9 +293,9 @@ class Module(LightningModule):
                     np.array(labels), np.array(preds)
                 )
                 
-                self.log(f"{task}/{phase}/r2_score", r2, sync_dist=True)
-                self.log(f"{task}/{phase}/mae", mae, sync_dist=True)
-                self.log(f"{task}/{phase}/mape", mape, sync_dist=True)
+                self.log(f"{task}/{phase}/r2_score", r2, batch_size=self.hparams["per_gpu_batchsize"], sync_dist=True)
+                self.log(f"{task}/{phase}/mae", mae, batch_size=self.hparams["per_gpu_batchsize"], sync_dist=True)
+                self.log(f"{task}/{phase}/mape", mape, batch_size=self.hparams["per_gpu_batchsize"], sync_dist=True)
 
                 img_file = os.path.join(self.logger.log_dir, f"{phase}_scatter_{task}.png")
                 fig, ax = module_utils.plot_scatter(
@@ -293,6 +306,7 @@ class Module(LightningModule):
                     outfile=img_file,
                 )
                 logger_exp.add_figure(f'{task}/{phase}/scatter', fig, self.current_epoch)
+                plt.close(fig)  # Close figure to prevent memory leaks
 
             # calculate accuracy when classification
             # if len(preds) > 1 and "classification" in self.current_tasks:
@@ -327,13 +341,14 @@ class Module(LightningModule):
                         outfile=img_file,
                     )
                     logger_exp.add_figure(f'{task}/{phase}/roc_curve', fig, self.current_epoch)
+                    plt.close(fig)  # Close figure to prevent memory leaks
                 else:
                     auc_score = roc_auc_score(
                         np.array(labels), np.array(logits),
                         multi_class='ovo', average='macro'
                     )
-                self.log(f"{task}/{phase}/auc_score", auc_score, sync_dist=True)
-                self.log(f"{task}/{phase}/accuracy", acc, sync_dist=True)
+                self.log(f"{task}/{phase}/auc_score", auc_score, batch_size=self.hparams["per_gpu_batchsize"], sync_dist=True)
+                self.log(f"{task}/{phase}/accuracy", acc, batch_size=self.hparams["per_gpu_batchsize"], sync_dist=True)
 
                 img_file = os.path.join(self.logger.log_dir, f"{phase}_confusion_matrix_{task}.png")
                 fig, ax = module_utils.plot_confusion_matrix(
@@ -342,6 +357,7 @@ class Module(LightningModule):
                     outfile=img_file,
                 )
                 logger_exp.add_figure(f'{task}/{phase}/confusion_matrix', fig, self.current_epoch)
+                plt.close(fig)  # Close figure to prevent memory leaks
         print(f"Best epoch: {self.best_epoch}, Best metric: {self.best_metric}")
         objectives.collections_init(self, phase=phase)
 

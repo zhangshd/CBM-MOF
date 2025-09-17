@@ -16,6 +16,7 @@ import torch.nn.functional as F
 from torchmetrics import Metric, Accuracy
 from sklearn.metrics.pairwise import pairwise_distances
 from scipy.spatial import distance_matrix
+from typing import Any, Dict, List, Optional, Union
 
 class Scalar(Metric):
     def __init__(self, dist_sync_on_step=False):
@@ -50,6 +51,75 @@ def set_metrics(pl_module):
 def set_task(pl_module):
     pl_module.current_tasks = pl_module.hparams["tasks"]
     return
+
+def filter_hyperparameters(pl_module: pl.LightningModule, config: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Filter hyperparameters to exclude complex objects and keep only basic types.
+    
+    Args:
+        config: Original configuration dictionary
+        
+    Returns:
+        Filtered configuration with only basic types
+    """
+    # Define allowed basic types
+    basic_types = (int, float, str, bool, list, tuple, type(None))
+    
+    # Objects to explicitly exclude
+    exclude_keys = {
+        'model', 'datamodule', 'trainer', 'callbacks',
+        'logger', 'checkpoint_callback', 'early_stopping', 'profiler'
+    }
+    
+    filtered_config = {}
+    
+    for key, value in config.items():
+        # Skip explicitly excluded keys
+        if key in exclude_keys:
+            continue
+            
+        # Check if value is a basic type
+        if isinstance(value, basic_types):
+            # For lists and tuples, check if all elements are basic types
+            if isinstance(value, (list, tuple)):
+                if all(isinstance(item, basic_types) for item in value):
+                    filtered_config[key] = value
+            else:
+                filtered_config[key] = value
+        # Handle dictionaries recursively (but only if they contain basic types)
+        elif isinstance(value, dict):
+            filtered_dict = filter_dict_recursive(pl_module, value)
+            if filtered_dict:  # Only add if the filtered dict is not empty
+                filtered_config[key] = filtered_dict
+                
+    return filtered_config
+
+def filter_dict_recursive(pl_module: pl.LightningModule, d: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Recursively filter dictionary to keep only basic types.
+    
+    Args:
+        d: Dictionary to filter
+        
+    Returns:
+        Filtered dictionary with only basic types
+    """
+    basic_types = (int, float, str, bool, list, tuple, type(None))
+    filtered = {}
+    
+    for key, value in d.items():
+        if isinstance(value, basic_types):
+            if isinstance(value, (list, tuple)):
+                if all(isinstance(item, basic_types) for item in value):
+                    filtered[key] = value
+            else:
+                filtered[key] = value
+        elif isinstance(value, dict):
+            nested_filtered = filter_dict_recursive(pl_module, value)
+            if nested_filtered:
+                filtered[key] = nested_filtered
+                
+    return filtered
 
 def group_model_params(pl_module: pl.LightningModule):
     lr = pl_module.hparams.lr
@@ -214,7 +284,7 @@ def epoch_wrapup(pl_module, phase="val"):
 
         the_metric += value
     the_metric /= len(pl_module.hparams["tasks"])
-    pl_module.log(f"{phase}/the_metric", the_metric, sync_dist=True)
+    pl_module.log(f"{phase}/the_metric", the_metric, batch_size=pl_module.hparams["per_gpu_batchsize"], sync_dist=True)
     return the_metric
 
 def plot_scatter(targets, predictions, title: str=None, metrics: dict=None, outfile: str=None, ax=None):

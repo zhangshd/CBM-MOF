@@ -87,7 +87,7 @@ def main(args, trial: optuna.trial.Trial = None) -> float:
     model = Module(**vars(args))
     
     # # If you want to change the logger's saving folder
-    name = f'{"_".join(args.tasks)}_seed{args.random_seed}_{args.model_name}'
+    name = f'{args.task_cfg}_seed{args.random_seed}_{args.model_name}'
     tb_logger = TensorBoardLogger(save_dir=os.path.join(ROOT_DIR, args.log_dir), name=name, 
                                version=None,)
     # csv_logger = CSVLogger(save_dir=os.getcwd(), name=args.log_dir, 
@@ -127,8 +127,6 @@ def main(args, trial: optuna.trial.Trial = None) -> float:
     print(summary)
     if args.devices > 1:
         args.strategy = 'ddp_find_unused_parameters_true'
-    else:
-        args.strategy = "auto"
 
     trainer = Trainer(default_root_dir=os.path.join(ROOT_DIR, args.log_dir), 
                       accelerator=args.accelerator,
@@ -181,16 +179,16 @@ def main(args, trial: optuna.trial.Trial = None) -> float:
 if __name__ == '__main__':
     parser = ArgumentParser()
     # # Basic Training Control
-    parser.add_argument('--batch_size', type=int)
+    parser.add_argument('--per_gpu_batchsize', type=int)
     # parser.add_argument('--num_workers', default=2, type=int)
     # parser.add_argument('--random_seed', default=42, type=int)
     # parser.add_argument("--accelerator", default="gpu", type=str)
-    # parser.add_argument("--devices", default=1, type=int)
+    parser.add_argument("--devices", default=1, type=int)
     parser.add_argument("--max_epochs", type=int)
     # parser.add_argument("--limit_train_batches", default=None, type=float)
     # parser.add_argument("--limit_val_batches", default=None, type=float)
     parser.add_argument("--auto_lr_bs_find", action='store_true')
-    parser.add_argument("--progress_bar", action='store_false')
+    parser.add_argument("--progress_bar", action='store_true')
 
     # # Optimizer
     parser.add_argument('--optim', default='adam', type=str)
@@ -203,10 +201,6 @@ if __name__ == '__main__':
 
     # # LR Scheduler
     parser.add_argument('--lr_scheduler', default='polynomial', type=str)
-    # parser.add_argument('--lr_decay_steps', default=10, type=int)
-    # parser.add_argument('--lr_milestones', default=[10, 20, 30, 50], nargs='+', type=int)
-    # parser.add_argument('--lr_decay_rate', default=0.5, type=float)
-    # parser.add_argument('--lr_decay_min_lr', default=1e-5, type=float)
     parser.add_argument('--decay_power', default=1.0, type=float_or_str)
 
     # # Restart Control

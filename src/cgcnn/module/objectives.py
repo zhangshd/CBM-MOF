@@ -94,10 +94,10 @@ def compute_regression(pl_module, batch, task, infer, phase='train'):
     else:
         r2 = getattr(pl_module, f"{phase}_{task}_r2")(torch.tensor(0.0))
     if pl_module.write_log:
-        pl_module.log(f"{task}/{phase}/loss", loss, sync_dist=True)
-        pl_module.log(f"{task}/{phase}/mae", mae, sync_dist=True)
-        pl_module.log(f"{task}/{phase}/r2", r2, sync_dist=True)
-        pl_module.log(f"{task}/{phase}/mape", mape, sync_dist=True)
+        pl_module.log(f"{task}/{phase}/loss", loss, batch_size=pl_module.hparams["per_gpu_batchsize"], sync_dist=True)
+        pl_module.log(f"{task}/{phase}/mae", mae, batch_size=pl_module.hparams["per_gpu_batchsize"], sync_dist=True)
+        pl_module.log(f"{task}/{phase}/r2", r2, batch_size=pl_module.hparams["per_gpu_batchsize"], sync_dist=True)
+        pl_module.log(f"{task}/{phase}/mape", mape, batch_size=pl_module.hparams["per_gpu_batchsize"], sync_dist=True)
 
     return ret
 
@@ -150,7 +150,7 @@ def compute_classification(pl_module, batch, task, infer, phase='train'):
     )
 
     if pl_module.write_log:
-        pl_module.log(f"{task}/{phase}/loss", loss, sync_dist=True)
-        pl_module.log(f"{task}/{phase}/accuracy", acc, sync_dist=True)
+        pl_module.log(f"{task}/{phase}/loss", loss, batch_size=pl_module.hparams["per_gpu_batchsize"], sync_dist=True)
+        pl_module.log(f"{task}/{phase}/accuracy", acc, batch_size=pl_module.hparams["per_gpu_batchsize"], sync_dist=True)
 
     return ret

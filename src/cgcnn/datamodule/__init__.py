@@ -4,7 +4,7 @@ Contains dataset and data interface modules for CGCNN models.
 """
 
 from .dataset import Dataset, LoadGraphData, LoadExtraFeatureData, LoadGraphDataWithAtomicNumber
-from .data_interface import Datamodule, DInterface, Normalizer
+from .data_interface import Datamodule, Normalizer
 
 __all__ = [
     'Dataset',
@@ -12,6 +12,5 @@ __all__ = [
     'LoadExtraFeatureData',
     'LoadGraphDataWithAtomicNumber',
     'Datamodule',
-    'DInterface',
     'Normalizer'
 ]
