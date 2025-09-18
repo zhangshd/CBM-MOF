@@ -91,6 +91,8 @@ class Dataset(torch.utils.data.Dataset):
         # Load graph data files
         file_list = (data_dir / "graphs_grids").glob('*.graphdata')
         self.g_data = {file.stem: file for file in file_list if file.stem in self.id_prop_df.index}
+        exclude_ids = set(self.id_prop_df.index) - set(self.g_data.keys())
+        self.id_prop_df = self.id_prop_df.loc[self.id_prop_df.index.isin(self.g_data.keys())]
         
         assert len(self.g_data) == len(self.id_prop_df.index.unique()), \
             f'{len(self.g_data)} != {len(self.id_prop_df.index.unique())}'

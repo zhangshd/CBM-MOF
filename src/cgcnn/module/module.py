@@ -262,13 +262,19 @@ class Module(LightningModule):
 
             # Flatten the lists
             # Convert cifids tensor back to strings
-            cifids_tensors = [item for sublist in cifids_tensor_all for item in sublist]
+            if self.trainer.num_devices > 1:
+                cifids_tensors = [item for sublist in cifids_tensor_all for item in sublist]
+                labels = torch.cat([item for sublist in labels_all for item in sublist]).cpu().numpy().tolist() # [tensor([-1,  0,  1]), tensor([0, 1, 0])]
+                preds = torch.cat([item for sublist in preds_all for item in sublist]).cpu().numpy().tolist()
+                logits = torch.cat([item for sublist in logits_all for item in sublist]).cpu().numpy().tolist()
+            else:
+                cifids_tensors = cifids_tensor_all
+                labels = torch.cat(labels_all).cpu().numpy().tolist()
+                preds = torch.cat(preds_all).cpu().numpy().tolist()
+                logits = torch.cat(logits_all).cpu().numpy().tolist()
+
             cifids_combined = torch.cat(cifids_tensors, dim=0) if cifids_tensors else torch.empty(0, dtype=torch.uint8)
             cifids = module_utils._decode_tensor_to_strings(cifids_combined) if cifids_combined.numel() > 0 else []
-            
-            labels = torch.cat([item for sublist in labels_all for item in sublist]).cpu().numpy().tolist()
-            preds = torch.cat([item for sublist in preds_all for item in sublist]).cpu().numpy().tolist()
-            logits = torch.cat([item for sublist in logits_all for item in sublist]).cpu().numpy().tolist()
 
             if 'regression' in task_tp:
             # calculate r2 score when regression

@@ -8,9 +8,8 @@ import shutil
 
 import pytorch_lightning as pl
 
-from config import ex
+from config import *
 from config import config as _config
-from config import mof_ssc, mof_tsr
 from datamodule.datamodule import Datamodule
 from module.module import Module
 from moftransformer.utils.validation import (
@@ -20,7 +19,7 @@ from moftransformer.utils.validation import (
 )
 import torch
 from pytorch_lightning.accelerators import find_usable_cuda_devices
-from optuna.integration import PyTorchLightningPruningCallback
+from custom_callbacks import CustomPyTorchLightningPruningCallback
 import optuna
 
 warnings.filterwarnings(
@@ -29,6 +28,7 @@ warnings.filterwarnings(
 
 
 _IS_INTERACTIVE = hasattr(sys, "ps1")
+ROOT_DIR = Path(__file__).parent.parent.parent
 
 def main(_config, trial: optuna.trial.Trial = None):
     
@@ -36,14 +36,16 @@ def main(_config, trial: optuna.trial.Trial = None):
     monitor = "val/the_metric"
     mode = "max"
 
-    pl.seed_everything(_config["seed"])
     torch.set_float32_matmul_precision('medium')
+    pl.seed_everything(_config["seed"])
 
-    _config = get_valid_config(_config)
     print("config:")
     for k, v in _config.items():
         print(f"{k}: {v}")
     dm = Datamodule(_config)
+    dm.setup()
+    _config["normalizers"] = dm.normalizers
+    _config["task_weights"] = dm.task_weights
     model = Module(_config)
     exp_name = f"{_config['exp_name']}"
 
@@ -75,7 +77,7 @@ def main(_config, trial: optuna.trial.Trial = None):
     lr_callback = pl.callbacks.LearningRateMonitor(logging_interval="step")
     callbacks = [checkpoint_callback, lr_callback, es_callback]
     if trial is not None:
-        callbacks.append(PyTorchLightningPruningCallback(trial, monitor=monitor))
+        callbacks.append(CustomPyTorchLightningPruningCallback(trial, monitor=monitor))
 
     num_device = get_num_devices(_config)
     print("num_device", num_device)
@@ -124,18 +126,21 @@ def main(_config, trial: optuna.trial.Trial = None):
 
 def objective(trial: optuna.trial.Trial):
     config = copy.deepcopy(_config())
-    config.update(eval(args.named_config() + "()"))
+    config.update(eval(args.task_cfg + "()"))
     config.update(other_args)
     config["learning_rate"] = trial.suggest_float("learning_rate", 1e-8, 1e-3, log=True)
-    config["lr_mult"] = trial.suggest_int("lr_mult", 1, 20, step=1)
+    config["lr_mult"] = trial.suggest_int("lr_mult", 1, 1000, log=True)
     return main(config, trial)
 
-def bayesian_optimization(study_name, pruning=True):
-    storage_name = "sqlite:///optuna.db"
+def bayesian_optimization(study_name, optuna_name="optuna", pruning=False):
+    if not os.path.exists(args.log_dir):
+        Path(args.log_dir).mkdir(parents=True, exist_ok=True)
+    storage_name = f"sqlite:///{os.path.join(args.log_dir, optuna_name)}.db"
+    print(f"Storage name: {storage_name}")
     pruner = optuna.pruners.MedianPruner(n_warmup_steps=3) if pruning else optuna.pruners.NopPruner()
     study = optuna.create_study(direction='maximize', study_name=study_name, 
                                 pruner=pruner, storage=storage_name, load_if_exists=True)
-    study.optimize(objective, n_trials=200)  # Adjust the number of trials as needed
+    study.optimize(objective, n_trials=20)  # Adjust the number of trials as needed
 
     # Print the best hyperparameters found
     print("Number of finished trials: {}".format(len(study.trials)))
@@ -153,22 +158,24 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     # parser.add_argument("--root_dataset", type=str, required=True)
     # parser.add_argument("--downstream", type=str, default=None)
-    parser.add_argument("--log_dir", type=str, default="logs/")
+    parser.add_argument("--log_dir", type=str, default=str(ROOT_DIR/'results/moftransformer_models_opt'))
     parser.add_argument("--test_only", action="store_true")
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--seed", type=int)
     # parser.add_argument("--batch_size", type=int, default=32)
     # parser.add_argument("--per_gpu_batchsize", type=int, default=16)
     # parser.add_argument("--num_nodes", type=int, default=1)
     # parser.add_argument("--accelerator", type=str, default="auto")
-    parser.add_argument("--devices", type=int, default=1)
-    parser.add_argument("--max_epochs", type=int, default=1000)
-    # # parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--devices", type=int)
+    parser.add_argument("--max_epochs", type=int)
+    parser.add_argument("--learning_rate", type=float)
+    parser.add_argument("--lr_mult", type=int)
     parser.add_argument("--progress_bar", action="store_true")
-    parser.add_argument("--load_path", type=str, default="models/pmtransformer.ckpt")
+    parser.add_argument("--load_path", type=str)
     # parser.add_argument("--n_classes", type=int, default=2)
-    parser.add_argument("--resume_from", type=str, default=None)
-    parser.add_argument("--named_config", type=str, default="test")
-    parser.add_argument("--patience", type=int, default=50)
+    parser.add_argument("--resume_from", type=str)
+    parser.add_argument("--model_name", type=str)
+    parser.add_argument("--task_cfg", type=str)
+    parser.add_argument("--patience", type=int)
     parser.add_argument(
         "--pruning",
         "-p",
@@ -176,14 +183,21 @@ if __name__ == "__main__":
         help="Activate the pruning feature. `MedianPruner` stops unpromising "
         "trials at the early stages of training.",
     )
+    parser.add_argument(
+        "--optuna_name",
+        "-n",
+        default="optuna",
+        type=str,
+        help="Name of the Optuna database file.",
+    )
     
     args = parser.parse_args()
 
-    other_args = {k: v for k, v in vars(args).items() if k not in ["named_config", "pruning"]}
+    other_args = {k: v for k, v in vars(args).items() if k not in ["task_cfg", "pruning"] and v not in [None, False]}
 
     # ex.add_named_config(args.named_config)
 
     # config = copy.deepcopy(_config())
     # print(config)
 
-    bayesian_optimization(args.named_config, args.pruning)
+    bayesian_optimization(args.task_cfg, args.optuna_name, args.pruning)

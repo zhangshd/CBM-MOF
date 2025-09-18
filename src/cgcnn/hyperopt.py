@@ -89,7 +89,7 @@ if __name__ == '__main__':
     parser.add_argument('--reconstruct', action='store_true')
 
     # # Extra Hyperparameters
-    parser.add_argument('--task_cfg', default="tsd", type=str)
+    parser.add_argument('--task_cfg', type=str)
     parser.add_argument(
         "--pruning",
         "-p",

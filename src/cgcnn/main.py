@@ -83,8 +83,6 @@ def main(args, trial: optuna.trial.Trial = None) -> float:
         args.ckpt_path = None
     else:
         args.ckpt_path = load_path
-
-    model = Module(**vars(args))
     
     # # If you want to change the logger's saving folder
     name = f'{args.task_cfg}_seed{args.random_seed}_{args.model_name}'
@@ -93,6 +91,7 @@ def main(args, trial: optuna.trial.Trial = None) -> float:
     # csv_logger = CSVLogger(save_dir=os.getcwd(), name=args.log_dir, 
     #                        version=None,)
     profiler = AdvancedProfiler(filename="perf_logs")
+    logger = tb_logger
     
     if hasattr(args, "final_train") and args.final_train:
         callbacks = [plc.LearningRateMonitor(
@@ -121,10 +120,7 @@ def main(args, trial: optuna.trial.Trial = None) -> float:
         
     if trial is not None:
         callbacks.append(CustomPyTorchLightningPruningCallback(trial, monitor=args.monitor))
-    logger = tb_logger
-    profiler = profiler
-    summary = ModelSummary(model, max_depth=-1)
-    print(summary)
+    
     if args.devices > 1:
         args.strategy = 'ddp_find_unused_parameters_true'
     else:
@@ -146,6 +142,10 @@ def main(args, trial: optuna.trial.Trial = None) -> float:
                       enable_model_summary=True,
                       check_val_every_n_epoch=1,
                       )
+    
+    model = Module(**vars(args))
+    summary = ModelSummary(model, max_depth=-1)
+    print(summary)
     if args.auto_lr_bs_find:
         tuner = Tuner(trainer)
         # optimal_batch_size = tuner.scale_batch_size(model, datamodule=datamodule, mode="power")

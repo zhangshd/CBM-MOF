@@ -75,7 +75,7 @@ def config():
     progress_bar = False
 
     # callbacks
-    patience = 10
+    patience = 50
     min_delta = 0.001
 
     # below params varies with the environment
@@ -137,7 +137,7 @@ def ads_qst_ch4_n2_mini():
 @ex.named_config
 def ads_qst_ch4_n2():
     exp_name = "ads_qst_ch4_n2"
-    root_dataset = 'src/cgcnn/data/round2'  # Data directory
+    root_dataset = 'src/moftransformer/data/round2'  # Data directory
     root_dataset = str(Path(__file__).parent.parent.parent/root_dataset)
     tasks = {
         'logAdsCH4_10kPa': "regression",
