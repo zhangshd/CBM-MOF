@@ -115,6 +115,8 @@ def main(_config, trial: optuna.trial.Trial = None):
         # log_dir = Path(logger.log_dir)/'checkpoints'
         # if best_model:= next(log_dir.glob('**/*epoch=*.ckpt')):
         #     shutil.copy(best_model, log_dir/'best.ckpt')
+        if hasattr(dm, "test_dataset") and len(dm.test_dataset) > 0:
+            trainer.test(model, datamodule=dm, ckpt_path="best")
             
     else:
         trainer.test(model, datamodule=dm)

@@ -26,7 +26,7 @@ def config():
     exp_name = "pretrained_mof"
     model_name = "moftransformer" # 
     seed = 42
-    noise_var = 0.1
+    noise_var = 0
     limit_train_batches = None
 
     # graph seeting
@@ -81,7 +81,7 @@ def config():
     # below params varies with the environment
     root_dataset = os.path.join(__root_dir__, "examples/dataset")
     log_dir = os.path.join(ROOT_DIR, 'results/moftransformer_models')  # Log directory
-    batch_size = 64  # desired batch size; for gradient accumulation
+    # batch_size = 64  # desired batch size; for gradient accumulation
     per_gpu_batchsize = 8  # you should define this manually with per_gpu_batch_size
     accelerator = "auto"
     devices = "auto"
