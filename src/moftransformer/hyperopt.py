@@ -178,6 +178,7 @@ if __name__ == "__main__":
     parser.add_argument("--model_name", type=str)
     parser.add_argument("--task_cfg", type=str)
     parser.add_argument("--patience", type=int)
+    parser.add_argument("--noise_var", type=float, nargs="?")
     parser.add_argument(
         "--pruning",
         "-p",

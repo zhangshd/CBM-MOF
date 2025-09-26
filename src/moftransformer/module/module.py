@@ -13,7 +13,7 @@ from module.moftransformer import *
 from moftransformer.modules.cgcnn import GraphEmbeddings
 from moftransformer.modules.vision_transformer_3d import VisionTransformer3D
 
-from datamodule.datamodule import Normalizer
+from datamodule.power_transformer import PowerTransformerNormalizer
 from module.module_utils import plot_confusion_matrix, plot_roc_curve, plot_scatter
 
 import numpy as np
@@ -35,7 +35,12 @@ class Module(LightningModule):
         print("hparams: ", "-"*50)
         self.normalizers = {}
         for task, state_dict in config["normalizers"].items():
-            normalizer = Normalizer()
+            # All normalizers are now saved as state_dict consistently
+            # Determine normalizer type based on state dict content
+            if state_dict.get('log_labels', False):
+                normalizer = PowerTransformerNormalizer(log_labels=True)
+            else:
+                normalizer = PowerTransformerNormalizer(method='yeo-johnson')
             normalizer.load_state_dict(state_dict)
             self.normalizers[task] = normalizer
 

@@ -291,7 +291,7 @@ def set_schedule(pl_module):
     )
     
 
-def plot_scatter(targets, predictions, title: str=None, metrics: dict=None, outfile: str=None):
+def plot_scatter(targets, predictions, title: str=None, metrics: dict=None, outfile: str=None, ax=None):
 
     targets = np.array(targets)
     predictions = np.array(predictions)
@@ -299,11 +299,15 @@ def plot_scatter(targets, predictions, title: str=None, metrics: dict=None, outf
     min_value = min(targets.min(), predictions.min())
     offset = (max_value-min_value)*0.06
     
-    fig, ax = plt.subplots(figsize=(6, 6))
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(6, 6))
+    else:
+        fig = ax.figure
+        
     ax.scatter(targets, predictions, alpha=0.5)
     if title is not None:
         ax.set_title(title)
-    ax.set_xlabel(f"Groud Truth")
+    ax.set_xlabel(f"Ground Truth")
     ax.set_ylabel(f"Predictions")
 
     # 设置x轴和y轴的范围，确保它们一致

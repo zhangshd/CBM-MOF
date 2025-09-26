@@ -49,6 +49,46 @@ Both models support:
 - PyTorch Lightning framework for training
 - Comprehensive evaluation metrics
 - Uncertainty quantification
+- Advanced data normalization with PowerTransformerNormalizer
+
+## Data Normalization
+
+The project includes an advanced data normalization system with the new `PowerTransformerNormalizer` that provides superior handling of non-Gaussian distributions:
+
+### PowerTransformerNormalizer Features
+
+- **Advanced Power Transformations**: Supports both Box-Cox (for positive data) and Yeo-Johnson (for any real values) transformations
+- **GPU Acceleration**: Pure PyTorch implementation for efficient GPU computation during training and inference
+- **Backward Compatibility**: Drop-in replacement for the original Normalizer with identical interface
+- **Robust Handling**: Automatically handles NaN values, outliers, and edge cases
+- **State Persistence**: Full serialization support for model checkpoints
+
+### Usage Examples
+
+```python
+from moftransformer.datamodule.power_transformer import PowerTransformerNormalizer
+
+# Basic usage with Yeo-Johnson transformation (recommended)
+normalizer = PowerTransformerNormalizer(method='yeo-johnson')
+normalizer.fit(training_data)
+
+# Normalize data for training
+normalized_data = normalizer.norm(raw_data)
+
+# Denormalize predictions back to original scale
+predictions = normalizer.denorm(model_output)
+
+# For positive-only data, use Box-Cox transformation
+box_cox_normalizer = PowerTransformerNormalizer(method='box-cox')
+
+```
+
+### Key Advantages
+
+1. **Better Distribution Handling**: Power transformations can make highly skewed data more Gaussian-like, improving model performance
+2. **Numerical Stability**: Advanced numerical techniques prevent overflow/underflow issues
+3. **Device Flexibility**: Seamless handling of CPU/GPU data transfers during training
+4. **Scientific Accuracy**: Maintains precision for scientific applications with careful handling of edge cases
 
 ## Usage
 

@@ -151,3 +151,15 @@ def ads_qst_ch4_n2():
     }
     max_epochs = 200
     per_gpu_batchsize = 32
+
+@ex.named_config
+def api_psa_vsa():
+    exp_name = "api_psa_vsa"
+    root_dataset = 'src/moftransformer/data/round2'  # Data directory
+    root_dataset = str(Path(__file__).parent.parent.parent/root_dataset)
+    tasks = {
+        'PSA_API_CH4': "regression",
+        'VSA_API_CH4': "regression",
+    }
+    max_epochs = 200
+    per_gpu_batchsize = 32

@@ -12,6 +12,7 @@ from torch.utils.data.sampler import RandomSampler
 
 from pytorch_lightning import LightningDataModule
 from datamodule.dataset import Dataset
+from datamodule.power_transformer import PowerTransformerNormalizer
 from pathlib import Path
 
 
@@ -172,80 +173,21 @@ class Datamodule(LightningDataModule):
         self.normalizers = {}
         for i, (task, task_tp) in enumerate(self.tasks.items()):
             if 'classification' in task_tp:
-                normalizer = Normalizer(torch.Tensor([-1, 0., 1]))
-                self.normalizers[task] = normalizer
+                # For classification tasks, use the special classification data
+                normalizer = PowerTransformerNormalizer()
+                normalizer.fit(torch.Tensor([-1, 0., 1]))
+                self.normalizers[task] = normalizer.state_dict()  # Save as state_dict consistently
             else:
+                # For regression tasks, extract training targets
                 train_targets = torch.Tensor(self.train_dataset.id_prop_df.loc[:, self.train_dataset.prop_cols[i]].values)
+                
                 if "log" in task_tp:
-                    normalizer = Normalizer(log_labels=True)
+                    # Use log transformation for backward compatibility
+                    normalizer = PowerTransformerNormalizer(log_labels=True)
                 else:
-                    normalizer = Normalizer()
+                    # Use standard power transformation
+                    normalizer = PowerTransformerNormalizer(method='yeo-johnson')
+                
                 normalizer.fit(train_targets)
                 self.normalizers[task] = normalizer.state_dict()
         return self.normalizers
-    
-class Normalizer(object):
-    """Normalize a Tensor and restore it later."""
-
-    def __init__(self, log_labels=False, remove_value=None):
-        """Initialize normalizer with tensor statistics."""
-        super(Normalizer, self).__init__()
-        self.log_labels = log_labels
-        self.remove_value = remove_value
-        self.device = torch.device('cpu')
-        
-    def fit(self, tensor):
-        """Fit normalizer to tensor."""
-        # Remove NaN and specified values for normalization
-        tensor = tensor[torch.isnan(tensor) == False]
-        if self.remove_value is not None:
-            tensor = tensor[tensor != self.remove_value]
-            
-        if hasattr(self, 'log_labels') and self.log_labels:
-            tensor = torch.log10(tensor + 1e-5)  # avoid log10(0)
-            print("Log10(x+1e-5) transform applied to labels.")
-            
-        self.mean = torch.mean(tensor, dim=0)
-        self.std = torch.std(tensor, dim=0)
-        self.mean_ = float(self.mean.cpu().numpy())
-        self.std_ = float(self.std.cpu().numpy())
-        self.device = tensor.device
-
-    def norm(self, tensor):
-        """Normalize tensor."""
-        if hasattr(self, 'log_labels') and self.log_labels:
-            tensor = torch.log10(tensor + 1e-5)
-        return (tensor - self.mean) / self.std
-
-    def denorm(self, normed_tensor):
-        """Denormalize tensor."""
-        denormed_tensor = normed_tensor * self.std + self.mean
-        if hasattr(self, 'log_labels') and self.log_labels:
-            denormed_tensor = torch.clamp(denormed_tensor, -20, 20)  # avoid numerical errors
-            return torch.pow(10, denormed_tensor) - 1e-5
-        else:
-            return denormed_tensor
-
-    def state_dict(self):
-        """Get state dictionary."""
-        return {'mean': self.mean_, 
-                'std': self.std_,
-                'log_labels': self.log_labels,
-                'remove_value': self.remove_value
-                }
-
-    def load_state_dict(self, state_dict):
-        """Load state dictionary."""
-        self.mean_ = state_dict['mean']
-        self.std_ = state_dict['std']
-        self.log_labels = state_dict.get('log_labels', False)
-        self.remove_value = state_dict.get('remove_value', None)
-        self.mean = torch.tensor(self.mean_).to(self.device)
-        self.std = torch.tensor(self.std_).to(self.device)
-        
-    def to(self, device):
-        """Move normalizer to device."""
-        self.mean = self.mean.to(device)
-        self.std = self.std.to(device)
-        self.device = device
-        return self 
