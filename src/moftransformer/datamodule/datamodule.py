@@ -183,7 +183,7 @@ class Datamodule(LightningDataModule):
                 
                 if "log" in task_tp:
                     # Use log transformation for backward compatibility
-                    normalizer = PowerTransformerNormalizer(log_labels=True)
+                    normalizer = PowerTransformerNormalizer()
                 else:
                     # Use standard power transformation
                     normalizer = PowerTransformerNormalizer(method='yeo-johnson')

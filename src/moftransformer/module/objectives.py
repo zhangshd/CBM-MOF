@@ -68,7 +68,10 @@ def compute_regression(pl_module, batch, task, infer, phase='train'):
 
     # normalize encode if config["mean"] and config["std], else pass
     labels = pl_module.normalize(labels, task)
-    loss = F.mse_loss(logits, labels)
+    if "_mae" in pl_module.hparams.config["tasks"][task]:
+        loss = F.l1_loss(logits, labels)
+    else:
+        loss = F.mse_loss(logits, labels)
 
     labels = labels.to(torch.float32)
     

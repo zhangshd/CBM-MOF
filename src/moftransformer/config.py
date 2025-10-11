@@ -158,8 +158,26 @@ def api_psa_vsa():
     root_dataset = 'src/moftransformer/data/round2'  # Data directory
     root_dataset = str(Path(__file__).parent.parent.parent/root_dataset)
     tasks = {
-        'PSA_API_CH4': "regression",
-        'VSA_API_CH4': "regression",
+        'PSA_API_CH4': "regression_mae",
+        'VSA_API_CH4': "regression_mae",
+    }
+    max_epochs = 200
+    per_gpu_batchsize = 32
+
+@ex.named_config
+def ads_qst_ch4_n2_org():
+    exp_name = "ads_qst_ch4_n2_org"
+    root_dataset = 'src/moftransformer/data/round2'  # Data directory
+    root_dataset = str(Path(__file__).parent.parent.parent/root_dataset)
+    tasks = {
+        'AdsCH4_10kPa': "regression",
+        'AdsCH4_100kPa': "regression",
+        'AdsCH4_1000kPa': "regression",
+        'AdsN2_10kPa': "regression",
+        'AdsN2_100kPa': "regression",
+        'AdsN2_1000kPa': "regression",
+        'QstCH4': "regression",
+        'QstN2': "regression",
     }
     max_epochs = 200
     per_gpu_batchsize = 32

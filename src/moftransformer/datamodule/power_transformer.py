@@ -1,8 +1,8 @@
 """
 Power Transformer Normalizer
-Advanced data transformer based on sklearn PowerTransformer with PyTorch compatibility
+Simple data transformer to convert long-tail distributions to near-normal distributions
 Author: zhangshd
-Date: September 26, 2025
+Date: October 10, 2025
 """
 
 import torch
@@ -14,22 +14,19 @@ import warnings
 
 class PowerTransformerNormalizer(object):
     """
-    Advanced normalizer using Power Transformer with PyTorch GPU support.
+    Simple normalizer using sklearn PowerTransformer for data preprocessing.
     
-    Combines sklearn's PowerTransformer for fitting with pure PyTorch implementation 
-    for GPU-accelerated transformation during training and inference.
+    Core functionality:
+    1. Fit sklearn PowerTransformer to transform long-tail data to near-normal
+    2. Store transformation parameters and use sklearn for all transformations
+    3. Provide simple norm/denorm interface for training and inference
     
-    Supports both Box-Cox and Yeo-Johnson transformations:
-    - Box-Cox: Only for strictly positive data
-    - Yeo-Johnson: Works with any real values (including negative and zero)
-    
-    Maintains full compatibility with the original Normalizer interface.
+    This design prioritizes simplicity and reliability over GPU acceleration.
     """
 
     def __init__(
         self,
         method: Literal['box-cox', 'yeo-johnson'] = 'yeo-johnson',
-        log_labels: bool = False,
         remove_value: Optional[float] = None,
         copy: bool = True
     ):
@@ -38,29 +35,28 @@ class PowerTransformerNormalizer(object):
         
         Args:
             method: Transformation method ('box-cox' or 'yeo-johnson')
-            log_labels: Whether to apply log10 transformation (for backward compatibility)
             remove_value: Value to remove from data before fitting
             copy: Whether to copy data during transformation
         """
         super(PowerTransformerNormalizer, self).__init__()
         
         self.method = method
-        self.log_labels = log_labels
         self.remove_value = remove_value
         self.copy = copy
         self.device = torch.device('cpu')
         
-        # sklearn transformer for fitting (always disable standardize to handle it manually)
+        # sklearn transformer for fitting and transformation
         self._sklearn_transformer = PowerTransformer(
             method=method,
-            standardize=False,
+            standardize=True,  # Let sklearn handle standardization
             copy=copy
         )
         
-        # Parameters for PyTorch implementation
+        # Parameters for compatibility
         self.lambdas_ = None
         self.mean_ = None
         self.std_ = None
+        self.scale_factor_ = 1.0  # Scaling factor for compatibility with existing models
         self._fitted = False
         
     def fit(self, tensor: torch.Tensor) -> 'PowerTransformerNormalizer':
@@ -93,152 +89,32 @@ class PowerTransformerNormalizer(object):
         
         # Convert to numpy for sklearn fitting
         data_np = clean_tensor.detach().cpu().numpy().reshape(-1, 1)
+        self.scale_factor_ = float(1.0 / np.median(data_np))
+        data_np = data_np * self.scale_factor_
+
         
-        # Handle log transformation first (for backward compatibility)
-        if self.log_labels:
-            data_np = np.log10(data_np + 1e-5)
-            print("Log10(x+1e-5) transform applied to labels.")
-        
-        # Fit sklearn transformer
+        # Fit sklearn transformer (it handles everything: transformation + standardization)
         self._sklearn_transformer.fit(data_np)
         
-        # Extract parameters for PyTorch implementation
+        # Store parameters for compatibility with existing code
         self.lambdas_ = torch.tensor(
             self._sklearn_transformer.lambdas_, 
             dtype=torch.float32,
             device=self.device
         )
         
-        # Apply power transformation to get transformed data for standardization
-        transformed_data = self._sklearn_transformer.transform(data_np)
-        transformed_tensor = torch.tensor(transformed_data.flatten(), dtype=torch.float32, device=self.device)
+        # When standardize=True, sklearn uses an internal _scaler
+        if hasattr(self._sklearn_transformer, '_scaler'):
+            self.mean_ = float(self._sklearn_transformer._scaler.mean_[0])
+            self.std_ = float(self._sklearn_transformer._scaler.scale_[0])
+        else:
+            # Fallback for standardize=False
+            self.mean_ = 0.0
+            self.std_ = 1.0
         
-        # Calculate mean and std for standardization using PyTorch
-        self.mean_ = float(torch.mean(transformed_tensor).cpu().numpy())
-        self.std_ = float(torch.std(transformed_tensor).cpu().numpy())
-            
         self._fitted = True
         return self
-    
-    def _power_transform_pytorch(self, x: torch.Tensor, lmbda: torch.Tensor) -> torch.Tensor:
-        """
-        Apply power transformation using pure PyTorch operations.
-        
-        Args:
-            x: Input tensor
-            lmbda: Lambda parameter for transformation
-            
-        Returns:
-            Transformed tensor
-        """
-        if self.method == 'yeo-johnson':
-            return self._yeo_johnson_transform(x, lmbda)
-        elif self.method == 'box-cox':
-            return self._box_cox_transform(x, lmbda)
-        else:
-            raise ValueError(f"Unknown method: {self.method}")
-    
-    def _yeo_johnson_transform(self, x: torch.Tensor, lmbda: torch.Tensor) -> torch.Tensor:
-        """Yeo-Johnson transformation in PyTorch."""
-        eps = 1e-8
-        lmbda = lmbda + eps  # Avoid division by zero
-        
-        # Case 1: x >= 0 and lambda != 0
-        mask1 = (x >= 0) & (torch.abs(lmbda) > eps)
-        # Case 2: x >= 0 and lambda == 0  
-        mask2 = (x >= 0) & (torch.abs(lmbda) <= eps)
-        # Case 3: x < 0 and lambda != 2
-        mask3 = (x < 0) & (torch.abs(lmbda - 2) > eps)
-        # Case 4: x < 0 and lambda == 2
-        mask4 = (x < 0) & (torch.abs(lmbda - 2) <= eps)
-        
-        result = torch.zeros_like(x)
-        
-        if mask1.any():
-            result[mask1] = (torch.pow(x[mask1] + 1, lmbda) - 1) / lmbda
-        
-        if mask2.any():
-            result[mask2] = torch.log(x[mask2] + 1)
-            
-        if mask3.any():
-            result[mask3] = -(torch.pow(-x[mask3] + 1, 2 - lmbda) - 1) / (2 - lmbda)
-            
-        if mask4.any():
-            result[mask4] = -torch.log(-x[mask4] + 1)
-            
-        return result
-    
-    def _box_cox_transform(self, x: torch.Tensor, lmbda: torch.Tensor) -> torch.Tensor:
-        """Box-Cox transformation in PyTorch."""
-        if torch.any(x <= 0):
-            raise ValueError("Box-Cox transformation requires strictly positive data")
-        
-        eps = 1e-8
-        
-        if torch.abs(lmbda) > eps:
-            return (torch.pow(x, lmbda) - 1) / lmbda
-        else:
-            return torch.log(x)
-    
-    def _inverse_power_transform_pytorch(self, x: torch.Tensor, lmbda: torch.Tensor) -> torch.Tensor:
-        """
-        Apply inverse power transformation using pure PyTorch operations.
-        
-        Args:
-            x: Transformed tensor
-            lmbda: Lambda parameter for transformation
-            
-        Returns:
-            Original scale tensor
-        """
-        if self.method == 'yeo-johnson':
-            return self._yeo_johnson_inverse_transform(x, lmbda)
-        elif self.method == 'box-cox':
-            return self._box_cox_inverse_transform(x, lmbda)
-        else:
-            raise ValueError(f"Unknown method: {self.method}")
-    
-    def _yeo_johnson_inverse_transform(self, x: torch.Tensor, lmbda: torch.Tensor) -> torch.Tensor:
-        """Inverse Yeo-Johnson transformation in PyTorch."""
-        eps = 1e-8
-        lmbda = lmbda + eps
-        
-        # Case 1: x >= 0 and lambda != 0
-        mask1 = (x >= 0) & (torch.abs(lmbda) > eps)
-        # Case 2: x >= 0 and lambda == 0
-        mask2 = (x >= 0) & (torch.abs(lmbda) <= eps)
-        # Case 3: x < 0 and lambda != 2
-        mask3 = (x < 0) & (torch.abs(lmbda - 2) > eps)
-        # Case 4: x < 0 and lambda == 2
-        mask4 = (x < 0) & (torch.abs(lmbda - 2) <= eps)
-        
-        result = torch.zeros_like(x)
-        
-        if mask1.any():
-            result[mask1] = torch.pow(x[mask1] * lmbda + 1, 1 / lmbda) - 1
-            
-        if mask2.any():
-            result[mask2] = torch.exp(x[mask2]) - 1
-            
-        if mask3.any():
-            result[mask3] = -(torch.pow(-x[mask3] * (2 - lmbda) + 1, 1 / (2 - lmbda)) - 1)
-            
-        if mask4.any():
-            result[mask4] = -torch.exp(-x[mask4]) + 1
-            
-        return result
-    
-    def _box_cox_inverse_transform(self, x: torch.Tensor, lmbda: torch.Tensor) -> torch.Tensor:
-        """Inverse Box-Cox transformation in PyTorch."""
-        eps = 1e-8
-        
-        if torch.abs(lmbda) > eps:
-            result = torch.pow(x * lmbda + 1, 1 / lmbda)
-        else:
-            result = torch.exp(x)
-            
-        return result
-    
+
     def norm(self, tensor: torch.Tensor) -> torch.Tensor:
         """
         Normalize tensor using power transformation.
@@ -252,23 +128,31 @@ class PowerTransformerNormalizer(object):
         if not self._fitted:
             raise RuntimeError("Normalizer must be fitted before use")
         
-        # Ensure tensor is on the same device as normalizer
+        # Store original device and shape
         original_device = tensor.device
-        tensor = tensor.to(self.device)
+        original_shape = tensor.shape
         
-        # Handle log transformation first (for backward compatibility)
-        if self.log_labels:
-            tensor = torch.log10(tensor + 1e-5)
+        # Convert to numpy
+        data_np = tensor.detach().cpu().numpy().reshape(-1, 1)
+
+        # Apply scaling factor before transformation to avoid overlarge lambdas
+        data_np = data_np * self.scale_factor_
+
+        # Use sklearn transformer (handles both transformation and standardization)
+        try:
+            transformed = self._sklearn_transformer.transform(data_np).flatten()
+        except Exception as e:
+            # Handle potential numerical issues gracefully
+            warnings.warn(f"Transformation warning: {e}. Using fallback.")
+            transformed = np.zeros_like(data_np.flatten())
         
-        # Apply power transformation
-        transformed = self._power_transform_pytorch(tensor, self.lambdas_[0])
+        # Convert back to tensor
+        result = torch.tensor(transformed, dtype=torch.float32, device=original_device)
         
-        # Apply standardization
-        mean_tensor = torch.tensor(self.mean_, device=self.device)
-        std_tensor = torch.tensor(self.std_, device=self.device)
-        transformed = (transformed - mean_tensor) / std_tensor
-            
-        return transformed.to(original_device)
+        # Reshape to original shape
+        result = result.reshape(original_shape)
+        
+        return result
     
     def denorm(self, normed_tensor: torch.Tensor) -> torch.Tensor:
         """
@@ -283,24 +167,60 @@ class PowerTransformerNormalizer(object):
         if not self._fitted:
             raise RuntimeError("Normalizer must be fitted before use")
         
-        # Ensure tensor is on the same device as normalizer
+        # Store original device and shape
         original_device = normed_tensor.device
-        normed_tensor = normed_tensor.to(self.device)
+        original_shape = normed_tensor.shape
         
-        # Reverse standardization
-        mean_tensor = torch.tensor(self.mean_, device=self.device)
-        std_tensor = torch.tensor(self.std_, device=self.device)
-        denormed = normed_tensor * std_tensor + mean_tensor
+        # Convert to numpy
+        data_np = normed_tensor.detach().cpu().numpy().reshape(-1, 1)
         
-        # Apply inverse power transformation
-        result = self._inverse_power_transform_pytorch(denormed, self.lambdas_[0])
-        
-        # Reverse log transformation if applied (for backward compatibility)
-        if self.log_labels:
-            result = torch.clamp(result, -20, 20)  # avoid numerical errors
-            result = torch.pow(10, result) - 1e-5
+        # For Yeo-Johnson with negative lambda, clamp input to prevent NaN
+        # When lambda < 0, the valid range for standardized values is limited
+        if self.method == 'yeo-johnson' and self.lambdas_[0] < 0:
+            # Calculate the maximum safe value to avoid NaN in inverse transform
+            # For negative lambda: base = x*lambda + 1 must be > 0
+            # So: x < -1/lambda (in transformed space before standardization)
+            lambda_val = self.lambdas_[0].item()
+            max_transformed = -1.0 / lambda_val
             
-        return result.to(original_device)
+            # Convert to standardized space: (max_transformed - mean) / std
+            max_standardized = (max_transformed - self.mean_) / self.std_
+            
+            # Clamp with a safety margin (99% of the limit)
+            safe_max = max_standardized * 0.99
+            data_np = np.clip(data_np, -1e6, safe_max)
+        
+        # Use sklearn inverse transform
+        try:
+            result_np = self._sklearn_transformer.inverse_transform(data_np).flatten()
+            
+            # Check for NaN and replace with clamped maximum if needed
+            if np.isnan(result_np).any():
+                warnings.warn("NaN detected in inverse transform, using safe clamping")
+                # Recompute with more aggressive clamping
+                if self.lambdas_[0] < 0:
+                    lambda_val = self.lambdas_[0].item()
+                    max_transformed = -1.0 / lambda_val
+                    max_standardized = (max_transformed - self.mean_) / self.std_
+                    data_np_safe = np.clip(data_np, -1e6, max_standardized * 0.95)
+                    result_np = self._sklearn_transformer.inverse_transform(data_np_safe).flatten()
+            
+            
+                    
+        except Exception as e:
+            # Handle other potential numerical issues
+            warnings.warn(f"Inverse transformation error: {e}. Using fallback.")
+            result_np = np.zeros_like(data_np.flatten())
+        
+        # Reverse scaling factor
+        result_np = result_np / self.scale_factor_
+        # Convert back to tensor
+        result = torch.tensor(result_np, dtype=torch.float32, device=original_device)
+        
+        # Reshape to original shape
+        result = result.reshape(original_shape)
+        
+        return result
     
     def state_dict(self) -> dict:
         """
@@ -314,24 +234,24 @@ class PowerTransformerNormalizer(object):
             
         return {
             'method': self.method,
-            'log_labels': self.log_labels,
             'remove_value': self.remove_value,
             'lambdas': self.lambdas_.cpu().numpy().tolist() if self.lambdas_ is not None else None,
             'mean': self.mean_,
             'std': self.std_,
+            'scale_factor': self.scale_factor_,
             'fitted': self._fitted
         }
     
     def load_state_dict(self, state_dict: dict) -> None:
         """
-        Load state dictionary.
+        Load state dictionary and reconstruct sklearn transformer.
         
         Args:
             state_dict: Dictionary containing parameters
         """
         self.method = state_dict['method']
-        self.log_labels = state_dict.get('log_labels', False)
         self.remove_value = state_dict.get('remove_value', None)
+        self.scale_factor_ = state_dict.get('scale_factor', 1.0)  # Default for old models
         
         if state_dict['lambdas'] is not None:
             self.lambdas_ = torch.tensor(
@@ -345,6 +265,29 @@ class PowerTransformerNormalizer(object):
         self.mean_ = state_dict['mean']
         self.std_ = state_dict['std']
         self._fitted = state_dict.get('fitted', False)
+        
+        # Reconstruct sklearn transformer with loaded parameters
+        if self._fitted and self.lambdas_ is not None:
+            self._sklearn_transformer = PowerTransformer(
+                method=self.method,
+                standardize=True,
+                copy=self.copy
+            )
+            
+            # Set fitted state
+            self._sklearn_transformer.lambdas_ = self.lambdas_.cpu().numpy()
+            
+            # Manually set the internal StandardScaler state
+            from sklearn.preprocessing import StandardScaler
+            self._sklearn_transformer._scaler = StandardScaler()
+            self._sklearn_transformer._scaler.mean_ = np.array([self.mean_])
+            self._sklearn_transformer._scaler.scale_ = np.array([self.std_])
+            self._sklearn_transformer._scaler.var_ = np.array([self.std_ ** 2])
+            self._sklearn_transformer._scaler.n_features_in_ = 1
+            self._sklearn_transformer._scaler.n_samples_seen_ = 1
+            
+            # Mark sklearn transformer as fitted
+            self._sklearn_transformer._fitted = True
     
     def to(self, device: torch.device) -> 'PowerTransformerNormalizer':
         """

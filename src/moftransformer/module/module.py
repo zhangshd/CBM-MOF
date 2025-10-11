@@ -37,10 +37,7 @@ class Module(LightningModule):
         for task, state_dict in config["normalizers"].items():
             # All normalizers are now saved as state_dict consistently
             # Determine normalizer type based on state dict content
-            if state_dict.get('log_labels', False):
-                normalizer = PowerTransformerNormalizer(log_labels=True)
-            else:
-                normalizer = PowerTransformerNormalizer(method='yeo-johnson')
+            normalizer = PowerTransformerNormalizer(method='yeo-johnson')
             normalizer.load_state_dict(state_dict)
             self.normalizers[task] = normalizer
 

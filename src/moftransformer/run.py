@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 
 import pytorch_lightning as pl
+from pytorch_lightning.callbacks import EarlyStopping
 
 from config import ex
 from config import config as _config
@@ -97,7 +98,7 @@ def main(_config):
     num_device = get_num_devices(_config)
     print("num_device", num_device)
 
-    max_steps = _config["max_steps"] if _config["max_steps"] is not None else None
+    max_steps = _config["max_steps"] if _config["max_steps"] is not None else -1
 
     if _IS_INTERACTIVE:
         strategy = "auto"
