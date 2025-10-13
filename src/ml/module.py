@@ -19,7 +19,8 @@ from sklearn.feature_selection import SelectKBest, f_regression, mutual_info_reg
 from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
 from sklearn.manifold import TSNE
 from sklearn.decomposition import PCA
-from sklearn.preprocessing import MinMaxScaler, StandardScaler
+from umap import UMAP
+from sklearn.preprocessing import MinMaxScaler, StandardScaler, PowerTransformer
 from sklearn.model_selection import KFold, StratifiedKFold, GroupKFold, LeaveOneOut, LeaveOneGroupOut, train_test_split
 from sklearn.gaussian_process import GaussianProcessRegressor, GaussianProcessClassifier
 from sklearn.gaussian_process.kernels import RBF, WhiteKernel, ConstantKernel
@@ -142,6 +143,7 @@ class BaseModel:
         self.feature_select_num = 0
         self.model_type = None
         self.full_trained = False
+        self.target_scale_factor = 1.0
 
     def load_data(self, train_X, train_y, test_X=None, test_y=None, valid_X=None, valid_y=None, train_groups=None):
         self.train_X = np.array(train_X)
@@ -350,10 +352,13 @@ class BaseModel:
                 print(f"Get reference distance value from validation set of fold {i + 1}: \033[36;1m{ref_dist_value}\033[0m")
                 self.balltrees.append(balltree)
 
-    def visualize_chem_space(self, train_X, test_X, saved_dir, method="tSNE", notes=""):
-        """Visualize chemical space using tSNE or PCA."""
+    def visualize_chem_space(self, train_X, test_X, saved_dir, method="UMAP", notes=""):
+        """Visualize chemical space using UMAP, tSNE or PCA."""
         all_X = np.concatenate((train_X, test_X), axis=0)
-        if method == "tSNE":
+        if method == "UMAP":
+            dimension_model = UMAP(n_components=2, random_state=self.random_state, n_neighbors=15, min_dist=0.1)
+            reduction_X = dimension_model.fit_transform(all_X)
+        elif method == "tSNE":
             dimension_model = TSNE(n_components=2, perplexity=30, random_state=self.random_state)
             reduction_X = dimension_model.fit_transform(all_X)
         elif method == "PCA":
@@ -385,6 +390,65 @@ class RegressionModel(BaseModel):
         super().__init__(random_state)
         self.metrics_list = ["R2", "RMSE", "MAE", "Pearson", "Spearman"]
         self.model_type = "regression"
+        self.target_transformer = None
+        self.use_target_transform = False
+
+    def transform_target(self, method="yeo-johnson", saved_dir="", saved_file_note=""):
+        """
+        Transform target variable to improve model performance.
+        
+        Parameters:
+        -----------
+        method : str, optional (default='yeo-johnson')
+            Transformation method. Options: 'yeo-johnson', 'box-cox'
+        saved_dir : str, optional
+            Directory to save the transformer object
+        saved_file_note : str, optional
+            Note to append to the saved file name
+            
+        Notes:
+        ------
+        - Yeo-Johnson works with both positive and negative values
+        - Box-Cox requires all positive values
+        - The transformer will be saved and used for inverse transformation during prediction
+        """
+        print(f"Applying {method} transformation to target variable.")
+        self.use_target_transform = True
+        self.target_transformer = PowerTransformer(method=method, standardize=True)
+        
+        # Store original target values
+        self.train_y_original = self.train_y.copy()
+
+        # Compute target scale factor
+        self.target_scale_factor = float(1.0 / np.median(self.train_y))
+        print(f"Target scale factor: {self.target_scale_factor}")
+
+        # Transform training targets: scale then power transform
+        self.train_y = self.train_y * self.target_scale_factor
+        self.train_y = self.target_transformer.fit_transform(self.train_y.reshape(-1, 1)).ravel()
+        if hasattr(self.target_transformer, 'lambdas_'):
+            print(f"Transformer's lambda: {self.target_transformer.lambdas_}")
+        
+        # Transform test targets if they exist: scale then power transform
+        if self.test_y is not None:
+            self.test_y_original = self.test_y.copy()
+            self.test_y = self.test_y * self.target_scale_factor
+            self.test_y = self.target_transformer.transform(self.test_y.reshape(-1, 1)).ravel()
+        
+        # Transform validation targets if they exist: scale then power transform
+        if self.valid_y is not None:
+            self.valid_y_original = self.valid_y.copy()
+            self.valid_y = self.valid_y * self.target_scale_factor
+            self.valid_y = self.target_transformer.transform(self.valid_y.reshape(-1, 1)).ravel()
+        
+        # Save transformer if directory is provided
+        if saved_dir:
+            transformer_file = os.path.join(saved_dir, f"target_transformer_{saved_file_note}.pkl")
+            with open(transformer_file, 'wb') as f:
+                joblib.dump(self.target_transformer, f)
+            print(f"Target transformer saved to: {transformer_file}")
+        
+        print(f"Target transformation completed. Method: {method}")
         
 
     def cal_metrics(self, y_true, y_pred):
@@ -410,7 +474,7 @@ class RegressionModel(BaseModel):
         train_metrics_all, val_metrics_all, test_metrics_all = [], [], []
         test_pred_all, val_pred_all, val_y_all = [], [], []
         self.models = []
-        if self.valid_X_selected is not None:
+        if hasattr(self, 'valid_X_selected') and self.valid_X_selected is not None:
             ## if validation set is provided, train model without cross-validation
             print("=" * 50)
             print(f"Train/validation num: {len(self.train_y)}/{len(self.valid_y)}")
@@ -419,27 +483,53 @@ class RegressionModel(BaseModel):
             if saved_dir:
                 with open(os.path.join(saved_dir, f'{self.model_name}.pkl'), 'wb+') as f:
                     joblib.dump(self.model, f)
-                self.visualize_chem_space(self.train_X_selected, self.valid_X_selected, saved_dir=saved_dir, method="tSNE", notes="valid")
+                self.visualize_chem_space(self.train_X_selected, self.valid_X_selected, saved_dir=saved_dir, method="UMAP", notes="valid")
             train_pred = self.model.predict(self.train_X_selected)
             
             valid_pred = self.model.predict(self.valid_X_selected)
             
-            train_metrics = self.cal_metrics(self.train_y, train_pred)
-            valid_metrics = self.cal_metrics(self.valid_y, valid_pred)
+            # Inverse transform predictions if target transformation was used
+            # Inverse order: first inverse power transform, then divide by scale factor
+            if self.use_target_transform and self.target_transformer is not None:
+                train_pred_original = self.target_transformer.inverse_transform(train_pred.reshape(-1, 1)).ravel()
+                train_pred_original = train_pred_original / self.target_scale_factor
+                valid_pred_original = self.target_transformer.inverse_transform(valid_pred.reshape(-1, 1)).ravel()
+                valid_pred_original = valid_pred_original / self.target_scale_factor
+                train_y_for_metrics = self.train_y_original
+                valid_y_for_metrics = self.valid_y_original
+            else:
+                train_pred_original = train_pred
+                valid_pred_original = valid_pred
+                train_y_for_metrics = self.train_y
+                valid_y_for_metrics = self.valid_y
+            
+            train_metrics = self.cal_metrics(train_y_for_metrics, train_pred_original)
+            valid_metrics = self.cal_metrics(valid_y_for_metrics, valid_pred_original)
             train_metrics_all.append(train_metrics)
             val_metrics_all.append(valid_metrics)
-            val_pred_all.extend(valid_pred)
+            val_pred_all.extend(valid_pred_original)
             
-            val_y_all.extend(self.valid_y)
+            val_y_all.extend(self.valid_y_original if self.use_target_transform else self.valid_y)
             if hasattr(self, "test_X_selected") and self.test_y is not None:
                 
                 test_pred = self.model.predict(self.test_X_selected)
-                test_pred_all.append(test_pred)
                 
-                test_metrics = self.cal_metrics(self.test_y, test_pred)
+                # Inverse transform test predictions if target transformation was used
+                # Inverse order: first inverse power transform, then divide by scale factor
+                if self.use_target_transform and self.target_transformer is not None:
+                    test_pred_original = self.target_transformer.inverse_transform(test_pred.reshape(-1, 1)).ravel()
+                    test_pred_original = test_pred_original / self.target_scale_factor
+                    test_y_for_metrics = self.test_y_original
+                else:
+                    test_pred_original = test_pred
+                    test_y_for_metrics = self.test_y
+                
+                test_pred_all.append(test_pred_original)
+                
+                test_metrics = self.cal_metrics(test_y_for_metrics, test_pred_original)
                 test_metrics_all.append(test_metrics)
                 if saved_dir:
-                    self.visualize_chem_space(self.train_X_selected, self.test_X_selected, saved_dir=saved_dir, method="tSNE", notes="test")
+                    self.visualize_chem_space(self.train_X_selected, self.test_X_selected, saved_dir=saved_dir, method="UMAP", notes="test")
             self._aggregate_metrics(train_metrics_all, val_metrics_all, test_metrics_all, val_pred_all, val_y_all, test_pred_all, saved_dir)
             print('Total run time:', sec_to_time(time.time() - tick))
             return
@@ -450,22 +540,54 @@ class RegressionModel(BaseModel):
             kf_train_y = self.train_y[train_idx]
             kf_val_X = self.train_X_selected[val_idx]
             kf_val_y = self.train_y[val_idx]
+            
+            # Get original target values for metrics calculation
+            if self.use_target_transform:
+                kf_train_y_original = self.train_y_original[train_idx]
+                kf_val_y_original = self.train_y_original[val_idx]
+            else:
+                kf_train_y_original = kf_train_y
+                kf_val_y_original = kf_val_y
+            
             self.model.fit(kf_train_X, kf_train_y)
             self.models.append(copy.copy(self.model))
             if saved_dir:
                 with open(os.path.join(saved_dir, f'{self.model_name}_{i + 1}.pkl'), 'wb+') as f:
                     joblib.dump(self.model, f)
-                self.visualize_chem_space(kf_train_X, kf_val_X, saved_dir=saved_dir, method="tSNE", notes=f"fold{i + 1}")
+                self.visualize_chem_space(kf_train_X, kf_val_X, saved_dir=saved_dir, method="UMAP", notes=f"fold{i + 1}")
             kf_train_pred = self.model.predict(kf_train_X)
             kf_val_pred = self.model.predict(kf_val_X)
-            train_metrics_all.append(self.cal_metrics(kf_train_y, kf_train_pred))
-            val_metrics_all.append(self.cal_metrics(kf_val_y, kf_val_pred) if self.kfold_type != "loo" else [None] * len(self.metrics_list))
-            val_pred_all.extend(kf_val_pred)
-            val_y_all.extend(kf_val_y)
+            
+            # Inverse transform predictions if target transformation was used
+            # Inverse order: first inverse power transform, then divide by scale factor
+            if self.use_target_transform and self.target_transformer is not None:
+                kf_train_pred_original = self.target_transformer.inverse_transform(kf_train_pred.reshape(-1, 1)).ravel()
+                kf_train_pred_original = kf_train_pred_original / self.target_scale_factor
+                kf_val_pred_original = self.target_transformer.inverse_transform(kf_val_pred.reshape(-1, 1)).ravel()
+                kf_val_pred_original = kf_val_pred_original / self.target_scale_factor
+            else:
+                kf_train_pred_original = kf_train_pred
+                kf_val_pred_original = kf_val_pred
+            
+            train_metrics_all.append(self.cal_metrics(kf_train_y_original, kf_train_pred_original))
+            val_metrics_all.append(self.cal_metrics(kf_val_y_original, kf_val_pred_original) if self.kfold_type != "loo" else [None] * len(self.metrics_list))
+            val_pred_all.extend(kf_val_pred_original)
+            val_y_all.extend(kf_val_y_original)
             if hasattr(self, "test_X_selected") and self.test_y is not None:
                 test_pred = self.model.predict(self.test_X_selected)
-                test_pred_all.append(test_pred)
-                test_metrics_all.append(self.cal_metrics(y_true=self.test_y, y_pred=test_pred))
+                
+                # Inverse transform test predictions if target transformation was used
+                # Inverse order: first inverse power transform, then divide by scale factor
+                if self.use_target_transform and self.target_transformer is not None:
+                    test_pred_original = self.target_transformer.inverse_transform(test_pred.reshape(-1, 1)).ravel()
+                    test_pred_original = test_pred_original / self.target_scale_factor
+                    test_y_for_metrics = self.test_y_original
+                else:
+                    test_pred_original = test_pred
+                    test_y_for_metrics = self.test_y
+                
+                test_pred_all.append(test_pred_original)
+                test_metrics_all.append(self.cal_metrics(y_true=test_y_for_metrics, y_pred=test_pred_original))
         self._aggregate_metrics(train_metrics_all, val_metrics_all, test_metrics_all, val_pred_all, val_y_all, test_pred_all, saved_dir)
         print('Total run time:', sec_to_time(time.time() - tick))
 
@@ -496,7 +618,8 @@ class RegressionModel(BaseModel):
                 
                 # Print original metrics and recalculated metrics
                 original_metrics = test_metrics_all[0]
-                recalculated_metrics = self.cal_metrics(self.test_y.squeeze(), self.test_pred.squeeze())
+                test_y_original = self.test_y_original if self.use_target_transform else self.test_y
+                recalculated_metrics = self.cal_metrics(test_y_original.squeeze(), self.test_pred.squeeze())
                 
                 print(f"Original metrics: R2={original_metrics[0]}, RMSE={original_metrics[1]}, MAE={original_metrics[2]}")
                 print(f"Recalculated metrics: R2={recalculated_metrics[0]}, RMSE={recalculated_metrics[1]}, MAE={recalculated_metrics[2]}")
@@ -505,8 +628,9 @@ class RegressionModel(BaseModel):
                 metrics_diff = [abs(original_metrics[i] - recalculated_metrics[i]) for i in range(3)]
                 print(f"Metric differences: R2 diff={metrics_diff[0]}, RMSE diff={metrics_diff[1]}, MAE diff={metrics_diff[2]}")
             
+            test_y_original = self.test_y_original if self.use_target_transform else self.test_y
             df_te_pred = pd.DataFrame({
-                "GroundTruth": self.test_y.squeeze(),
+                "GroundTruth": test_y_original.squeeze(),
                 "Predicted": self.test_pred.squeeze()
             })
             if saved_dir:
@@ -516,7 +640,7 @@ class RegressionModel(BaseModel):
                 # Also save original predictions for comparison
                 if original_pred is not None:
                     df_original_pred = pd.DataFrame({
-                        "GroundTruth": self.test_y.squeeze(),
+                        "GroundTruth": test_y_original.squeeze(),
                         "Predicted": original_pred
                     })
                     original_test_pred_file = os.path.join(saved_dir, f"original_test_predicted_{self.model_name}.csv")
@@ -549,6 +673,13 @@ class RegressionModel(BaseModel):
             y_pred = model.predict(X)
             all_y_pred.append(y_pred)
         y_pred_mean = np.mean(all_y_pred, axis=0).reshape((-1, 1))
+        
+        # Inverse transform predictions if target transformation was used
+        # Inverse order: first inverse power transform, then divide by scale factor
+        if self.use_target_transform and self.target_transformer is not None:
+            y_pred_mean = self.target_transformer.inverse_transform(y_pred_mean).reshape((-1, 1))
+            y_pred_mean = y_pred_mean / self.target_scale_factor
+        
         if cal_feature_distance and hasattr(self, "balltrees"):
             dist_means = []
             confident_indexes = []
@@ -574,20 +705,46 @@ class RegressionModel(BaseModel):
                      + WhiteKernel(noise_level=self.params.pop("noise_level"))
             self.params.update(kernel=kernel)
         self.model.set_params(**self.params)
-        if self.valid_X_selected is not None:
+        if hasattr(self, 'valid_X_selected') and self.valid_X_selected is not None:
             ## concatenate train and valid data for training
             train_X_selected = np.vstack([self.train_X_selected, self.valid_X_selected])
             train_y = np.hstack([self.train_y, self.valid_y])
+        else:
+            train_X_selected = self.train_X_selected
+            train_y = self.train_y
         self.model.fit(train_X_selected, train_y)
         if saved_dir:
             with open(os.path.join(saved_dir, f'{self.model_name}_full.pkl'), 'wb+') as f:
                 joblib.dump(self.model, f)
         train_pred = self.model.predict(train_X_selected)
-        train_metrics = self.cal_metrics(train_y, train_pred)
+        
+        # Inverse transform predictions if target transformation was used
+        # Inverse order: first inverse power transform, then divide by scale factor
+        if self.use_target_transform and self.target_transformer is not None:
+            train_pred_original = self.target_transformer.inverse_transform(train_pred.reshape(-1, 1)).ravel()
+            train_pred_original = train_pred_original / self.target_scale_factor
+            train_y_for_metrics = self.train_y_original if hasattr(self, 'train_y_original') else train_y
+            if self.valid_y is not None:
+                train_y_for_metrics = np.hstack([self.train_y_original, self.valid_y_original])
+        else:
+            train_pred_original = train_pred
+            train_y_for_metrics = train_y
+        
+        train_metrics = self.cal_metrics(train_y_for_metrics, train_pred_original)
         self.all_metrics_df.loc['full', ["tr_" + s for s in self.metrics_list]] = train_metrics
         if hasattr(self, "test_X_selected") and self.test_y is not None:
             self.test_pred = self.model.predict(self.test_X_selected)
-            test_metrics = self.cal_metrics(self.test_y, self.test_pred)
+            
+            # Inverse transform test predictions if target transformation was used
+            # Inverse order: first inverse power transform, then divide by scale factor
+            if self.use_target_transform and self.target_transformer is not None:
+                self.test_pred = self.target_transformer.inverse_transform(self.test_pred.reshape(-1, 1)).ravel()
+                self.test_pred = self.test_pred / self.target_scale_factor
+                test_y_for_metrics = self.test_y_original if hasattr(self, 'test_y_original') else self.test_y
+            else:
+                test_y_for_metrics = self.test_y
+            
+            test_metrics = self.cal_metrics(test_y_for_metrics, self.test_pred)
             self.all_metrics_df.loc['full', ["te_" + s for s in self.metrics_list]] = test_metrics
         # print(self.all_metrics_df.columns)
         print(self.all_metrics_df[[col for col in self.all_metrics_df.columns if (("R2" in col) or ("RMSE" in col))]])
@@ -656,7 +813,7 @@ class ClassificationModel(BaseModel):
         test_pred_all, test_pred_prob_all, val_pred_all, val_pred_prob_all, val_y_all = [], [], [], [], []
         self.models = []
 
-        if self.valid_X_selected is not None:
+        if hasattr(self, 'valid_X_selected') and self.valid_X_selected is not None:
             ## if validation set is provided, train model without cross-validation
             print("=" * 50)
             print(f"Train/validation num: {len(self.train_y)}/{len(self.valid_y)}")
@@ -665,7 +822,7 @@ class ClassificationModel(BaseModel):
             if saved_dir:
                 with open(os.path.join(saved_dir, f'{self.model_name}.pkl'), 'wb+') as f:
                     joblib.dump(self.model, f)
-                self.visualize_chem_space(self.train_X_selected, self.valid_X_selected, saved_dir=saved_dir, method="tSNE", notes="valid")
+                self.visualize_chem_space(self.train_X_selected, self.valid_X_selected, saved_dir=saved_dir, method="UMAP", notes="valid")
             train_pred = self.model.predict(self.train_X_selected)
             train_pred_prob = self.model.predict_proba(self.train_X_selected)
             valid_pred = self.model.predict(self.valid_X_selected)
@@ -685,7 +842,7 @@ class ClassificationModel(BaseModel):
                 test_metrics = self.cal_metrics(self.test_y, test_pred, test_pred_prob, n_class=self.n_class)
                 test_metrics_all.append(test_metrics)
                 if saved_dir:
-                    self.visualize_chem_space(self.train_X_selected, self.test_X_selected, saved_dir=saved_dir, method="tSNE", notes="test")
+                    self.visualize_chem_space(self.train_X_selected, self.test_X_selected, saved_dir=saved_dir, method="UMAP", notes="test")
             self._aggregate_metrics(train_metrics_all, val_metrics_all, test_metrics_all, val_pred_all, val_pred_prob_all, val_y_all, test_pred_all, saved_dir, test_pred_prob_all)
             print('Total run time:', sec_to_time(time.time() - tick))
             return
@@ -702,7 +859,7 @@ class ClassificationModel(BaseModel):
             if saved_dir:
                 with open(os.path.join(saved_dir, f'{self.model_name}_{i + 1}.pkl'), 'wb+') as f:
                     joblib.dump(self.model, f)
-                self.visualize_chem_space(kf_train_X, kf_val_X, saved_dir=saved_dir, method="tSNE", notes=f"fold{i + 1}")
+                self.visualize_chem_space(kf_train_X, kf_val_X, saved_dir=saved_dir, method="UMAP", notes=f"fold{i + 1}")
             if self.model_name == "SVC":
                 kf_train_pred_prob = self.model.decision_function(kf_train_X)
                 kf_train_pred = self.model.predict(kf_train_X)

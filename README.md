@@ -16,6 +16,9 @@ src/
 │   ├── datamodule/         # Data loading and preprocessing modules
 │   ├── module/             # Model implementation and training logic
 │   └── ...
+├── ml/                     # Machine learning utilities and traditional ML models
+│   ├── module.py          # Regression and classification model classes
+│   └── ...
 └── jupyter/                # Jupyter notebooks for analysis
 
 data/
@@ -40,6 +43,46 @@ A crystal graph convolutional neural network that:
 - Represents crystals as graphs with atoms as nodes
 - Uses bond information as edge features
 - Employs graph convolutions for property prediction
+
+### Traditional Machine Learning Models
+The project includes a comprehensive machine learning module (`src/ml/module.py`) that provides:
+- Regression models with advanced features
+- Classification models with multi-class support
+- Feature selection and scaling utilities
+- K-fold cross-validation support
+- **Target variable transformation** (NEW):
+  - Yeo-Johnson transformation for any real values
+  - Box-Cox transformation for positive values
+  - Automatic inverse transformation for predictions and metrics
+  - Improves model performance on skewed distributions
+
+#### Target Transformation Feature
+The new target transformation feature allows you to transform the target variable before training to improve model performance:
+
+```python
+from src.ml.module import RegressionModel
+
+model = RegressionModel(random_state=42)
+model.load_data(train_X, train_y, test_X, test_y)
+
+# Apply Yeo-Johnson transformation to target variable
+model.transform_target(method="yeo-johnson", saved_dir="./models")
+
+# Continue with normal workflow
+model.scale_feature(feature_range=(0, 1))
+model.select_feature(feature_selector='f1', select_des_num=100)
+model.kfold_split(k=5, kfold_type="normal")
+
+# Train model - metrics are calculated on original scale
+estimator = RandomForestRegressor(n_estimators=100)
+model.train(estimator, params={}, saved_dir="./models")
+```
+
+**Key Features:**
+- **Optional**: Only activated when `transform_target()` is called
+- **Automatic**: Predictions and metrics are automatically on original scale
+- **Saved**: Transformer object is saved with the model
+- **Flexible**: Supports both Yeo-Johnson and Box-Cox methods
 
 ## Features
 

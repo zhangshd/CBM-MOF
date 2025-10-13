@@ -85,14 +85,18 @@ def parse_args():
     parser.add_argument('--select_des_num_list', type=int, default=[50], nargs="+", help='List of number of features to select')
     parser.add_argument('--model_list', type=str, default=['RF'], nargs="+", help='List of models')
     parser.add_argument('--search_max_evals', type=int, default=10, help='Maximum number of evaluations for search')
-    parser.add_argument('--name_column', type=str, default='MOF_name', help='Name column')
-    parser.add_argument('--label_column', type=str, default='water_label', help='Label column')
-    parser.add_argument('--group_column', type=str, default='water_label', help='Group column')
+    parser.add_argument('--name_column', type=str, default='MofName', help='Name column')
+    parser.add_argument('--label_column', type=str, default='Label', help='Label column')
+    parser.add_argument('--group_column', type=str, default='', help='Group column')
     parser.add_argument('--test_size', type=float, default=0.2, help='Size of the test set')
     parser.add_argument('--kfold_type', type=str, default='none', help='Type of k-fold cross-validation')
     parser.add_argument('--k', type=int, default=1, help='Number of folds')
     parser.add_argument('--search_metric', type=str, default='val_AUC', help='Metric for search')
     parser.add_argument('--scaler_name', type=str, default='StandardScaler', help='Name of the scaler')
+    # parser.add_argument('--overwrite', action='store_true', help='Whether to overwrite existing results')
+    parser.add_argument('--use_target_transform', action='store_true', help='Whether to use target transformation (for regression)')
+    parser.add_argument('--target_transform_method', type=str, default='yeo-johnson', help='Method for target transformation (for regression)')
+    #############
     return parser.parse_args()
 
 if __name__ == "__main__":

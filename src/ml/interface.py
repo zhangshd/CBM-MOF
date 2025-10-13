@@ -173,7 +173,7 @@ def train_and_save_model(model: Union[RegressionModel, ClassificationModel], est
 def MainRegression(in_df, saved_dir, feature_selector_list, select_des_num_list=(50,), test_df=None, valid_df=None, model_list=("LR",),
                    search_max_evals=30, name_column="Name", label_column="", group_column="", feat_cols=None, k=5,
                    test_size=0.2, kfold_type="normal", random_state=0, search_metric="val_RMSE", scaler_name="StandardScaler",
-                   show_progressbar=True, **kwargs):
+                   show_progressbar=True, use_target_transform=False, target_transform_method="yeo-johnson", **kwargs):
     n_jobs = min(int(0.8 * os.cpu_count()), 64)
     saved_dir = Path(saved_dir)
     saved_dir.mkdir(exist_ok=True, parents=True)
@@ -185,6 +185,8 @@ def MainRegression(in_df, saved_dir, feature_selector_list, select_des_num_list=
 
     model = RegressionModel(random_state=random_state)
     model.load_data(train_X, train_y, test_X, test_y, valid_x, valid_y, train_groups=train_groups)
+    if use_target_transform:
+        model.transform_target(method=target_transform_method, saved_dir=saved_dir)
     model.scale_feature(saved_dir=saved_dir, scaler_name=scaler_name)
     model.kfold_split(k=k, kfold_type=kfold_type)
 
