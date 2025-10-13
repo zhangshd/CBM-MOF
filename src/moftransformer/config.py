@@ -7,7 +7,6 @@ from pathlib import Path
 
 ex = Experiment("pretrained_mof", save_git_info=False)
 
-# 确定项目根目录路径
 SCRIPT_DIR = Path(__file__).resolve().parent
 ROOT_DIR = SCRIPT_DIR.parent.parent
 

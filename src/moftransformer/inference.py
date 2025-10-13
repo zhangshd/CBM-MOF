@@ -642,7 +642,8 @@ if __name__ == "__main__":
         # Example paths - update these for your specific case
         cif_dir = project_root / "results/cbm_screening/dup_demo_ATC-Cu"  # Update this path
         # model_dir = project_root / "results/moftransformer_models_opt/ads_qst_ch4_n2_seed42_from_pmtransformer/version_15"
-        model_dir = project_root / "results/moftransformer_models/ads_qst_ch4_n2_seed42_moftransformer_from_pmtransformer/version_8"
+        # model_dir = project_root / "results/moftransformer_models/ads_qst_ch4_n2_seed42_moftransformer_from_pmtransformer/version_8"
+        model_dir = project_root / "results/moftransformer_models/api_psa_vsa_seed42_moftransformer_from_pmtransformer/version_8"
         result_dir = project_root / "results" / "inference_demo"
         
         # Check if example paths exist
