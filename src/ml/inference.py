@@ -1,13 +1,13 @@
 #!/usr/bin/env python
 """
-MOF Inference script for MOFSNN project.
+MOF Inference script.
 
 This script provides functionality to run inference on single CIF files or directories
-containing multiple CIF files using pre-trained ML models. It predicts all 7 stability
-properties (TSD, SSD, WS24_water, WS24_water4, WS24_acid, WS24_base, WS24_boiling).
+containing multiple CIF files using pre-trained ML models.
 
 Usage:
-    python mof_inference.py --input_path /path/to/cif_or_directory --output_path /path/to/output.csv
+    python inference.py --input_path /path/to/cif_or_directory --output_path /path/to/output.csv
+    python inference.py --features_path /path/to/features.csv --output_path /path/to/output.csv
 
 Author: zhangshd
 Date: 2025-05-16
@@ -102,10 +102,21 @@ def get_model_info(config: Dict[str, Any]) -> Dict[str, Dict[str, str]]:
         Dictionary mapping task names to model paths
     """
     model_info = {}
-    task_list = ["TSD", "SSD", "WS24_water", "WS24_water4", "WS24_acid", "WS24_base", "WS24_boiling"]
+    task_list = [
+        'AdsCH4_10kPa', 
+        'AdsCH4_100kPa', 
+        'AdsCH4_1000kPa', 
+        'AdsN2_10kPa', 
+        'AdsN2_100kPa', 
+        'AdsN2_1000kPa',
+       'QstCH4', 
+       'QstN2', 
+       'PSA_API_CH4', 
+       'VSA_API_CH4'
+       ]
     
     for task in task_list:
-        baseline_key = f"Baseline-{task}"
+        baseline_key = f"ML-{task}"
         if baseline_key in config["model_dirs_map"]:
             model_config = config["model_dirs_map"][baseline_key]
             path = model_config["Path"]
@@ -259,6 +270,42 @@ def generate_features(cifs: List[str], temp_dir: str, prob_radius: float = 1.32)
         print(f"Error generating features: {e}")
         return None
 
+
+def load_precomputed_features(features_path: Union[str, Path]) -> pd.DataFrame:
+    """
+    Load precomputed features from a CSV file.
+
+    Args:
+        features_path: Path to the features CSV file
+
+    Returns:
+        DataFrame containing the loaded features
+    """
+    path = Path(features_path)
+    if not path.exists() or not path.is_file():
+        raise FileNotFoundError(f"Features file not found: {features_path}")
+
+    features = pd.read_csv(path)
+
+    print("Loaded features shape:", features.shape)
+
+    if 'MofName' not in features.columns and 'name' in features.columns:
+        features = features.rename(columns={'name': 'MofName'})
+
+    if 'MofName' not in features.columns:
+        raise ValueError("Features file must contain a 'MofName' column.")
+
+    if 'cif_file' in features.columns:
+        features = features.drop(columns=['cif_file'])
+
+    if features.empty:
+        raise ValueError(f"Features file {features_path} does not contain any rows.")
+
+    features.dropna(inplace=True)
+    print("Loaded features shape after dropping NA:", features.shape)
+
+    return features
+
 def predict(features: pd.DataFrame, loaded_models: Dict[str, Any]) -> pd.DataFrame:
     """
     Make predictions for all properties.
@@ -406,12 +453,13 @@ def time_cost(tick: float) -> str:
 
 def main():
     parser = argparse.ArgumentParser(description='MOF ML Model Inference Script')
-    parser.add_argument('--input_path', required=True, help='Path to CIF file or directory containing CIF files')
+    parser.add_argument('--input_path', help='Path to CIF file or directory containing CIF files')
     parser.add_argument('--output_path', required=True, help='Path for the output CSV file')
-    parser.add_argument('--config_path', default=os.path.join(ROOT_DIR, 'configs/model_comparison_config.yaml'), 
+    parser.add_argument('--config_path', default=os.path.join(ROOT_DIR, 'configs/ml_model_config.yaml'), 
                         help='Path to model configuration file')
-    parser.add_argument('--prob_radius', type=float, default=1.4, help='Probe radius for Zeo++ calculations')
+    parser.add_argument('--prob_radius', type=float, default=1.32, help='Probe radius for Zeo++ calculations')
     parser.add_argument('--verbose', action='store_true', help='Enable verbose output')
+    parser.add_argument('--features_path', help='Path to precomputed features CSV file')
     
     args = parser.parse_args()
     
@@ -437,18 +485,32 @@ def main():
     logger.info(f"Loaded {len(loaded_models)} models")
     
     # Process input
-    input_path = args.input_path
-    if os.path.isfile(input_path) and input_path.endswith('.cif'):
-        logger.info(f"Processing single CIF file: {input_path}")
-        results = process_cif_file(input_path, loaded_models, args.prob_radius)
-    elif os.path.isdir(input_path):
-        logger.info(f"Processing directory containing CIF files: {input_path}")
-        results = process_cif_directory(input_path, loaded_models, args.prob_radius)
-    else:
-        logger.error(f"Invalid input path: {input_path}. Must be a CIF file or directory containing CIF files.")
-        logger.info(f"End time: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}")
+    if (args.input_path is None) == (args.features_path is None):
+        logger.error("Exactly one of --input_path or --features_path must be provided.")
+        end_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))
+        logger.info(f"End time: {end_time}")
         logger.info(f"Time cost: {time_cost(tick)}")
         return 1
+
+    if args.features_path is not None:
+        logger.info(f"Loading precomputed features from {args.features_path}")
+        features = load_precomputed_features(args.features_path)
+        logger.info(f"Loaded {len(features)} feature rows")
+        results = predict(features, loaded_models)
+    else:
+        input_path = args.input_path
+        if os.path.isfile(input_path) and input_path.endswith('.cif'):
+            logger.info(f"Processing single CIF file: {input_path}")
+            results = process_cif_file(input_path, loaded_models, args.prob_radius)
+        elif os.path.isdir(input_path):
+            logger.info(f"Processing directory containing CIF files: {input_path}")
+            results = process_cif_directory(input_path, loaded_models, args.prob_radius)
+        else:
+            logger.error(f"Invalid input path: {input_path}. Must be a CIF file or directory containing CIF files.")
+            end_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))
+            logger.info(f"End time: {end_time}")
+            logger.info(f"Time cost: {time_cost(tick)}")
+            return 1
     
     # Save results
     if results is not None:
@@ -466,9 +528,11 @@ def main():
         return 1
     
     logger.info("ML model inference completed successfully")
-    logger.info(f"End time: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}")
+    end_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))
+    logger.info(f"End time: {end_time}")
     logger.info(f"Time cost: {time_cost(tick)}")
-    logger.info(f"Average time per CIF: {(time.time() - tick) / len(results):4f}s")
+    sample_label = 'CIF' if args.features_path is None else 'sample'
+    logger.info(f"Average time per {sample_label}: {(time.time() - tick) / len(results):4f}s")
     return 0
 
 if __name__ == "__main__":

@@ -12,7 +12,7 @@ sys.path.append(os.path.dirname(SCRIPT_DIR))
 import hyperopt
 import pandas as pd
 import numpy as np
-from module import *
+from ml.module import *
 from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
 from xgboost import XGBRegressor, XGBClassifier
 from sklearn.svm import SVR, SVC

@@ -23,8 +23,8 @@ import torch.optim.lr_scheduler as lrs
 
 # Utility imports
 import warnings
-from module import module_utils, objectives
-from datamodule.data_interface import Normalizer
+from cgcnn.module import module_utils, objectives
+from cgcnn.datamodule.data_interface import Normalizer
 import numpy as np
 import pandas as pd
 import csv

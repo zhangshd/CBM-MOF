@@ -723,14 +723,18 @@ class RegressionModel(BaseModel):
 
     def predict(self, X, cal_feature_distance=False, neighbors_num=1):
         X = np.array(X)
+        print(f"Predicting {X.shape[0]} samples with {X.shape[1]} features.")
         if len(X.shape) == 1:
             X = X.reshape((1, -1))
         if hasattr(self, "scaler"):
             X = self.scaler.transform(X)
+            print("Features scaled.")
         if hasattr(self, "variance_filter"):
             X = self.variance_filter.transform(X)
+            print("Low variance features removed. Current shape:", X.shape)
         if hasattr(self, "selector"):
             X = self.selector.transform(X)
+            print("Features selected. Current shape:", X.shape)
         all_y_pred = []
         for model in self.models:
             y_pred = model.predict(X)

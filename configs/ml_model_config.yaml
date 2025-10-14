@@ -1,0 +1,94 @@
+# Model comparison configuration file
+# This file contains model paths and display names for performance comparison
+
+# Model directories mapping
+model_dirs_map:
+
+  # ML models of AdsCH4_10kPa
+  ML-AdsCH4_10kPa:
+    Path: [
+      results/ml_models/round2/RAC_and_zeo_features_with_id_prop/AdsCH4_10kPa
+      ]
+    DisplayName: ML-XGB
+    Model: XGBRegressor
+  ML-AdsCH4_100kPa:
+    Path: [
+      results/ml_models/round2/RAC_and_zeo_features_with_id_prop/AdsCH4_100kPa
+      ]
+    DisplayName: ML-XGB
+    Model: XGBRegressor
+  ML-AdsCH4_1000kPa:
+    Path: [
+      results/ml_models/round2/RAC_and_zeo_features_with_id_prop/AdsCH4_1000kPa
+      ]
+    DisplayName: ML-XGB
+    Model: XGBRegressor
+  ML-AdsN2_10kPa:
+    Path: [
+      results/ml_models/round2/RAC_and_zeo_features_with_id_prop/AdsN2_10kPa
+      ]
+    DisplayName: ML-XGB
+    Model: XGBRegressor
+  ML-AdsN2_100kPa:
+    Path: [
+      results/ml_models/round2/RAC_and_zeo_features_with_id_prop/AdsN2_100kPa
+      ]
+    DisplayName: ML-XGB
+    Model: XGBRegressor
+  ML-AdsN2_1000kPa:
+    Path: [
+      results/ml_models/round2/RAC_and_zeo_features_with_id_prop/AdsN2_1000kPa
+      ]
+    DisplayName: ML-XGB
+    Model: XGBRegressor
+  ML-QstCH4:
+    Path: [
+      results/ml_models/round2/RAC_and_zeo_features_with_id_prop/QstCH4
+      ]
+    DisplayName: ML-XGB
+    Model: XGBRegressor
+  ML-QstN2:
+    Path: [
+      results/ml_models/round2/RAC_and_zeo_features_with_id_prop/QstN2
+      ]
+    DisplayName: ML-XGB
+    Model: XGBRegressor
+  ML-PSA_API_CH4:
+    Path: [
+      results/ml_models/round2/RAC_and_zeo_features_with_id_prop/PSA_API_CH4
+      ]
+    DisplayName: ML-XGB
+    Model: XGBRegressor
+  ML-VSA_API_CH4:
+    Path: [
+      results/ml_models/round2/RAC_and_zeo_features_with_id_prop/VSA_API_CH4
+      ]
+    DisplayName: ML-XGB
+    Model: XGBRegressor
+
+# Tasks to evaluate
+tasks:
+  - AdsCH4_10kPa
+  - AdsCH4_100kPa
+  - AdsCH4_1000kPa
+  - AdsN2_10kPa
+  - AdsN2_100kPa
+  - AdsN2_1000kPa
+  - QstCH4
+  - QstN2
+  - PSA_API_CH4
+  - VSA_API_CH4
+
+# Task types (regression or classification)
+task_types:
+  AdsCH4_10kPa: regression
+  AdsCH4_100kPa: regression
+  AdsCH4_1000kPa: regression
+  AdsN2_10kPa: regression
+  AdsN2_100kPa: regression
+  AdsN2_1000kPa: regression
+  QstCH4: regression
+  QstN2: regression
+  PSA_API_CH4: regression
+  VSA_API_CH4: regression
+
