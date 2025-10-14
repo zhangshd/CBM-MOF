@@ -20,11 +20,11 @@ export PATH=/opt/share/miniconda3/envs/mofmthnn/bin/:$PATH
 export LD_LIBRARY_PATH=/opt/share/miniconda3/envs/mofmthnn/lib/:$LD_LIBRARY_PATH
 
 srun python -u main.py --model_type {model_type} --model_list {model_list} \
- --search_max_evals 30 --search_metric {search_metric} \
+ --search_max_evals 100 --search_metric {search_metric} \
  --label_column {label_column} --name_column {name_column} \
  --feature_selector_list RFE f1 mutual_info \
- --data_dir {data_dir} --in_file_name {in_file_name} --use_target_transform
-"""
+ --data_dir {data_dir} --in_file_name {in_file_name} --target_transform_method {target_transform_method}
+""".strip()
 
 def run_slurm_job(work_dir, executor="sbatch", script_name="run"):
     work_dir = Path(work_dir)
@@ -43,15 +43,27 @@ if __name__ == '__main__':
     work_dir = Path(__file__).resolve().parent
     ROOT_DIR = Path(__file__).resolve().parent.parent.parent
     label_columns = [
-        'AdsCH4_10kPa', 'AdsCH4_100kPa', 'AdsCH4_1000kPa', 
-        'AdsN2_10kPa', 'AdsN2_100kPa', 'AdsN2_1000kPa',
-       'QstCH4', 'QstN2', 'PSA_API_CH4', 'VSA_API_CH4']
+        'AdsCH4_10kPa', 
+        'AdsCH4_100kPa', 
+        'AdsCH4_1000kPa', 
+        'AdsN2_10kPa', 
+        'AdsN2_100kPa', 
+        'AdsN2_1000kPa',
+       'QstCH4', 
+       'QstN2', 
+       'PSA_API_CH4', 
+       'VSA_API_CH4'
+       ]
     script_name = "run_slurm.sh"
     in_file_name="RAC_and_zeo_features_with_id_prop.csv"
-    model_list = ["RF", "GP", "SVM", "XGB"]
+    model_list = ["RF", "XGB"]
+    use_target_transform = True
+    target_transform_method = "log10"
     
     for model in model_list:
         for label_column in label_columns:
+            if label_column in ['QstCH4', 'QstN2']:
+                use_target_transform = False
             print(f"Training model {model} for label {label_column}")
             task_name = "round2"
             name_column="MofName"
@@ -67,8 +79,12 @@ if __name__ == '__main__':
                                             model_list=model,
                                             search_metric=search_metric,
                                             data_dir=data_dir,
-                                            in_file_name=in_file_name
+                                            in_file_name=in_file_name,
+                                            target_transform_method=target_transform_method
                                             )
+            if use_target_transform:
+                job_script += " --use_target_transform"
+            job_script += "\n"
             with open(work_dir/script_name, "w") as f:
                 f.write(job_script)
             process = run_slurm_job(work_dir, executor="sbatch", script_name=script_name)

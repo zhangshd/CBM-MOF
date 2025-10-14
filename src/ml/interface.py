@@ -168,12 +168,26 @@ def train_and_save_model(model: Union[RegressionModel, ClassificationModel], est
     # model.generate_ball_tree(p=1, saved_dir=saved_dir)
     model.draw_predictions(model.val_y_all, model.val_pred_all, saved_dir=saved_dir, saved_file_note=model_name, data_group="validation")
     if model.test_y is not None:
-        model.draw_predictions(model.test_y, model.test_pred, saved_dir=saved_dir, saved_file_note=model_name, data_group="test")
+        test_y_for_plot = model.test_y_original if hasattr(model, 'test_y_original') else model.test_y
+        model.draw_predictions(test_y_for_plot, model.test_pred, saved_dir=saved_dir, saved_file_note=model_name, data_group="test")
 
 def MainRegression(in_df, saved_dir, feature_selector_list, select_des_num_list=(50,), test_df=None, valid_df=None, model_list=("LR",),
                    search_max_evals=30, name_column="Name", label_column="", group_column="", feat_cols=None, k=5,
                    test_size=0.2, kfold_type="normal", random_state=0, search_metric="val_RMSE", scaler_name="StandardScaler",
                    show_progressbar=True, use_target_transform=False, target_transform_method="yeo-johnson", **kwargs):
+    """
+    Main function for regression model training and evaluation.
+    
+    Parameters:
+    -----------
+    use_target_transform : bool, optional (default=False)
+        Whether to apply target transformation
+    target_transform_method : str, optional (default='yeo-johnson')
+        Target transformation method. Options: 'yeo-johnson', 'box-cox', 'log10'
+        - 'yeo-johnson': Works with both positive and negative values
+        - 'box-cox': Requires all positive values
+        - 'log10': Requires all positive values, applies log10 transformation
+    """
     n_jobs = min(int(0.8 * os.cpu_count()), 64)
     saved_dir = Path(saved_dir)
     saved_dir.mkdir(exist_ok=True, parents=True)

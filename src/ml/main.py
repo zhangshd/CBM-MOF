@@ -45,7 +45,10 @@ def main(data_dir, in_file_name, name_column, label_column, saved_dir=None, over
     print(f"saved_dir: {saved_dir}")
     if overwrite and os.path.exists(saved_dir):
         print(f"Directory {saved_dir} already exists. Overwriting...")
-        shutil.rmtree(saved_dir)
+        try:
+            shutil.rmtree(saved_dir)
+        except Exception as e:
+            print(f"Error occurred while deleting directory {saved_dir}: {e}")
 
     not_feat_cols_regression = ['MofName', 'Partition', 'AdsCH4_10kPa', 'AdsCH4_100kPa',
        'AdsCH4_1000kPa', 'AdsN2_10kPa', 'AdsN2_100kPa', 'AdsN2_1000kPa',

@@ -400,7 +400,7 @@ class RegressionModel(BaseModel):
         Parameters:
         -----------
         method : str, optional (default='yeo-johnson')
-            Transformation method. Options: 'yeo-johnson', 'box-cox'
+            Transformation method. Options: 'yeo-johnson', 'box-cox', 'log10'
         saved_dir : str, optional
             Directory to save the transformer object
         saved_file_note : str, optional
@@ -410,48 +410,121 @@ class RegressionModel(BaseModel):
         ------
         - Yeo-Johnson works with both positive and negative values
         - Box-Cox requires all positive values
+        - log10 requires all positive values and applies log10 transformation
         - The transformer will be saved and used for inverse transformation during prediction
         """
         print(f"Applying {method} transformation to target variable.")
         self.use_target_transform = True
-        self.target_transformer = PowerTransformer(method=method, standardize=True)
+        self.target_transform_method = method
         
         # Store original target values
         self.train_y_original = self.train_y.copy()
 
-        # Compute target scale factor
-        self.target_scale_factor = float(1.0 / np.median(self.train_y))
-        print(f"Target scale factor: {self.target_scale_factor}")
+        if method == 'log10':
+            # For log10 transformation
+            self.target_transformer = None
+            
+            # Check if all values are positive
+            if np.any(self.train_y <= 0):
+                raise ValueError("log10 transformation requires all positive values in target variable.")
+            
+            # Transform training targets: scale then log10
+            self.train_y = self.train_y * self.target_scale_factor
+            self.train_y = np.log10(self.train_y)
+            
+            # Transform test targets if they exist: scale then log10
+            if self.test_y is not None:
+                self.test_y_original = self.test_y.copy()
+                if np.any(self.test_y <= 0):
+                    raise ValueError("log10 transformation requires all positive values in test target variable.")
+                self.test_y = self.test_y * self.target_scale_factor
+                self.test_y = np.log10(self.test_y)
+            
+            # Transform validation targets if they exist: scale then log10
+            if self.valid_y is not None:
+                self.valid_y_original = self.valid_y.copy()
+                if np.any(self.valid_y <= 0):
+                    raise ValueError("log10 transformation requires all positive values in validation target variable.")
+                self.valid_y = self.valid_y * self.target_scale_factor
+                self.valid_y = np.log10(self.valid_y)
+        else:
 
-        # Transform training targets: scale then power transform
-        self.train_y = self.train_y * self.target_scale_factor
-        self.train_y = self.target_transformer.fit_transform(self.train_y.reshape(-1, 1)).ravel()
-        if hasattr(self.target_transformer, 'lambdas_'):
-            print(f"Transformer's lambda: {self.target_transformer.lambdas_}")
-        
-        # Transform test targets if they exist: scale then power transform
-        if self.test_y is not None:
-            self.test_y_original = self.test_y.copy()
-            self.test_y = self.test_y * self.target_scale_factor
-            self.test_y = self.target_transformer.transform(self.test_y.reshape(-1, 1)).ravel()
-        
-        # Transform validation targets if they exist: scale then power transform
-        if self.valid_y is not None:
-            self.valid_y_original = self.valid_y.copy()
-            self.valid_y = self.valid_y * self.target_scale_factor
-            self.valid_y = self.target_transformer.transform(self.valid_y.reshape(-1, 1)).ravel()
+            # Compute target scale factor
+            self.target_scale_factor = float(1.0 / np.median(self.train_y))
+            print(f"Target scale factor: {self.target_scale_factor}")
+            
+            # For PowerTransformer (yeo-johnson, box-cox)
+            self.target_transformer = PowerTransformer(method=method, standardize=True)
+            
+            # Transform training targets: scale then power transform
+            self.train_y = self.train_y * self.target_scale_factor
+            self.train_y = self.target_transformer.fit_transform(self.train_y.reshape(-1, 1)).ravel()
+            if hasattr(self.target_transformer, 'lambdas_'):
+                print(f"Transformer's lambda: {self.target_transformer.lambdas_}")
+            
+            # Transform test targets if they exist: scale then power transform
+            if self.test_y is not None:
+                self.test_y_original = self.test_y.copy()
+                self.test_y = self.test_y * self.target_scale_factor
+                self.test_y = self.target_transformer.transform(self.test_y.reshape(-1, 1)).ravel()
+            
+            # Transform validation targets if they exist: scale then power transform
+            if self.valid_y is not None:
+                self.valid_y_original = self.valid_y.copy()
+                self.valid_y = self.valid_y * self.target_scale_factor
+                self.valid_y = self.target_transformer.transform(self.valid_y.reshape(-1, 1)).ravel()
         
         # Save transformer if directory is provided
         if saved_dir:
             transformer_file = os.path.join(saved_dir, f"target_transformer_{saved_file_note}.pkl")
             with open(transformer_file, 'wb') as f:
-                joblib.dump(self.target_transformer, f)
+                if method == 'log10':
+                    joblib.dump({'method': 'log10', 'scale_factor': self.target_scale_factor}, f)
+                else:
+                    joblib.dump(self.target_transformer, f)
             print(f"Target transformer saved to: {transformer_file}")
         
         print(f"Target transformation completed. Method: {method}")
         
+    def inverse_transform_target(self, y_transformed):
+        """
+        Inverse transform the target variable back to original scale.
+        
+        Parameters:
+        -----------
+        y_transformed : array-like
+            Transformed target values
+            
+        Returns:
+        --------
+        y_original : array-like
+            Original scale target values
+        """
+        if not self.use_target_transform:
+            return y_transformed
+        
+        if self.target_transform_method == 'log10':
+            # Inverse log10: 10^y then divide by scale factor
+            y_original = np.power(10, y_transformed)
+            y_original = y_original / self.target_scale_factor
+        else:
+            # Inverse power transform then divide by scale factor
+            y_original = self.target_transformer.inverse_transform(y_transformed.reshape(-1, 1)).ravel()
+            y_original = y_original / self.target_scale_factor
+        
+        return y_original
 
     def cal_metrics(self, y_true, y_pred):
+
+        ## fill out NaN values
+        y_true = np.array(y_true)
+        y_pred = np.array(y_pred)
+        if (np.isnan(y_true).sum() > 0) or (np.isnan(y_pred).sum() > 0):
+            warnings.warn("There are NaN values in y_true or y_pred, which will be filled with the mean of non-NaN values.")
+            print(f"NaN num in y_true: {np.isnan(y_true).sum()}, NaN num in y_pred: {np.isnan(y_pred).sum()}")
+        y_true = np.nan_to_num(y_true, nan=np.nanmean(y_true))
+        y_pred = np.nan_to_num(y_pred, nan=np.nanmean(y_pred))
+        ## calculate metrics
         r2 = r2_score(y_true=y_true, y_pred=y_pred)
         rmse = mean_squared_error(y_true=y_true, y_pred=y_pred) ** 0.5
         mae = mean_absolute_error(y_true=y_true, y_pred=y_pred)
@@ -489,12 +562,9 @@ class RegressionModel(BaseModel):
             valid_pred = self.model.predict(self.valid_X_selected)
             
             # Inverse transform predictions if target transformation was used
-            # Inverse order: first inverse power transform, then divide by scale factor
-            if self.use_target_transform and self.target_transformer is not None:
-                train_pred_original = self.target_transformer.inverse_transform(train_pred.reshape(-1, 1)).ravel()
-                train_pred_original = train_pred_original / self.target_scale_factor
-                valid_pred_original = self.target_transformer.inverse_transform(valid_pred.reshape(-1, 1)).ravel()
-                valid_pred_original = valid_pred_original / self.target_scale_factor
+            if self.use_target_transform:
+                train_pred_original = self.inverse_transform_target(train_pred)
+                valid_pred_original = self.inverse_transform_target(valid_pred)
                 train_y_for_metrics = self.train_y_original
                 valid_y_for_metrics = self.valid_y_original
             else:
@@ -515,10 +585,8 @@ class RegressionModel(BaseModel):
                 test_pred = self.model.predict(self.test_X_selected)
                 
                 # Inverse transform test predictions if target transformation was used
-                # Inverse order: first inverse power transform, then divide by scale factor
-                if self.use_target_transform and self.target_transformer is not None:
-                    test_pred_original = self.target_transformer.inverse_transform(test_pred.reshape(-1, 1)).ravel()
-                    test_pred_original = test_pred_original / self.target_scale_factor
+                if self.use_target_transform:
+                    test_pred_original = self.inverse_transform_target(test_pred)
                     test_y_for_metrics = self.test_y_original
                 else:
                     test_pred_original = test_pred
@@ -559,12 +627,9 @@ class RegressionModel(BaseModel):
             kf_val_pred = self.model.predict(kf_val_X)
             
             # Inverse transform predictions if target transformation was used
-            # Inverse order: first inverse power transform, then divide by scale factor
-            if self.use_target_transform and self.target_transformer is not None:
-                kf_train_pred_original = self.target_transformer.inverse_transform(kf_train_pred.reshape(-1, 1)).ravel()
-                kf_train_pred_original = kf_train_pred_original / self.target_scale_factor
-                kf_val_pred_original = self.target_transformer.inverse_transform(kf_val_pred.reshape(-1, 1)).ravel()
-                kf_val_pred_original = kf_val_pred_original / self.target_scale_factor
+            if self.use_target_transform:
+                kf_train_pred_original = self.inverse_transform_target(kf_train_pred)
+                kf_val_pred_original = self.inverse_transform_target(kf_val_pred)
             else:
                 kf_train_pred_original = kf_train_pred
                 kf_val_pred_original = kf_val_pred
@@ -577,10 +642,8 @@ class RegressionModel(BaseModel):
                 test_pred = self.model.predict(self.test_X_selected)
                 
                 # Inverse transform test predictions if target transformation was used
-                # Inverse order: first inverse power transform, then divide by scale factor
-                if self.use_target_transform and self.target_transformer is not None:
-                    test_pred_original = self.target_transformer.inverse_transform(test_pred.reshape(-1, 1)).ravel()
-                    test_pred_original = test_pred_original / self.target_scale_factor
+                if self.use_target_transform:
+                    test_pred_original = self.inverse_transform_target(test_pred)
                     test_y_for_metrics = self.test_y_original
                 else:
                     test_pred_original = test_pred
@@ -672,13 +735,13 @@ class RegressionModel(BaseModel):
         for model in self.models:
             y_pred = model.predict(X)
             all_y_pred.append(y_pred)
-        y_pred_mean = np.mean(all_y_pred, axis=0).reshape((-1, 1))
+        y_pred_mean = np.mean(all_y_pred, axis=0)
         
         # Inverse transform predictions if target transformation was used
-        # Inverse order: first inverse power transform, then divide by scale factor
-        if self.use_target_transform and self.target_transformer is not None:
-            y_pred_mean = self.target_transformer.inverse_transform(y_pred_mean).reshape((-1, 1))
-            y_pred_mean = y_pred_mean / self.target_scale_factor
+        if self.use_target_transform:
+            y_pred_mean = self.inverse_transform_target(y_pred_mean)
+        
+        y_pred_mean = y_pred_mean.reshape((-1, 1))
         
         if cal_feature_distance and hasattr(self, "balltrees"):
             dist_means = []
@@ -719,10 +782,8 @@ class RegressionModel(BaseModel):
         train_pred = self.model.predict(train_X_selected)
         
         # Inverse transform predictions if target transformation was used
-        # Inverse order: first inverse power transform, then divide by scale factor
-        if self.use_target_transform and self.target_transformer is not None:
-            train_pred_original = self.target_transformer.inverse_transform(train_pred.reshape(-1, 1)).ravel()
-            train_pred_original = train_pred_original / self.target_scale_factor
+        if self.use_target_transform:
+            train_pred_original = self.inverse_transform_target(train_pred)
             train_y_for_metrics = self.train_y_original if hasattr(self, 'train_y_original') else train_y
             if self.valid_y is not None:
                 train_y_for_metrics = np.hstack([self.train_y_original, self.valid_y_original])
@@ -736,10 +797,8 @@ class RegressionModel(BaseModel):
             self.test_pred = self.model.predict(self.test_X_selected)
             
             # Inverse transform test predictions if target transformation was used
-            # Inverse order: first inverse power transform, then divide by scale factor
-            if self.use_target_transform and self.target_transformer is not None:
-                self.test_pred = self.target_transformer.inverse_transform(self.test_pred.reshape(-1, 1)).ravel()
-                self.test_pred = self.test_pred / self.target_scale_factor
+            if self.use_target_transform:
+                self.test_pred = self.inverse_transform_target(self.test_pred)
                 test_y_for_metrics = self.test_y_original if hasattr(self, 'test_y_original') else self.test_y
             else:
                 test_y_for_metrics = self.test_y
