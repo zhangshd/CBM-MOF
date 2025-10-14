@@ -12,7 +12,7 @@ from torch.utils.data.sampler import RandomSampler
 
 from pytorch_lightning import LightningDataModule
 from datamodule.dataset import Dataset
-from datamodule.power_transformer import PowerTransformerNormalizer
+from datamodule.power_transformer import Normalizer, PowerTransformerNormalizer
 from pathlib import Path
 
 
@@ -174,7 +174,7 @@ class Datamodule(LightningDataModule):
         for i, (task, task_tp) in enumerate(self.tasks.items()):
             if 'classification' in task_tp:
                 # For classification tasks, use the special classification data
-                normalizer = PowerTransformerNormalizer()
+                normalizer = Normalizer()
                 normalizer.fit(torch.Tensor([-1, 0., 1]))
                 self.normalizers[task] = normalizer.state_dict()  # Save as state_dict consistently
             else:
@@ -182,11 +182,13 @@ class Datamodule(LightningDataModule):
                 train_targets = torch.Tensor(self.train_dataset.id_prop_df.loc[:, self.train_dataset.prop_cols[i]].values)
                 
                 if "log" in task_tp:
-                    # Use log transformation for backward compatibility
-                    normalizer = PowerTransformerNormalizer()
-                else:
-                    # Use standard power transformation
+                    # Use log transformation
+                    normalizer = Normalizer(log_labels=True)
+                elif "power" in task_tp:
+                    # Use power transformation
                     normalizer = PowerTransformerNormalizer(method='yeo-johnson')
+                else:
+                    normalizer = Normalizer()
                 
                 normalizer.fit(train_targets)
                 self.normalizers[task] = normalizer.state_dict()

@@ -40,6 +40,7 @@ class PowerTransformerNormalizer(object):
         """
         super(PowerTransformerNormalizer, self).__init__()
         
+        self.name = 'power_transformer'
         self.method = method
         self.remove_value = remove_value
         self.copy = copy
@@ -233,6 +234,7 @@ class PowerTransformerNormalizer(object):
             raise RuntimeError("Normalizer must be fitted before getting state dict")
             
         return {
+            'name': self.name,
             'method': self.method,
             'remove_value': self.remove_value,
             'lambdas': self.lambdas_.cpu().numpy().tolist() if self.lambdas_ is not None else None,
@@ -304,6 +306,78 @@ class PowerTransformerNormalizer(object):
             self.lambdas_ = self.lambdas_.to(device)
         return self
 
+class Normalizer(object):
+    """Normalize a Tensor and restore it later."""
 
-# For backward compatibility, create an alias
-Normalizer = PowerTransformerNormalizer
+    def __init__(self, log_labels=False, remove_value=None, normalize=True):
+        """Initialize normalizer with tensor statistics."""
+        super(Normalizer, self).__init__()
+        
+        self.name = 'standard'
+        self.log_labels = log_labels
+        self.remove_value = remove_value
+        self.device = torch.device('cpu')
+        self.normalize = normalize
+
+    def fit(self, tensor):
+        """Fit normalizer to tensor."""
+        # Remove NaN and specified values for normalization
+        tensor = tensor[torch.isnan(tensor) == False]
+        if self.remove_value is not None:
+            tensor = tensor[tensor != self.remove_value]
+            
+        if hasattr(self, 'log_labels') and self.log_labels:
+            tensor = torch.log10(tensor + 1e-6)  # avoid log10(0)
+            print("Log10(x+1) transform applied to labels.")
+        if self.normalize:
+            self.mean = torch.mean(tensor, dim=0)
+            self.std = torch.std(tensor, dim=0)
+        else:
+            self.mean = torch.tensor(0.0)
+            self.std = torch.tensor(1.0)
+        self.mean_ = float(self.mean.cpu().numpy())
+        self.std_ = float(self.std.cpu().numpy())
+        self.device = tensor.device
+
+    def norm(self, tensor):
+        """Normalize tensor."""
+        if hasattr(self, 'log_labels') and self.log_labels:
+            tensor = torch.log10(tensor + 1e-6)
+        return (tensor - self.mean) / self.std
+
+    def denorm(self, normed_tensor):
+        """Denormalize tensor."""
+        denormed_tensor = normed_tensor * self.std + self.mean
+        if hasattr(self, 'log_labels') and self.log_labels:
+            denormed_tensor = torch.clamp(denormed_tensor, -20, 20)  # avoid numerical errors
+            return torch.pow(10, denormed_tensor) - 1e-6
+        else:
+            return denormed_tensor
+
+    def state_dict(self):
+        """Get state dictionary."""
+        return {
+            'name': self.name,
+            'mean': self.mean_, 
+            'std': self.std_,
+            'log_labels': self.log_labels,
+            'remove_value': self.remove_value,
+            'normalize': self.normalize
+                }
+
+    def load_state_dict(self, state_dict):
+        """Load state dictionary."""
+        self.mean_ = state_dict['mean']
+        self.std_ = state_dict['std']
+        self.log_labels = state_dict.get('log_labels', False)
+        self.remove_value = state_dict.get('remove_value', None)
+        self.normalize = state_dict.get('normalize', True)
+        self.mean = torch.tensor(self.mean_).to(self.device)
+        self.std = torch.tensor(self.std_).to(self.device)
+        
+    def to(self, device):
+        """Move normalizer to device."""
+        self.mean = self.mean.to(device)
+        self.std = self.std.to(device)
+        self.device = device
+        return self

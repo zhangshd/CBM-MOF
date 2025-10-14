@@ -93,9 +93,13 @@ class RegressionHead(nn.Module):
 
     def __init__(self, hid_dim):
         super().__init__()
-        self.fc_out = nn.Linear(hid_dim, 1)
+        self.fc_inter = nn.Linear(hid_dim, hid_dim // 2)
+        self.relu = nn.ReLU()
+        self.fc_out = nn.Linear(hid_dim // 2, 1)
 
     def forward(self, x):
+        x = self.fc_inter(x)
+        x = self.relu(x)
         x = self.fc_out(x)
         return x
 
@@ -107,15 +111,18 @@ class ClassificationHead(nn.Module):
 
     def __init__(self, hid_dim, n_classes):
         super().__init__()
-
+        self.fc_inter = nn.Linear(hid_dim, hid_dim // 2)
+        self.relu = nn.ReLU()
         if n_classes == 2:
-            self.fc_out = nn.Linear(hid_dim, 1)
+            self.fc_out = nn.Linear(hid_dim // 2, 1)
             self.binary = True
         else:
-            self.fc_out = nn.Linear(hid_dim, n_classes)
+            self.fc_out = nn.Linear(hid_dim // 2, n_classes)
             self.binary = False
 
     def forward(self, x):
+        x = self.fc_inter(x)
+        x = self.relu(x)
         x = self.fc_out(x)
 
         return x, self.binary

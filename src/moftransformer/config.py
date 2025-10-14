@@ -169,12 +169,12 @@ def ads_qst_ch4_n2_org():
     root_dataset = 'src/moftransformer/data/round2'  # Data directory
     root_dataset = str(Path(__file__).parent.parent.parent/root_dataset)
     tasks = {
-        'AdsCH4_10kPa': "regression",
-        'AdsCH4_100kPa': "regression",
-        'AdsCH4_1000kPa': "regression",
-        'AdsN2_10kPa': "regression",
-        'AdsN2_100kPa': "regression",
-        'AdsN2_1000kPa': "regression",
+        'AdsCH4_10kPa': "regression_log",
+        'AdsCH4_100kPa': "regression_log",
+        'AdsCH4_1000kPa': "regression_log",
+        'AdsN2_10kPa': "regression_log",
+        'AdsN2_100kPa': "regression_log",
+        'AdsN2_1000kPa': "regression_log",
         'QstCH4': "regression",
         'QstN2': "regression",
     }

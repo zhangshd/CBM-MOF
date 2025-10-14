@@ -62,8 +62,6 @@ if __name__ == '__main__':
     
     for model in model_list:
         for label_column in label_columns:
-            if label_column in ['QstCH4', 'QstN2']:
-                use_target_transform = False
             print(f"Training model {model} for label {label_column}")
             task_name = "round2"
             name_column="MofName"
@@ -82,7 +80,7 @@ if __name__ == '__main__':
                                             in_file_name=in_file_name,
                                             target_transform_method=target_transform_method
                                             )
-            if use_target_transform:
+            if use_target_transform and label_column not in ['QstCH4', 'QstN2', 'PSA_API_CH4', 'VSA_API_CH4']:
                 job_script += " --use_target_transform"
             job_script += "\n"
             with open(work_dir/script_name, "w") as f:
