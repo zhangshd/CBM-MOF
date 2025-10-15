@@ -67,10 +67,6 @@ def cfg():
     use_extra_fea = False  # Use extra features flag
     task_weights = None
     augment = False  # Data augmentation flag
-    max_sample_size = {
-                "train": 2004,
-                "val": 501,
-            }
 
     # Model Hyperparameters
     model_name = 'att_cgcnn'  # Model name
@@ -180,6 +176,27 @@ def ads_qst_ch4_n2():
         'logAdsN2_10kPa': "regression",
         'logAdsN2_100kPa': "regression",
         'logAdsN2_1000kPa': "regression",
+        'QstCH4': "regression",
+        'QstN2': "regression",
+    }
+    max_epochs = 200
+    per_gpu_batchsize = 32
+    lr = 1e-3
+    loss_aggregation = 'fixed_weight_sum'  # Loss aggregation type: sum, trainable_weight_sum, sample_weight_sum, fixed_weight_sum
+    task_weights = None
+
+@ex.named_config
+def ads_qst_ch4_n2_org():
+    exp_name = "ads_qst_ch4_n2_org"
+    root_dataset = 'src/cgcnn/data/round2'  # Data directory
+    root_dataset = str(Path(__file__).parent.parent.parent/root_dataset)
+    tasks = {
+        'AdsCH4_10kPa': "regression_log",
+        'AdsCH4_100kPa': "regression_log",
+        'AdsCH4_1000kPa': "regression_log",
+        'AdsN2_10kPa': "regression_log",
+        'AdsN2_100kPa': "regression_log",
+        'AdsN2_1000kPa': "regression_log",
         'QstCH4': "regression",
         'QstN2': "regression",
     }

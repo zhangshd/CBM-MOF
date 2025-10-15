@@ -33,6 +33,7 @@ import shutil
 import time
 import warnings
 import tempfile
+from functools import partial
 
 # Ignore specific warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="pymatgen.io.cif")
@@ -93,7 +94,7 @@ def process_cif(cif, saved_dir, clean=True, **kwargs):
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger(str(saved_dir/__name__))
 
-    graphdata_dir = saved_dir / "graphdata"
+    graphdata_dir = saved_dir
 
     cif_id: str = cif.stem
     graphdata_dir.mkdir(exist_ok=True, parents=True)
@@ -105,8 +106,8 @@ def process_cif(cif, saved_dir, clean=True, **kwargs):
             return None
     elif str(clean_cif_file.resolve()) != str(cif.resolve()):
         shutil.copy(cif, clean_cif_file)
-    else:
-        logger.info(f"Using existing clean cif file: {clean_cif_file}")
+    # else:
+    #     logger.info(f"Using existing clean cif file: {clean_cif_file}")
     if not p_graphdata.exists():
         p_graphdata = make_prepared_data(clean_cif_file, graphdata_dir, logger, **kwargs)
     return p_graphdata
@@ -125,15 +126,16 @@ class InferenceDataset(Dataset):
 
         self.split = "infer"
         self.radius = kwargs.get("radius", 8)
-        self.max_num_nbr = kwargs.get("max_num_nbr", 10)
+        self.max_num_nbr = kwargs.get("max_num_nbr", 12)
         self.dmin = kwargs.get("dmin", 0)
         self.step = kwargs.get("step", 0.2)
         self.use_cell_params = kwargs.get("use_cell_params", False)
         self.use_extra_fea = kwargs.get("use_extra_fea", False)
-        self.task_id = kwargs.get("task_id", 0)
+        # self.task_id = kwargs.get("task_id", 0)
         self.max_sample_size = kwargs.get("max_sample_size", None)
         self.saved_dir = kwargs.get("saved_dir", Path(os.getcwd())/"inference")
-        self.clean = kwargs.get("clean", True)
+        self.clean = kwargs.get("clean", False)
+        self.tasks = kwargs.get("tasks", {})
 
         self.cif_ids = [cif.stem for cif in self.cif_list]
         self.g_data ={}
@@ -173,7 +175,7 @@ class InferenceDataset(Dataset):
             data = pickle.load(f)
 
         cif_id, atom_num, nbr_fea_idx, nbr_dist, *_, cell_params = data
-        assert nbr_fea_idx.shape[0] / atom_num.shape[0] == 10.0, f"nbr_fea_idx.shape[0] / atom_num.shape[0]!= 10.0 for file: {self.g_data[cif_id]}"
+        # assert nbr_fea_idx.shape[0] / atom_num.shape[0] == self.max_num_nbr, f"nbr_fea_idx.shape[0] / atom_num.shape[0]!= 12.0 for file: {self.g_data[cif_id]}"
 
 
         extra_fea = torch.FloatTensor([])
@@ -196,13 +198,13 @@ class InferenceDataset(Dataset):
             "nbr_fea_idx": nbr_fea_idx,
             "extra_fea": extra_fea,
             "cif_id": cif_id,
-            "task_id": self.task_id
+            # "task_id": self.task_id
         }
 
         return ret_dict
     
     @staticmethod
-    def collate(batch):
+    def collate(batch, tasks={}):
     
         keys = set([key for b in batch for key in b.keys()])
         dict_batch = {k: [dic[k] if k in dic else None for dic in batch] for k in keys}
@@ -225,7 +227,8 @@ class InferenceDataset(Dataset):
         dict_batch["nbr_fea_idx"] = torch.cat(batch_nbr_fea_idx, dim=0)
         dict_batch["extra_fea"] = torch.stack(batch_extra_fea, dim=0)
         dict_batch["crystal_atom_idx"] = crystal_atom_idx
-        dict_batch["task_id"] = torch.IntTensor(dict_batch["task_id"])
+        # dict_batch["task_id"] = torch.IntTensor(dict_batch["task_id"])
+        dict_batch["target_mask"] = torch.ones((len(batch), len(tasks)), dtype=torch.bool)
         return dict_batch
 
 def inference(cif_list, model_dir, saved_dir, uncertainty_trees_file=None, logger=None, **kwargs):
@@ -293,7 +296,7 @@ def inference(cif_list, model_dir, saved_dir, uncertainty_trees_file=None, logge
                               batch_size=min(len(infer_dataset), batch_size), 
                               shuffle=False, 
                               num_workers=num_workers,
-                              collate_fn=infer_dataset.collate
+                              collate_fn=partial(infer_dataset.collate, tasks=model.hparams.get("tasks", {}))   
                               )
 
     if logger:
@@ -307,9 +310,7 @@ def inference(cif_list, model_dir, saved_dir, uncertainty_trees_file=None, logge
     all_outputs = {}
     all_outputs["cif_ids"] = [d["cif_id"] for d in infer_dataset]
     
-    for task in model.hparams.get("tasks"):
-        task_id = model.hparams["tasks"].index(task)
-        task_tp = model.hparams["task_types"][task_id]
+    for task, task_tp in model.hparams.get("tasks", {}).items():
         all_outputs[f"{task}_pred"] = torch.cat([d[f"{task}_pred"] for d in outputs], dim=0).cpu().numpy().squeeze().tolist()
         
         if "classification" in task_tp:
@@ -389,7 +390,7 @@ def process_cif_directory(dir_path: str, model_dir: str, saved_dir: str,
     
     # Create DataFrame from results
     df_results = pd.DataFrame({k:v for k,v in results.items() if k != "cif_ids"}, index=results["cif_ids"])
-    df_results.index.name = "MofName"
+    df_results.index.name = "CifId"
     
     failed_cifs = set(cif_names) - set(results["cif_ids"])
     # Log failed files
@@ -409,14 +410,14 @@ def main():
     parser = ArgumentParser(description='MOF CGCNN Model Inference Script')
     parser.add_argument('--input_path', required=True, help='Path to CIF file or directory containing CIF files')
     parser.add_argument('--output_path', required=True, help='Path for the output CSV file')
-    parser.add_argument('--model_dir', default=str(ROOT_DIR/"results/cgcnn_models/TSD_SSD_WS24_water_WS24_water4_WS24_acid_WS24_base_WS24_boiling_seed42_att_cgcnn/version_43"), 
+    parser.add_argument('--model_dir', default=None, 
                         help='Path to the model directory')
     parser.add_argument('--uncertainty_trees_file', 
-                        default=str(ROOT_DIR/"results/cgcnn_models/TSD_SSD_WS24_water_WS24_water4_WS24_acid_WS24_base_WS24_boiling_seed42_att_cgcnn/version_43/epoch_108/uncertainty_trees.pkl"), 
+                        default=None, 
                         help='Path to uncertainty trees file')
     parser.add_argument('--uncertainty', action='store_true', default=False, help='Whether to enable uncertainty estimation')
     parser.add_argument('--temp_dir', type=str, default=None, help='Directory for saving temporary files')
-    parser.add_argument('--no_clean', action="store_true", default=False, help='Whether to clean CIF files before inference')
+    parser.add_argument('--clean', action="store_true", default=False, help='Whether to clean CIF files before inference')
     parser.add_argument('--batch_size', type=int, default=16, help='Batch size for inference')
     parser.add_argument('--num_workers', type=int, default=2, help='Number of workers for data loading')
     parser.add_argument('--verbose', action='store_true', help='Enable verbose output')
@@ -459,7 +460,7 @@ def main():
         results = inference(
             input_path, model_dir, saved_dir=temp_dir, 
             uncertainty_trees_file=uncertainty_trees_file, 
-            clean=not args.no_clean, batch_size=args.batch_size, 
+            clean=args.clean, batch_size=args.batch_size, 
             num_workers=args.num_workers, logger=logger
         )
         if results:
@@ -477,7 +478,7 @@ def main():
         df_results = process_cif_directory(
             input_path, model_dir, temp_dir, 
             uncertainty_trees_file=uncertainty_trees_file, 
-            clean=not args.no_clean, batch_size=args.batch_size, 
+            clean=args.clean, batch_size=args.batch_size, 
             num_workers=args.num_workers, logger=logger
         )
         if df_results is None:
@@ -497,7 +498,7 @@ def main():
     
     # Save results
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    df_results.to_csv(output_path, float_format='%.4f')
+    df_results.to_csv(output_path, float_format='%.6f')
     logger.info(f"Saved prediction results to {output_path}")
     print(f"Processed {len(df_results)} MOFs. Results saved to {output_path}")
     

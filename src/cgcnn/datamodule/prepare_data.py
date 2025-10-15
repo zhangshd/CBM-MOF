@@ -141,7 +141,7 @@ def make_prepared_data(
 
     root_dataset_total.mkdir(exist_ok=True, parents=True)
 
-    max_num_nbr = kwargs.get("max_num_nbr", 10)
+    max_num_nbr = kwargs.get("max_num_nbr", 12)
     max_num_unique_atoms = kwargs.get("max_num_unique_atoms", 300)
     max_num_atoms = kwargs.get("max_num_atoms", None)
     radius = kwargs.get("radius", 8)
@@ -243,24 +243,32 @@ def prepare_data(root_cifs, root_dataset, **kwargs):
     ):
         make_prepared_data(cif, root_dataset_total, logger, **kwargs)
 
-def main(cif_dir, out_dir=None, radius=8, max_num_nbr=10, n_cpus=32):
+def main(cif_dir, saved_dir=None, radius=8, max_num_nbr=10, n_cpus=32, cif_list_file=None, suffix=""):
     cif_dir = Path(cif_dir)
-    if out_dir is None:
-        out_dir = cif_dir
+    if saved_dir is None:
+        saved_dir = cif_dir
     else:
-        out_dir = Path(out_dir)
+        saved_dir = Path(saved_dir)
     dataset = cif_dir.parent.name
-    logger = get_logger(filename=str(out_dir.parent/f"prepare_data_{dataset}.log"))
+    logger = get_logger(filename=str(saved_dir.parent/f"prepare_data_{dataset}{suffix}.log"))
     if n_cpus > 1:
         with mp.Pool(processes=n_cpus) as pool:
-            pool.map(partial(make_prepared_data, root_dataset_total=out_dir, 
+            pool.map(partial(make_prepared_data, root_dataset_total=saved_dir, 
                             radius=radius, max_num_nbr=max_num_nbr, logger=logger), cif_dir.glob("*.cif"))
-    for cif_file in tqdm(list(cif_dir.glob("*.cif"))):
+    if cif_list_file is not None:
+        with open(cif_list_file, "r") as f:
+            cif_list = f.read().splitlines()
+            cif_list = [cif.strip() for cif in cif_list]
+        cif_list = [cif_dir/cif for cif in cif_list]
+        cif_list = [cif for cif in cif_list if cif.exists()]
+    else:
+        cif_list = list(cif_dir.glob("*.cif"))
+    for cif_file in tqdm(cif_list):
         g_file_name = cif_file.stem + ".graphdata"
-        if (out_dir/g_file_name).exists():
+        if (saved_dir/g_file_name).exists():
             continue
         else:
-            flag = make_prepared_data(cif_file, out_dir, radius=radius, max_num_nbr=max_num_nbr, logger=logger)
+            flag = make_prepared_data(cif_file, saved_dir, radius=radius, max_num_nbr=max_num_nbr, logger=logger)
             if not flag:
                 print(f"Failed to generate graph data for {cif_file}")
                 continue
@@ -270,10 +278,12 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--cif_dir", type=str, required=True)
-    parser.add_argument("--out_dir", type=str, default=None)
+    parser.add_argument("--cif_list_file", type=str, default=None)
+    parser.add_argument("--saved_dir", type=str, default=None)
     parser.add_argument("--radius", type=int, default=8)
     parser.add_argument("--max_num_nbr", type=int, default=12)
     parser.add_argument("--n_cpus", type=int, default=1)
+    parser.add_argument("--suffix", type=str, default="")
 
     args = parser.parse_args()
     main(**vars(args))

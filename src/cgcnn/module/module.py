@@ -212,6 +212,29 @@ class Module(LightningModule):
         module_utils.set_task(self)
         # Clear test collections at the start of testing
         self.collections_init(phase="test")
+    
+    def on_predict_start(self):
+        module_utils.set_task(self)
+        return super().on_predict_start()
+    def predict_step(self, batch, batch_idx, dataloader_idx=0):
+        self.eval()
+        output = self(batch, phase="test")
+        for task_id, (task, task_tp) in enumerate(self.current_tasks.items()):
+            if "classification" in task_tp:
+                n_classes = task_tp.split("_")[-1] if "_" in task_tp else 2
+                if n_classes == 2:
+                    output[f"{task}_pred"] = torch.round(output[f"{task}_logits"]).to(torch.int)
+                else:
+                    output[f"{task}_pred"] = torch.argmax(output[f"{task}_logits"], dim=1)
+            else:
+                output[f"{task}_pred"] = output[f"{task}_logits"]
+
+        # output = {
+        #     k: (v.cpu().tolist() if torch.is_tensor(v) else v)
+        #     for k, v in output.items()
+        # }
+
+        return output
 
     def test_step(self, batch, batch_idx):
         self.eval()

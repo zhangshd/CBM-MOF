@@ -112,7 +112,7 @@ def load_model_from_dir(model_dir, custom_checkpoint=None, accelerator=None):
                 break
             else:
                 model_checkpoints.append(file)
-        model_checkpoints.sort(key=lambda x: int(x.stem.split('-')[0].split('=')[-1]))  # Sort by epoch. e.g., epoch=06-val_Metric=0.3317.ckpt
+        model_checkpoints.sort(key=lambda x: int(x.stem.split("epoch=")[-1].split("-")[0]))  # Sort by epoch. e.g., the_metric=-0.200-epoch=176.ckpt
         if model_file is None and model_checkpoints:
             model_file = model_checkpoints[-1]
             print(f"Loading the last model checkpoint: {model_file}")
