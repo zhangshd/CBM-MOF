@@ -55,6 +55,11 @@ The project includes a comprehensive machine learning module (`src/ml/module.py`
   - Box-Cox transformation for positive values
   - Automatic inverse transformation for predictions and metrics
   - Improves model performance on skewed distributions
+- **SHAP Feature Importance Analysis** (NEW):
+  - Analyze feature importance using SHAP (SHapley Additive exPlanations) values
+  - Generate importance rankings and visualizations
+  - Support for tree-based and other model types
+  - Batch analysis for multiple tasks
 
 #### Target Transformation Feature
 The new target transformation feature allows you to transform the target variable before training to improve model performance:
@@ -244,6 +249,98 @@ Key options:
 - `--input_path`: Single CIF file or directory; the script cleans structures, generates features, and predicts all seven stability properties.
 - `--features_path`: Precomputed feature table matching the schema of `generate_features`; bypasses CIF processing and runs predictions directly.
 - `--prob_radius`: Probe radius for Zeo++ feature generation (used only with `--input_path`).
+
+### SHAP Feature Importance Analysis
+
+Analyze the importance of features in trained machine learning models using SHAP (SHapley Additive exPlanations) values.
+
+#### Installation
+
+First, install the SHAP library:
+
+```bash
+pip install shap
+```
+
+#### Usage
+
+Analyze all trained models specified in the configuration file:
+
+```bash
+# Run SHAP analysis for all tasks
+python src/ml/shap_analysis.py \
+    --config configs/ml_model_config.yaml \
+    --output_dir results/shap_analysis
+
+# Or use the provided shell script
+bash src/ml/run_shap_analysis.sh
+```
+
+Analyze specific tasks only:
+
+```bash
+# Analyze specific tasks
+python src/ml/shap_analysis.py \
+    --config configs/ml_model_config.yaml \
+    --output_dir results/shap_analysis \
+    --tasks AdsCH4_10kPa QstCH4 PSA_API_CH4
+```
+
+Test the analysis on a single model:
+
+```bash
+python src/ml/test_shap_analysis.py
+```
+
+#### Outputs
+
+For each analyzed task, the script generates:
+
+1. **Feature importance rankings** (`{task}_shap_importance.csv`):
+   - Feature names with mean absolute SHAP values
+   - Importance rankings
+
+2. **Bar plot** (`{task}_shap_importance_bar.png`):
+   - Shows top 20 features by mean absolute SHAP value
+   - Indicates overall feature importance
+
+3. **Beeswarm plot** (`{task}_shap_importance_beeswarm.png`):
+   - Shows SHAP value distribution for each feature
+   - Color indicates feature value (red = high, blue = low)
+   - Helps understand feature effects on predictions
+
+#### Combined Visualizations (NEW)
+
+Generate publication-quality combined figures with all tasks in Nature journal style:
+
+```bash
+# Generate combined SHAP plots for all tasks
+python src/ml/plot_combined_shap.py \
+    --config configs/ml_model_config.yaml \
+    --output_dir results/shap_analysis \
+    --max_display 10 \
+    --plot_type both
+
+# Or use the provided shell script
+bash src/ml/run_combined_shap.sh
+```
+
+Options for combined plots:
+- `--max_display`: Number of top features to show per subplot (default: 10)
+- `--plot_type`: Choose 'beeswarm', 'bar', or 'both' (default: both)
+- `--tasks`: Specify which tasks to include (default: all tasks)
+
+Output files:
+- `combined_shap_beeswarm.png`: Multi-panel beeswarm plots for all tasks
+- `combined_shap_bar.png`: Multi-panel bar plots for all tasks
+
+#### Key Features
+
+- **Model-agnostic**: Works with tree-based models (XGBoost, RandomForest) and other model types
+- **Automatic feature extraction**: Reads feature names from training data
+- **Batch processing**: Analyze multiple tasks in one run
+- **Comprehensive outputs**: Rankings, bar plots, and beeswarm plots for detailed analysis
+- **Publication-ready**: Combined figures in Nature journal style with consistent formatting
 
 ## Data Preparation
 
