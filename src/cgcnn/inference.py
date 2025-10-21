@@ -162,7 +162,16 @@ class InferenceDataset(Dataset):
             else:
                 self.cif_ids.remove(cif.stem)
                 print(f"Error: {cif} has been removed from the dataset due to errors during data preparation.")
-        
+        if self.use_extra_fea:
+            print("Loading extra features for inference dataset...")
+            print("Total cif files before filtering with extra features:", len(self.cif_ids))
+            self.extra_fea_df = pd.read_csv("/home/zhangsd/repos/CBM-MOF/data/processed/RAC_and_zeo_features.csv")
+            self.extra_fea_df = self.extra_fea_df[self.extra_fea_df['name'].isin(self.cif_ids)]
+            self.cif_ids = [cid for cid in self.cif_ids if cid in self.extra_fea_df['name'].values]
+            self.g_data = {cid: self.g_data[cid] for cid in self.cif_ids}
+            self.extra_fea_df.set_index('name', inplace=True)
+            print("Total cif files after filtering with extra features:", len(self.cif_ids))
+
     def __len__(self):
         return len(self.g_data)
 
@@ -176,9 +185,11 @@ class InferenceDataset(Dataset):
 
         cif_id, atom_num, nbr_fea_idx, nbr_dist, *_, cell_params = data
         # assert nbr_fea_idx.shape[0] / atom_num.shape[0] == self.max_num_nbr, f"nbr_fea_idx.shape[0] / atom_num.shape[0]!= 12.0 for file: {self.g_data[cif_id]}"
-
-
-        extra_fea = torch.FloatTensor([])
+        extra_fea = self.extra_fea_df.loc[cif_id, "Di":"PONAV"].values.astype(np.float32) if self.use_extra_fea else None
+        if extra_fea is not None:
+            extra_fea = torch.FloatTensor(extra_fea)
+        else:
+            extra_fea = torch.FloatTensor([])
 
         atom_fea = np.vstack([self.ari.get_atom_fea(i) for i in atom_num])
         atom_fea = torch.Tensor(atom_fea)

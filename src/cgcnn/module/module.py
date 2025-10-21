@@ -88,6 +88,7 @@ class Module(LightningModule):
         # Task configuration
         self.tasks = config.get('tasks', {})
         self.task_weights = self._calculate_task_weights(config.get('task_weights', None))
+        module_utils.set_task(self)
         
         # Initialize collections for metrics
         module_utils.set_metrics(self)

@@ -57,7 +57,7 @@ if __name__ == '__main__':
     script_name = "run_slurm.sh"
     in_file_name="RAC_and_zeo_features_with_id_prop.csv"
     model_list = ["RF", "XGB"]
-    use_target_transform = True
+    use_target_transform = False
     target_transform_method = "log10"
     
     for model in model_list:
