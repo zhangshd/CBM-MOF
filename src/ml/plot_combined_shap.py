@@ -136,7 +136,7 @@ def plot_combined_shap_beeswarm(tasks_data: Dict, output_path: str,
     
     # Set figure size
     if figsize is None:
-        figsize = (5 * n_cols, 5 * n_rows)
+        figsize = (3 * n_cols + 2, 2 * n_rows + 2)
     
     fig, axes = plt.subplots(n_rows, n_cols, figsize=figsize)
     
@@ -173,7 +173,7 @@ def plot_combined_shap_beeswarm(tasks_data: Dict, output_path: str,
         ax.spines['right'].set_visible(False)
         ax.spines['left'].set_linewidth(1.0)
         ax.spines['bottom'].set_linewidth(1.0)
-        ax.tick_params(axis='both', which='major', labelsize=9)
+        ax.tick_params(axis='both', which='major', labelsize=10)
         
         # Adjust xlabel
         ax.set_xlabel('SHAP value', fontsize=10, fontweight='bold')

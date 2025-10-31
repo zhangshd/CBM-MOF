@@ -243,7 +243,7 @@ def plot_shap_summary(shap_values: np.ndarray, X_explain: np.ndarray,
     plot_type : str
         Type of summary plot ('bar' or 'dot')
     """
-    plt.figure(figsize=(10, 8))
+    plt.figure(figsize=(14, 6))
     
     if plot_type == "bar":
         # Bar plot showing mean absolute SHAP values
