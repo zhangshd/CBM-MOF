@@ -1,0 +1,3 @@
+[submodule "src/bkt"]
+	path = src/bkt
+	url = git@github.com:zhangshd/btk.git
