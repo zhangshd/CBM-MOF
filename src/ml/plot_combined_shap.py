@@ -27,13 +27,13 @@ sys.path.append(str(SCRIPT_DIR.parent))
 # Set publication-quality plotting style (Nature journal style)
 plt.rcParams['font.family'] = 'sans-serif'
 plt.rcParams['font.sans-serif'] = ['Arial', 'DejaVu Sans', 'Liberation Sans']
-plt.rcParams['font.size'] = 10
-plt.rcParams['axes.labelsize'] = 11
-plt.rcParams['axes.titlesize'] = 12
-plt.rcParams['xtick.labelsize'] = 10
-plt.rcParams['ytick.labelsize'] = 10
-plt.rcParams['legend.fontsize'] = 10
-plt.rcParams['figure.titlesize'] = 12
+plt.rcParams['font.size'] = 14
+plt.rcParams['axes.labelsize'] = 14
+plt.rcParams['axes.titlesize'] = 15
+plt.rcParams['xtick.labelsize'] = 14
+plt.rcParams['ytick.labelsize'] = 14
+plt.rcParams['legend.fontsize'] = 14
+plt.rcParams['figure.titlesize'] = 15
 plt.rcParams['axes.linewidth'] = 1.0
 plt.rcParams['grid.linewidth'] = 0.5
 plt.rcParams['lines.linewidth'] = 1.5
@@ -136,7 +136,7 @@ def plot_combined_shap_beeswarm(tasks_data: Dict, output_path: str,
     
     # Set figure size
     if figsize is None:
-        figsize = (3 * n_cols + 2, 2 * n_rows + 2)
+        figsize = (4 * n_cols, 3 * n_rows+1)
     
     fig, axes = plt.subplots(n_rows, n_cols, figsize=figsize)
     
@@ -159,24 +159,28 @@ def plot_combined_shap_beeswarm(tasks_data: Dict, output_path: str,
             show=False, 
             max_display=max_display,
             plot_size=None,  # We control size via figsize
-            cmap=NATURE_CMAP  # Use Nature journal colormap
+            cmap=NATURE_CMAP,  # Use Nature journal colormap
         )
         
         # Format title with subplot label
         subplot_label = chr(97 + idx)  # a, b, c, ...
         formatted_name = format_task_name(task_name)
         ax.set_title(f'({subplot_label}) {formatted_name}', 
-                    fontsize=12, fontweight='bold', loc='left', pad=10)
+                    fontweight='bold', loc='left', pad=10, )
         
         # Style the axis
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
         ax.spines['left'].set_linewidth(1.0)
         ax.spines['bottom'].set_linewidth(1.0)
-        ax.tick_params(axis='both', which='major', labelsize=10)
+        ax.tick_params(axis='both', which='major')
         
         # Adjust xlabel
-        ax.set_xlabel('SHAP value', fontsize=10, fontweight='bold')
+        ax.set_xlabel('SHAP value', fontweight='bold')
+        cbar = plt.gcf().axes[-1]  
+        cbar.tick_params(labelsize=plt.rcParams['xtick.labelsize']-1)  
+        # if hasattr(cbar, 'set_ylabel'):
+        cbar.set_ylabel('Feature value', fontsize=plt.rcParams['axes.labelsize'])
     
     # Hide unused subplots
     for idx in range(n_tasks, len(axes)):
@@ -217,8 +221,8 @@ def plot_combined_shap_bar(tasks_data: Dict, output_path: str,
         n_rows, n_cols = 2, 2
     elif n_tasks <= 6:
         n_rows, n_cols = 2, 3
-    elif n_tasks <= 8:
-        n_rows, n_cols = 2, 4
+    # elif n_tasks <= 8:
+    #     n_rows, n_cols = 2, 4
     elif n_tasks <= 9:
         n_rows, n_cols = 3, 3
     else:
@@ -260,7 +264,7 @@ def plot_combined_shap_bar(tasks_data: Dict, output_path: str,
         subplot_label = chr(97 + idx)  # a, b, c, ...
         formatted_name = format_task_name(task_name)
         ax.set_title(f'({subplot_label}) {formatted_name}', 
-                    fontsize=12, fontweight='bold', loc='left', pad=10)
+                    fontweight='bold', loc='left', pad=10, x=0)
         
         # Style the axis
         ax.spines['top'].set_visible(False)
@@ -270,7 +274,7 @@ def plot_combined_shap_bar(tasks_data: Dict, output_path: str,
         ax.tick_params(axis='both', which='major', labelsize=9)
         
         # Adjust xlabel
-        ax.set_xlabel('mean(|SHAP value|)', fontsize=10, fontweight='bold')
+        ax.set_xlabel('mean(|SHAP value|)', fontweight='bold')
     
     # Hide unused subplots
     for idx in range(n_tasks, len(axes)):
