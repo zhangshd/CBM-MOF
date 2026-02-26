@@ -1,0 +1,392 @@
+"""
+train_alignn.py
+===============
+Multi-task ALIGNN training for CBM-MOF CH4/N2 adsorption property prediction.
+
+Targets (8 total):
+  Symlog-transformed: AdsCH4_10kPa, AdsCH4_100kPa, AdsCH4_1000kPa,
+                      AdsN2_10kPa,  AdsN2_100kPa,  AdsN2_1000kPa
+  Raw (no transform): QstCH4, QstN2
+
+Usage:
+    # Dry run (100 samples × 5 epochs)
+    CUDA_VISIBLE_DEVICES=0 python train_alignn.py --dry-run
+
+    # Full training (multi-GPU DDP)
+    CUDA_VISIBLE_DEVICES=0,1,2 python train_alignn.py
+"""
+
+import argparse
+import json
+import os
+import time
+import warnings
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import dgl
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader, Subset
+
+warnings.filterwarnings("ignore", category=UserWarning)
+
+# ──────────────────────────────────────────────────────────────
+# Constants
+# ──────────────────────────────────────────────────────────────
+REPO_ROOT     = Path("/home/zhangsd/repos/CBM-MOF")
+ALIGNN_DATA   = REPO_ROOT / "data/alignn"
+RESULTS_DIR   = REPO_ROOT / "results/alignn"
+CIF_DIR       = ALIGNN_DATA / "cifs"
+
+UPTAKE_COLS   = ["AdsCH4_10kPa", "AdsCH4_100kPa", "AdsCH4_1000kPa",
+                 "AdsN2_10kPa",  "AdsN2_100kPa",  "AdsN2_1000kPa"]
+QST_COLS      = ["QstCH4", "QstN2"]
+TARGET_COLS   = UPTAKE_COLS + QST_COLS
+N_TARGETS     = len(TARGET_COLS)
+
+SYMLOG_THRESH = 1e-4
+
+
+# ──────────────────────────────────────────────────────────────
+# Symlog helpers
+# ──────────────────────────────────────────────────────────────
+def inv_symlog(y: np.ndarray, threshold: float = SYMLOG_THRESH) -> np.ndarray:
+    return np.sign(y) * threshold * (10.0 ** np.abs(y) - 1.0)
+
+
+def inverse_transform(pred: np.ndarray, true: np.ndarray):
+    """Inverse symlog for first 6 columns; identity for last 2."""
+    pred_inv = pred.copy()
+    true_inv = true.copy()
+    n_uptake = len(UPTAKE_COLS)
+    pred_inv[:, :n_uptake] = inv_symlog(pred[:, :n_uptake])
+    true_inv[:, :n_uptake] = inv_symlog(true[:, :n_uptake])
+    return pred_inv, true_inv
+
+
+# ──────────────────────────────────────────────────────────────
+# Metrics
+# ──────────────────────────────────────────────────────────────
+def compute_metrics(pred: np.ndarray, true: np.ndarray, tag: str = ""):
+    """Compute MAE and R² per target in original (inverse-transformed) space."""
+    pred_inv, true_inv = inverse_transform(pred, true)
+    results = {}
+    for i, col in enumerate(TARGET_COLS):
+        y_p = pred_inv[:, i]
+        y_t = true_inv[:, i]
+        mae = np.mean(np.abs(y_p - y_t))
+        ss_res = np.sum((y_t - y_p) ** 2)
+        ss_tot = np.sum((y_t - np.mean(y_t)) ** 2)
+        r2 = 1 - ss_res / (ss_tot + 1e-12)
+        results[col] = {"MAE": float(mae), "R2": float(r2)}
+        if tag:
+            print(f"  [{tag}] {col:25s}  MAE={mae:.4f}  R²={r2:.4f}")
+    return results
+
+
+# ──────────────────────────────────────────────────────────────
+# Dataset
+# ──────────────────────────────────────────────────────────────
+def load_dataset(split: str, dry_run: bool = False, dry_run_size: int = 100):
+    """
+    Load ALIGNN dataset for the given split.
+
+    API updated for alignn >= 2025.x:
+      - StructureDataset now lives in alignn.graphs
+      - Graphs must be pre-built via alignn.dataset.load_graphs
+      - Multi-task targets stored as list in df['target'] column
+    """
+    from alignn.dataset import load_graphs
+    from alignn.graphs import StructureDataset
+    from jarvis.core.atoms import Atoms
+
+    id_prop_csv = ALIGNN_DATA / split / "id_prop.csv"
+    if not id_prop_csv.exists():
+        raise FileNotFoundError(f"Missing: {id_prop_csv}  — run prepare_data.py first")
+
+    df = pd.read_csv(id_prop_csv)
+    if dry_run:
+        df = df.head(dry_run_size)
+        print(f"  DRY RUN: using {len(df)} samples from {split}")
+
+    # Build jarvis-format records
+    records = []
+    missing = []
+    for _, row in df.iterrows():
+        mol_id = row["mol_id"]
+        cif_path = CIF_DIR / f"{mol_id}.cif"
+        if not cif_path.exists():
+            missing.append(mol_id)
+            continue
+        atoms = Atoms.from_cif(str(cif_path), use_cif2cell=False)
+        records.append({
+            "jid":    mol_id,
+            "atoms":  atoms.to_dict(),
+            "target": row[TARGET_COLS].tolist(),
+        })
+    if missing:
+        print(f"  WARNING: {len(missing)} CIF files not found in {split} split")
+    print(f"  Loaded {len(records)} CIF structures for {split}")
+
+    # Build graphs (uses ALIGNN graph builder; caches to disk)
+    cache_dir = ALIGNN_DATA / "cache" / split
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    df_records = pd.DataFrame(records)
+    graphs = load_graphs(
+        df_records,
+        neighbor_strategy="k-nearest",
+        cutoff=8.0,
+        cutoff_extra=3.0,
+        max_neighbors=12,
+        cachedir=None,  # cachedir disabled: bug in alignn 2025.4.1 (graphs.tolist() on list)
+        use_canonize=False,
+        id_tag="jid",
+    )
+
+    # Build dataset with line graphs and cgcnn atom features
+    dataset = StructureDataset(
+        df_records,
+        graphs,
+        target="target",
+        atom_features="cgcnn",
+        line_graph=True,
+        id_tag="jid",
+    )
+    return dataset
+
+
+# ──────────────────────────────────────────────────────────────
+# Model
+# ──────────────────────────────────────────────────────────────
+def build_model(config: dict) -> nn.Module:
+    """Build ALIGNN model with multi-task output head.
+
+    Note: alignn >= 2025.x renamed n_layers → gcn_layers and removed
+    compute_line_graph / atom_features from ALIGNNConfig.
+    """
+    from alignn.models.alignn import ALIGNN, ALIGNNConfig
+
+    alignn_cfg = ALIGNNConfig(
+        name="alignn",
+        atom_input_features=92,
+        edge_input_features=config.get("edge_input_features", 80),
+        triplet_input_features=config.get("triplet_input_features", 40),
+        embedding_features=config.get("embedding_features", 64),
+        hidden_features=config.get("hidden_features", 256),
+        output_features=N_TARGETS,            # 8 multi-task outputs
+        gcn_layers=config.get("n_layers", 4),     # renamed from n_layers
+        alignn_layers=config.get("alignn_layers", 4),
+        link=config.get("link", "identity"),
+    )
+    model = ALIGNN(alignn_cfg)
+    return model
+
+
+# ──────────────────────────────────────────────────────────────
+# Training loop
+# ──────────────────────────────────────────────────────────────
+def train_epoch(model, loader, optimizer, device, scaler=None):
+    model.train()
+    total_loss = 0.0
+    criterion  = nn.MSELoss()
+
+    for batch in loader:
+        g, lg, lat, targets = batch
+        g   = g.to(device)
+        lg  = lg.to(device)
+        lat = lat.to(device)
+        targets = targets.to(device).float()
+
+        optimizer.zero_grad()
+        if scaler is not None:
+            with torch.cuda.amp.autocast():
+                preds = model((g, lg, lat))
+                loss  = criterion(preds, targets)
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            preds = model((g, lg, lat))
+            loss  = criterion(preds, targets)
+            loss.backward()
+            optimizer.step()
+
+        total_loss += loss.item() * len(targets)
+
+    return total_loss / len(loader.dataset)
+
+
+@torch.no_grad()
+def eval_epoch(model, loader, device):
+    model.eval()
+    preds_list  = []
+    targets_list = []
+
+    for batch in loader:
+        g, lg, lat, targets = batch
+        g   = g.to(device)
+        lg  = lg.to(device)
+        lat = lat.to(device)
+        targets = targets.float()
+        preds   = model((g, lg, lat)).cpu()
+        preds_list.append(preds.numpy())
+        targets_list.append(targets.numpy())
+
+    return np.vstack(preds_list), np.vstack(targets_list)
+
+
+# ──────────────────────────────────────────────────────────────
+# Main
+# ──────────────────────────────────────────────────────────────
+def main():
+    parser = argparse.ArgumentParser(description="Multi-task ALIGNN training for CBM-MOF")
+    parser.add_argument("--dry-run",      action="store_true",
+                        help="Use 100 samples × 5 epochs for pipeline verification")
+    parser.add_argument("--dry-run-size", type=int, default=100)
+    parser.add_argument("--epochs",       type=int, default=500)
+    parser.add_argument("--batch-size",   type=int, default=64)
+    parser.add_argument("--lr",           type=float, default=1e-3)
+    parser.add_argument("--output-dir",   type=str,
+                        default=str(RESULTS_DIR))
+    parser.add_argument("--config",       type=str, default=None,
+                        help="Path to JSON config (overrides defaults)")
+    args = parser.parse_args()
+
+    # ── Config ──────────────────────────────────────────────
+    default_cfg = dict(
+        hidden_features=256,
+        embedding_features=64,
+        edge_input_features=80,
+        triplet_input_features=40,
+        n_layers=4,
+        alignn_layers=4,
+        atom_features="cgcnn",
+        link="identity",
+    )
+    if args.config:
+        with open(args.config) as f:
+            default_cfg.update(json.load(f))
+    cfg = default_cfg
+
+    # ── Dry-run overrides ───────────────────────────────────
+    epochs     = 5 if args.dry_run else args.epochs
+    batch_size = args.batch_size
+
+    # ── Output dir ─────────────────────────────────────────
+    tag = f"dryrun_{args.dry_run_size}" if args.dry_run else "full"
+    output_dir = Path(args.output_dir) / tag
+    output_dir.mkdir(parents=True, exist_ok=True)
+    print(f"Output dir: {output_dir}")
+
+    # ── Device ──────────────────────────────────────────────
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    n_gpus = torch.cuda.device_count()
+    print(f"Device: {device} ({n_gpus} GPU(s) visible)")
+
+    # ── Data ────────────────────────────────────────────────
+    print("\nLoading datasets...")
+    train_data = load_dataset("train", dry_run=args.dry_run, dry_run_size=args.dry_run_size)
+    val_data   = load_dataset("val",   dry_run=args.dry_run, dry_run_size=min(50, args.dry_run_size))
+    print(f"  train: {len(train_data)}, val: {len(val_data)}")
+
+    def collate_fn(samples):
+        """Custom collate: always returns (g, lg, lat, labels).
+
+        alignn 2025.x collate_line_graph drops lattice for multi-dim labels;
+        we override it so model((g, lg, lat)) always receives all three graphs.
+        """
+        graphs, line_graphs, lattices, labels = map(list, zip(*samples))
+        batched_g  = dgl.batch(graphs)
+        batched_lg = dgl.batch(line_graphs)
+        return batched_g, batched_lg, torch.stack(lattices), torch.stack(labels)
+    train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True,
+                              num_workers=4, pin_memory=True,
+                              collate_fn=collate_fn)
+    val_loader   = DataLoader(val_data, batch_size=batch_size, shuffle=False,
+                              num_workers=4, pin_memory=True,
+                              collate_fn=collate_fn)
+
+    # ── Model ───────────────────────────────────────────────
+    print("\nBuilding ALIGNN model...")
+    model = build_model(cfg)
+    if n_gpus > 1:
+        model = nn.DataParallel(model)
+        print(f"  Using DataParallel on {n_gpus} GPUs")
+    model = model.to(device)
+    n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"  Trainable parameters: {n_params:,}")
+
+    # ── Optimizer / Scheduler ───────────────────────────────
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-5)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+    scaler    = torch.cuda.amp.GradScaler() if device.type == "cuda" else None
+
+    # ── Training ────────────────────────────────────────────
+    history   = []
+    best_val_mae = float("inf")
+    best_ckpt = output_dir / "best_model.pt"
+
+    print(f"\n{'Epoch':>6} {'train_loss':>12} {'val_MAE_mean':>14} {'time':>8}")
+    print("-" * 48)
+
+    for epoch in range(1, epochs + 1):
+        t0 = time.time()
+        train_loss = train_epoch(model, train_loader, optimizer, device, scaler)
+        scheduler.step()
+
+        val_preds, val_true = eval_epoch(model, val_loader, device)
+        metrics = compute_metrics(val_preds, val_true)
+        val_mae_mean = np.mean([v["MAE"] for v in metrics.values()])
+
+        elapsed = time.time() - t0
+        print(f"{epoch:6d} {train_loss:12.5f} {val_mae_mean:14.5f} {elapsed:8.1f}s")
+
+        record = {"epoch": epoch, "train_loss": train_loss, "val_mae_mean": val_mae_mean}
+        for col, m in metrics.items():
+            record[f"val_MAE_{col}"]   = m["MAE"]
+            record[f"val_R2_{col}"]    = m["R2"]
+        history.append(record)
+
+        # Save best checkpoint
+        if val_mae_mean < best_val_mae:
+            best_val_mae = val_mae_mean
+            torch.save({
+                "epoch":      epoch,
+                "model_state": (model.module if hasattr(model, "module") else model).state_dict(),
+                "optimizer":  optimizer.state_dict(),
+                "val_mae":    val_mae_mean,
+                "metrics":    metrics,
+                "config":     cfg,
+            }, best_ckpt)
+
+        # Save latest checkpoint every 10 epochs
+        if epoch % 10 == 0 or epoch == epochs:
+            torch.save({
+                "epoch":      epoch,
+                "model_state": (model.module if hasattr(model, "module") else model).state_dict(),
+                "optimizer":  optimizer.state_dict(),
+            }, output_dir / f"checkpoint_epoch{epoch:04d}.pt")
+
+    # ── Save history ────────────────────────────────────────
+    hist_df = pd.DataFrame(history)
+    hist_df.to_csv(output_dir / "training_history.csv", index=False)
+    print(f"\n✓ Training complete! Best val MAE: {best_val_mae:.5f}")
+    print(f"  Best model: {best_ckpt}")
+
+    # ── Final evaluation on best model ──────────────────────
+    print("\nFinal evaluation on val set (best model):")
+    ckpt = torch.load(best_ckpt, map_location=device)
+    base_model = model.module if hasattr(model, "module") else model
+    base_model.load_state_dict(ckpt["model_state"])
+    val_preds, val_true = eval_epoch(model, val_loader, device)
+    final_metrics = compute_metrics(val_preds, val_true, tag="val")
+    with open(output_dir / "final_metrics.json", "w") as f:
+        json.dump(final_metrics, f, indent=2)
+    print(f"  Metrics saved: {output_dir}/final_metrics.json")
+
+
+if __name__ == "__main__":
+    main()
