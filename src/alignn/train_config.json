@@ -1,0 +1,11 @@
+{
+  "_comment": "ALIGNN multi-task config for CBM-MOF CH4/N2 prediction",
+  "hidden_features": 256,
+  "embedding_features": 64,
+  "edge_input_features": 80,
+  "triplet_input_features": 40,
+  "n_layers": 4,
+  "alignn_layers": 4,
+  "atom_features": "cgcnn",
+  "link": "identity"
+}
