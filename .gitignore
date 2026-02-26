@@ -17,6 +17,8 @@ inference/*
 test.ipynb
 **/data
 *.sh
+# Track SLURM job scripts in src/ (deployment scripts, not data)
+!src/**/*.sh
 *.csv
 *.ckpt
 */feature_folders

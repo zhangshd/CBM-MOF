@@ -251,6 +251,8 @@ def main():
     parser.add_argument("--lr",           type=float, default=1e-3)
     parser.add_argument("--output-dir",   type=str,
                         default=str(RESULTS_DIR))
+    parser.add_argument("--output-tag",   type=str, default=None,
+                        help="Override the auto-generated output subdirectory tag")
     parser.add_argument("--config",       type=str, default=None,
                         help="Path to JSON config (overrides defaults)")
     args = parser.parse_args()
@@ -276,7 +278,10 @@ def main():
     batch_size = args.batch_size
 
     # ── Output dir ─────────────────────────────────────────
-    tag = f"dryrun_{args.dry_run_size}" if args.dry_run else "full"
+    if args.output_tag:
+        tag = args.output_tag
+    else:
+        tag = f"dryrun_{args.dry_run_size}" if args.dry_run else "full"
     output_dir = Path(args.output_dir) / tag
     output_dir.mkdir(parents=True, exist_ok=True)
     print(f"Output dir: {output_dir}")
@@ -312,9 +317,9 @@ def main():
     # ── Model ───────────────────────────────────────────────
     print("\nBuilding ALIGNN model...")
     model = build_model(cfg)
-    if n_gpus > 1:
-        model = nn.DataParallel(model)
-        print(f"  Using DataParallel on {n_gpus} GPUs")
+    # NOTE: DGL graphs do NOT support PyTorch DataParallel (graphs stay on
+    # cuda:0 while replicas run on other devices → DGLError on first forward).
+    # Single-GPU training is used here. Multi-GPU training requires DDP.
     model = model.to(device)
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"  Trainable parameters: {n_params:,}")
