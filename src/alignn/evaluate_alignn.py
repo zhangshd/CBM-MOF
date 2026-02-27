@@ -562,7 +562,7 @@ def main():
         name="Top-100 PSA",
         cif_dir=INFER_DIR / "top_100_psa_performers_cifs_ml",
         gcmc_csv=INFER_DIR / "gcmc_top_100_psa_ml/raspa3_parsed_results.csv",
-        widom_csv=INFER_DIR / "widom_top_100_psa_ml_org/raspa2_parsed_results.csv",
+        widom_csv=INFER_DIR / "widom_top_100_psa_ml/raspa2_parsed_results.csv",
     )
 
     # ── Dataset C: Top-100 VSA ───────────────────────────────
@@ -571,7 +571,7 @@ def main():
         name="Top-100 VSA",
         cif_dir=INFER_DIR / "top_100_vsa_performers_cifs_ml",
         gcmc_csv=INFER_DIR / "gcmc_top_100_vsa_ml/raspa3_parsed_results.csv",
-        widom_csv=INFER_DIR / "widom_top_100_vsa_ml_org/raspa2_parsed_results.csv",
+        widom_csv=INFER_DIR / "widom_top_100_vsa_ml/raspa2_parsed_results.csv",
     )
 
     # ── Summary ─────────────────────────────────────────────
