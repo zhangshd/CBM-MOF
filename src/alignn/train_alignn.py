@@ -70,19 +70,25 @@ def inverse_transform(pred: np.ndarray, true: np.ndarray):
 # Metrics
 # ──────────────────────────────────────────────────────────────
 def compute_metrics(pred: np.ndarray, true: np.ndarray, tag: str = ""):
-    """Compute MAE and R² per target in original (inverse-transformed) space."""
-    pred_inv, true_inv = inverse_transform(pred, true)
+    """Compute MAE and R² in the training space (log10 for uptakes, raw for Qst).
+
+    Note: id_prop.csv targets are already log10-transformed for uptake columns
+    and raw kJ/mol for Qst columns.  We report MAE in that same log10 space
+    (no additional inverse transform needed) to keep units consistent with how
+    the model is trained.
+    """
     results = {}
     for i, col in enumerate(TARGET_COLS):
-        y_p = pred_inv[:, i]
-        y_t = true_inv[:, i]
+        y_p = pred[:, i]
+        y_t = true[:, i]
         mae = np.mean(np.abs(y_p - y_t))
         ss_res = np.sum((y_t - y_p) ** 2)
         ss_tot = np.sum((y_t - np.mean(y_t)) ** 2)
         r2 = 1 - ss_res / (ss_tot + 1e-12)
         results[col] = {"MAE": float(mae), "R2": float(r2)}
         if tag:
-            print(f"  [{tag}] {col:25s}  MAE={mae:.4f}  R²={r2:.4f}")
+            unit = "log10(mol/kg)" if col in UPTAKE_COLS else "kJ/mol"
+            print(f"  [{tag}] {col:25s}  MAE={mae:.4f} {unit}  R²={r2:.4f}")
     return results
 
 
@@ -209,12 +215,16 @@ def train_epoch(model, loader, optimizer, device, scaler=None):
                 preds = model((g, lg, lat))
                 loss  = criterion(preds, targets)
             scaler.scale(loss).backward()
+            # Unscale before clipping so clip threshold is in real gradient units
+            scaler.unscale_(optimizer)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             scaler.step(optimizer)
             scaler.update()
         else:
             preds = model((g, lg, lat))
             loss  = criterion(preds, targets)
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
 
         total_loss += loss.item() * len(targets)

@@ -51,7 +51,7 @@ CUDA_VISIBLE_DEVICES=0 python -u src/alignn/train_alignn.py \
     --epochs "$EPOCHS" \
     --batch-size "$BATCH_SIZE" \
     --max-atoms 300 \
-    --lr 1e-3 \
+    --lr 1e-4 \
     --config src/alignn/train_config.json \
     --output-dir results/alignn \
     --output-tag "$JOB_TAG"
