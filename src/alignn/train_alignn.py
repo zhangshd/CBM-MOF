@@ -89,7 +89,8 @@ def compute_metrics(pred: np.ndarray, true: np.ndarray, tag: str = ""):
 # ──────────────────────────────────────────────────────────────
 # Dataset
 # ──────────────────────────────────────────────────────────────
-def load_dataset(split: str, dry_run: bool = False, dry_run_size: int = 100):
+def load_dataset(split: str, dry_run: bool = False, dry_run_size: int = 100,
+                 max_atoms: int = 0):
     """
     Load ALIGNN dataset for the given split.
 
@@ -121,6 +122,8 @@ def load_dataset(split: str, dry_run: bool = False, dry_run_size: int = 100):
             missing.append(mol_id)
             continue
         atoms = Atoms.from_cif(str(cif_path), use_cif2cell=False)
+        if max_atoms > 0 and atoms.num_atoms > max_atoms:
+            continue  # skip structures that exceed CUDA / memory budget
         records.append({
             "jid":    mol_id,
             "atoms":  atoms.to_dict(),
@@ -246,6 +249,8 @@ def main():
     parser.add_argument("--dry-run",      action="store_true",
                         help="Use 100 samples × 5 epochs for pipeline verification")
     parser.add_argument("--dry-run-size", type=int, default=100)
+    parser.add_argument("--max-atoms",    type=int, default=0,
+                        help="Filter out structures with more than N atoms (0 = disabled)")
     parser.add_argument("--epochs",       type=int, default=500)
     parser.add_argument("--batch-size",   type=int, default=64)
     parser.add_argument("--lr",           type=float, default=1e-3)
@@ -293,8 +298,8 @@ def main():
 
     # ── Data ────────────────────────────────────────────────
     print("\nLoading datasets...")
-    train_data = load_dataset("train", dry_run=args.dry_run, dry_run_size=args.dry_run_size)
-    val_data   = load_dataset("val",   dry_run=args.dry_run, dry_run_size=min(50, args.dry_run_size))
+    train_data = load_dataset("train", dry_run=args.dry_run, dry_run_size=args.dry_run_size, max_atoms=args.max_atoms)
+    val_data   = load_dataset("val",   dry_run=args.dry_run, dry_run_size=min(50, args.dry_run_size), max_atoms=args.max_atoms)
     print(f"  train: {len(train_data)}, val: {len(val_data)}")
 
     def collate_fn(samples):

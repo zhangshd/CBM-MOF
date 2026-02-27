@@ -71,6 +71,7 @@ def build_split(
     cif_dir: Path,
     output_dir: Path,
     skip_on_error: bool = True,
+    max_atoms: int = 0,
 ) -> None:
     """Build and save raw_data.pkl for one split."""
     # Merge split names with labels
@@ -116,7 +117,11 @@ def build_split(
             else:
                 raise
 
-        atom_counts.append(len(structure))
+        n_atoms = len(structure)
+        if max_atoms > 0 and n_atoms > max_atoms:
+            n_failed += 1
+            continue
+        atom_counts.append(n_atoms)
 
         entry = {
             "structure": structure,
@@ -140,12 +145,13 @@ def build_split(
         pickle.dump(data_list, f, protocol=4)
 
     counts = np.array(atom_counts)
+    thresh_info = f", max_atoms_filter={max_atoms}" if max_atoms > 0 else ""
     print(
         f"[{split_name}] saved {len(data_list)} samples "
-        f"(failed/skipped: {n_failed}) → {out_path}\n"
+        f"(failed/skipped: {n_failed}{thresh_info}) → {out_path}\n"
         f"  atom counts — min={counts.min()}, max={counts.max()}, "
         f"mean={counts.mean():.0f}, median={np.median(counts):.0f}, "
-        f"pct_over_320={100*(counts > 320).mean():.1f}%"
+        f"pct_over_512={100*(counts > 512).mean():.1f}%"
     )
 
 
@@ -163,6 +169,9 @@ def main():
                         help="CSV with MofName + 8 target columns")
     parser.add_argument("--splits", nargs="+", default=["train", "val", "test"],
                         help="Which splits to build (default: all three)")
+    parser.add_argument("--max-atoms", type=int, default=512,
+                        help="Filter out structures with more than this many atoms "
+                             "(0 = no filter; default: 512 = KernelManager.MAX_SYSTEM_SIZE)")
     args = parser.parse_args()
 
     # Validate paths
@@ -193,6 +202,7 @@ def main():
             labels_df=labels_df,
             cif_dir=args.cif_dir,
             output_dir=args.output_dir,
+            max_atoms=args.max_atoms,
         )
 
     print("\nAll splits done.")

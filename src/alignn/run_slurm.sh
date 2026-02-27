@@ -29,12 +29,12 @@ MODE="${1:-short}"
 
 if [[ "$MODE" == "full" ]]; then
     EPOCHS=500
-    BATCH_SIZE=16
+    BATCH_SIZE=8   # reduced from 16; large MOFs (>300 atoms) fill 23.5 GB A30 GPU
     JOB_TAG="full_train"
     SBATCH_JOBNAME="alignn_full500ep"
 else
     EPOCHS=50
-    BATCH_SIZE=16
+    BATCH_SIZE=8   # reduced from 16; --max-atoms 300 still leaves 86% of dataset
     JOB_TAG="short_50ep"
 fi
 
@@ -50,6 +50,7 @@ echo "========================"
 CUDA_VISIBLE_DEVICES=0 python -u src/alignn/train_alignn.py \
     --epochs "$EPOCHS" \
     --batch-size "$BATCH_SIZE" \
+    --max-atoms 300 \
     --lr 1e-3 \
     --config src/alignn/train_config.json \
     --output-dir results/alignn \
