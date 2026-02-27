@@ -1,8 +1,8 @@
 #!/bin/bash
-#SBATCH --job-name=alignn_short50ep
+#SBATCH --job-name=alignn_fixed
 #SBATCH --output=slurm_logs/%x_%A.out
 #SBATCH --error=slurm_logs/%x_%A.err
-#SBATCH --partition=C9654
+#SBATCH --partition=G4090
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem-per-gpu=200G
@@ -51,7 +51,7 @@ CUDA_VISIBLE_DEVICES=0 python -u src/alignn/train_alignn.py \
     --epochs "$EPOCHS" \
     --batch-size "$BATCH_SIZE" \
     --max-atoms 300 \
-    --lr 1e-4 \
+    --lr 3e-4 \
     --config src/alignn/train_config.json \
     --output-dir results/alignn \
     --output-tag "$JOB_TAG"

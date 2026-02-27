@@ -197,7 +197,15 @@ def build_model(config: dict) -> nn.Module:
 # ──────────────────────────────────────────────────────────────
 # Training loop
 # ──────────────────────────────────────────────────────────────
-def train_epoch(model, loader, optimizer, device, scaler=None):
+def train_epoch(model, loader, optimizer, device):
+    """Train one epoch in fp32.
+
+    NOTE: AMP (mixed precision) is intentionally disabled.
+    Root cause: Qst targets (~14 kJ/mol) × AMP scale factor (65536) =
+    ~1.8M, which overflows fp16 max (65504), causing Inf gradients every
+    step → GradScaler unconditionally skips update → model never learns.
+    fp32 training with batch=8 fits comfortably in 24 GB GPU memory.
+    """
     model.train()
     total_loss = 0.0
     criterion  = nn.MSELoss()
@@ -210,22 +218,11 @@ def train_epoch(model, loader, optimizer, device, scaler=None):
         targets = targets.to(device).float()
 
         optimizer.zero_grad()
-        if scaler is not None:
-            with torch.cuda.amp.autocast():
-                preds = model((g, lg, lat))
-                loss  = criterion(preds, targets)
-            scaler.scale(loss).backward()
-            # Unscale before clipping so clip threshold is in real gradient units
-            scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            scaler.step(optimizer)
-            scaler.update()
-        else:
-            preds = model((g, lg, lat))
-            loss  = criterion(preds, targets)
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            optimizer.step()
+        preds = model((g, lg, lat))
+        loss  = criterion(preds, targets)
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        optimizer.step()
 
         total_loss += loss.item() * len(targets)
 
@@ -305,12 +302,33 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     n_gpus = torch.cuda.device_count()
     print(f"Device: {device} ({n_gpus} GPU(s) visible)")
+    print("NOTE: AMP disabled (fp16 overflows with Qst targets ~14 kJ/mol × scale 65536)")
 
     # ── Data ────────────────────────────────────────────────
     print("\nLoading datasets...")
     train_data = load_dataset("train", dry_run=args.dry_run, dry_run_size=args.dry_run_size, max_atoms=args.max_atoms)
     val_data   = load_dataset("val",   dry_run=args.dry_run, dry_run_size=min(50, args.dry_run_size), max_atoms=args.max_atoms)
     print(f"  train: {len(train_data)}, val: {len(val_data)}")
+
+    # ── Z-score target normalization ────────────────────────
+    # Qst columns (raw kJ/mol, mean≈14/11) dominate MSE at ~75% while
+    # symlog uptake columns (scale ~0–2) only contribute ~25%.  Without
+    # normalization the model ignores uptake signal entirely.
+    # Compute stats from training labels only; apply same transform to val.
+    train_labels = train_data.labels          # shape (N_train, 8)
+    target_mean  = train_labels.mean(dim=0)   # (8,)
+    target_std   = train_labels.std(dim=0).clamp(min=1e-6)  # (8,)
+    print("  Target normalization (z-score from training set):")
+    for i, col in enumerate(TARGET_COLS):
+        print(f"    {col:30s}  mean={target_mean[i]:8.4f}  std={target_std[i]:8.4f}")
+
+    # Normalize in-place (these tensors are not used elsewhere)
+    train_data.labels = (train_data.labels - target_mean) / target_std
+    val_data.labels   = (val_data.labels   - target_mean) / target_std
+
+    # Save normalization stats alongside model checkpoints
+    norm_stats = {"mean": target_mean.tolist(), "std": target_std.tolist(),
+                  "columns": TARGET_COLS}
 
     def collate_fn(samples):
         """Custom collate: always returns (g, lg, lat, labels).
@@ -342,7 +360,6 @@ def main():
     # ── Optimizer / Scheduler ───────────────────────────────
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-5)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
-    scaler    = torch.cuda.amp.GradScaler() if device.type == "cuda" else None
 
     # ── Training ────────────────────────────────────────────
     history   = []
@@ -354,7 +371,7 @@ def main():
 
     for epoch in range(1, epochs + 1):
         t0 = time.time()
-        train_loss = train_epoch(model, train_loader, optimizer, device, scaler)
+        train_loss = train_epoch(model, train_loader, optimizer, device)
         scheduler.step()
 
         val_preds, val_true = eval_epoch(model, val_loader, device)
@@ -374,10 +391,11 @@ def main():
         if val_mae_mean < best_val_mae:
             best_val_mae = val_mae_mean
             torch.save({
-                "epoch":      epoch,
+                "epoch":       epoch,
                 "model_state": (model.module if hasattr(model, "module") else model).state_dict(),
-                "optimizer":  optimizer.state_dict(),
-                "val_mae":    val_mae_mean,
+                "optimizer":   optimizer.state_dict(),
+                "val_mae":     val_mae_mean,
+                "norm_stats":  norm_stats,  # target normalization constants
                 "metrics":    metrics,
                 "config":     cfg,
             }, best_ckpt)
