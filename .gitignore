@@ -12,7 +12,7 @@ logs*
 slurm_logs*
 inference/*
 */inference/*
-*.ipynb
+# *.ipynb
 *.ipynb_checkpoints
 test.ipynb
 **/data
@@ -23,5 +23,8 @@ test.ipynb
 *.ckpt
 */feature_folders
 */figures
-results/
+results/*
+!results/summary/
+results/summary/*
+!results/summary/*.json
 **/graphs_grids
