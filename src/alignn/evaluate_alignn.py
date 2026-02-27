@@ -202,6 +202,7 @@ def run_inference(model, dataset, norm_mean: np.ndarray, norm_std: np.ndarray,
         lg  = lg.to(device)
         lat = lat.to(device)
         out = model((g, lg, lat)).cpu().numpy()          # (b, 8) z-score
+        out = np.atleast_2d(out)                          # guard: shape (8,) when last batch_size=1
         preds_list.append(invert_prediction(out, norm_mean, norm_std))
     return np.vstack(preds_list)
 
