@@ -8,6 +8,8 @@
 #SBATCH --mem-per-gpu=90G
 #SBATCH --gres=gpu:4
 
+set -e   # exit immediately on error
+
 # Usage: sbatch src/alignn/run_slurm_ddp.sh <num_ep> <transform> [tau] [n_gpus]
 # Examples:
 #   sbatch src/alignn/run_slurm_ddp.sh 5 log10 opt 2    # dry-run 2-GPU
@@ -46,7 +48,7 @@ for _d in "$_SP"/nvidia/*/lib; do
     [ -d "$_d" ] && export LD_LIBRARY_PATH="$_d:$LD_LIBRARY_PATH"
 done
 
-cd /home/zhangsd/repos/CBM-MOF-ddp
+cd /home/zhangsd/repos/CBM-MOF
 mkdir -p /home/zhangsd/repos/CBM-MOF/slurm_logs
 
 echo "=== ALIGNN DDP Training ==="
@@ -70,7 +72,7 @@ torchrun \
     --amp-mode bf16 \
     --lr 3e-4 \
     --data-dir "$DATA_DIR" \
-    --config src/alignn/train_config.json \
+    --config /home/zhangsd/repos/CBM-MOF/src/alignn/train_config.json \
     --output-dir /home/zhangsd/repos/CBM-MOF/results/alignn \
     --output-tag "$JOB_TAG"
 
