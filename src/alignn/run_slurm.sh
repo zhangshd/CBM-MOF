@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=alignn_fixed
+#SBATCH --job-name=alignn_train
 #SBATCH --output=slurm_logs/%x_%A.out
 #SBATCH --error=slurm_logs/%x_%A.err
 #SBATCH --partition=G4090
@@ -21,32 +21,78 @@ done
 
 # ── Repo root ───────────────────────────────────────────────────────────────
 cd /home/zhangsd/repos/CBM-MOF
-
 mkdir -p slurm_logs
 
-# ── Parse mode from first argument (default: short) ─────────────────────────
-MODE="${1:-short}"
+# ── Usage ───────────────────────────────────────────────────────────────────
+# New interface:
+#   sbatch run_slurm.sh <num_ep> <transform> [tau]
+#
+# Examples:
+#   sbatch src/alignn/run_slurm.sh 50 log10
+#   sbatch src/alignn/run_slurm.sh 50 symlog 1e-2
+#   sbatch src/alignn/run_slurm.sh 50 symlog 1e-3
+#   sbatch src/alignn/run_slurm.sh 500 log10        # full training
+#
+# Legacy modes (backward compat):
+#   sbatch src/alignn/run_slurm.sh short             # 50ep symlog opt
+#   sbatch src/alignn/run_slurm.sh full              # 500ep symlog opt
+#   sbatch src/alignn/run_slurm.sh optau             # 50ep symlog opt, bs=4
+# ────────────────────────────────────────────────────────────────────────────
 
-if [[ "$MODE" == "full" ]]; then
-    EPOCHS=500
-    BATCH_SIZE=8   # reduced from 16; large MOFs (>300 atoms) fill 23.5 GB A30 GPU
-    JOB_TAG="full_train"
-    SBATCH_JOBNAME="alignn_full500ep"
-elif [[ "$MODE" == "optau" ]]; then
-    EPOCHS=50
-    BATCH_SIZE=4   # reduced from 8; batch_size=8 hit OOM at ep27 due to large line-graph batches
-    JOB_TAG="short_50ep_optau"   # per-column τ* comparison vs short_50ep baseline
-else
-    EPOCHS=50
-    BATCH_SIZE=8   # reduced from 16; --max-atoms 300 still leaves 86% of dataset
+MODE_OR_EPOCHS="${1:-short}"
+
+# ── Legacy mode support ────────────────────────────────────────────────────
+if [[ "$MODE_OR_EPOCHS" == "short" ]]; then
+    EPOCHS=50; BATCH_SIZE=8; TRANSFORM="symlog"; TAU="opt"
     JOB_TAG="short_50ep"
+elif [[ "$MODE_OR_EPOCHS" == "full" ]]; then
+    EPOCHS=500; BATCH_SIZE=4; TRANSFORM="symlog"; TAU="opt"
+    JOB_TAG="full_train"
+elif [[ "$MODE_OR_EPOCHS" == "optau" ]]; then
+    EPOCHS=50; BATCH_SIZE=4; TRANSFORM="symlog"; TAU="opt"
+    JOB_TAG="short_50ep_optau"
+else
+    # ── New parametric interface ────────────────────────────────────────
+    EPOCHS="$MODE_OR_EPOCHS"
+    TRANSFORM="${2:-symlog}"
+    TAU="${3:-opt}"
+    BATCH_SIZE=4   # safe default for all experiments (prevents OOM)
+
+    # Build data subdir and job tag
+    if [[ "$TRANSFORM" == "log10" ]]; then
+        DATA_SUBDIR="alignn_log10"
+        JOB_TAG="${EPOCHS}ep_log10"
+    elif [[ "$TRANSFORM" == "symlog" && "$TAU" == "opt" ]]; then
+        DATA_SUBDIR="alignn"  # backward compat: data/alignn/
+        JOB_TAG="${EPOCHS}ep_symlog_opt"
+    elif [[ "$TRANSFORM" == "symlog" ]]; then
+        DATA_SUBDIR="alignn_symlog_${TAU}"
+        JOB_TAG="${EPOCHS}ep_symlog_${TAU}"
+    elif [[ "$TRANSFORM" == "none" ]]; then
+        DATA_SUBDIR="alignn_none"
+        JOB_TAG="${EPOCHS}ep_none"
+    else
+        echo "ERROR: Unknown transform '$TRANSFORM'"
+        exit 1
+    fi
+fi
+
+# Determine DATA_DIR for new interface (legacy modes use default ALIGNN_DATA)
+if [[ -n "$DATA_SUBDIR" ]]; then
+    DATA_DIR="/home/zhangsd/repos/CBM-MOF/data/${DATA_SUBDIR}"
+    DATA_DIR_ARG="--data-dir $DATA_DIR"
+else
+    DATA_DIR_ARG=""  # legacy: uses the default data/alignn/
 fi
 
 echo "=== ALIGNN Training ==="
-echo "  Mode       : $MODE"
 echo "  Epochs     : $EPOCHS"
 echo "  Batch size : $BATCH_SIZE"
-echo "  GPU(s)     : $(nvidia-smi --query-gpu=name --format=csv,noheader | head -1)"
+echo "  Transform  : $TRANSFORM"
+echo "  Tau        : $TAU"
+echo "  Job tag    : $JOB_TAG"
+echo "  Data dir   : ${DATA_DIR:-data/alignn/ (default)}"
+echo "  GPU(s)     : $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)"
 echo "  Start time : $(date)"
 echo "========================"
 
@@ -58,6 +104,7 @@ CUDA_VISIBLE_DEVICES=0 python -u src/alignn/train_alignn.py \
     --lr 3e-4 \
     --config src/alignn/train_config.json \
     --output-dir results/alignn \
-    --output-tag "$JOB_TAG"
+    --output-tag "$JOB_TAG" \
+    $DATA_DIR_ARG
 
 echo "=== Finished at $(date) ==="
