@@ -12,7 +12,7 @@ logs*
 slurm_logs*
 inference/*
 */inference/*
-# *.ipynb
+*.ipynb
 *.ipynb_checkpoints
 test.ipynb
 **/data

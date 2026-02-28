@@ -5,11 +5,18 @@ Data preparation script for ALIGNN training on CBM-MOF dataset.
 
 Steps:
 1. Load labels from RAC_and_zeo_features_with_id_prop.csv
-2. Apply symlog transform to 6 uptake targets; keep 2 Qst targets as-is
+2. Apply per-column symlog transform (τ* from CBM-MOF-symlog v2 Brent search)
 3. Merge with train/val/test split
 4. Output ALIGNN-format id_prop.csv files for each split
-5. Create symlink to CIF directory
-6. (Optional) Check atom count distribution from CIF files
+5. Export transform_config.json for use by evaluate_alignn.py
+6. Create symlink to CIF directory
+7. (Optional) Check atom count distribution from CIF files
+
+Transform strategy (updated 2026-02-28):
+  - Replaced global τ=1e-4 with per-column τ* to avoid distribution distortion.
+  - Root cause: τ=1e-4 worsened AdsN2_1000kPa skewness from -0.245 → -2.78.
+  - AdsN2_1000kPa is kept as raw (near-symmetric, skew=-0.245).
+  - Qst columns remain raw (kJ/mol) as before.
 
 Usage:
     # Full preparation
@@ -20,6 +27,7 @@ Usage:
 """
 
 import argparse
+import json
 import os
 import shutil
 import numpy as np
@@ -47,28 +55,40 @@ UPTAKE_TARGETS = [
 QST_TARGETS = ["QstCH4", "QstN2"]
 ALL_TARGETS  = UPTAKE_TARGETS + QST_TARGETS
 
-SYMLOG_THRESH = 1e-4   # τ in step1_plan
+TRANSFORM_CONFIG: dict = {
+    "AdsCH4_10kPa":   {"type": "symlog", "tau": 1e-6},
+    "AdsCH4_100kPa":  {"type": "symlog", "tau": 1e-6},
+    "AdsCH4_1000kPa": {"type": "symlog", "tau": 0.177},
+    "AdsN2_10kPa":    {"type": "symlog", "tau": 1e-6},
+    "AdsN2_100kPa":   {"type": "symlog", "tau": 0.013},
+    "AdsN2_1000kPa":  {"type": "raw"},          # near-symmetric: skew=-0.245; τ=1e-4 → -2.78
+    "QstCH4":         {"type": "raw"},           # kJ/mol, kept as-is
+    "QstN2":          {"type": "raw"},           # kJ/mol, kept as-is
+}
 
 
 # ──────────────────────────────────────────────────────────────
 # Symlog / inverse-symlog transforms
 # ──────────────────────────────────────────────────────────────
-def symlog(x: np.ndarray, threshold: float = SYMLOG_THRESH) -> np.ndarray:
-    """sign(x) * log10(1 + |x| / threshold)"""
-    return np.sign(x) * np.log10(1.0 + np.abs(x) / threshold)
+def symlog(x: np.ndarray, tau: float) -> np.ndarray:
+    """sign(x) * log10(1 + |x| / tau)"""
+    return np.sign(x) * np.log10(1.0 + np.abs(x) / tau)
 
 
-def inv_symlog(y: np.ndarray, threshold: float = SYMLOG_THRESH) -> np.ndarray:
-    """Inverse of symlog."""
-    return np.sign(y) * threshold * (10.0 ** np.abs(y) - 1.0)
+def inv_symlog(y: np.ndarray, tau: float) -> np.ndarray:
+    """Inverse of symlog(x, tau): sign(y) * tau * (10^|y| - 1)."""
+    return np.sign(y) * tau * (10.0 ** np.abs(y) - 1.0)
 
 
-def apply_transforms(df: pd.DataFrame) -> pd.DataFrame:
-    """Return new DataFrame with transformed target columns."""
+def apply_transforms(df: pd.DataFrame,
+                     config: dict = TRANSFORM_CONFIG) -> pd.DataFrame:
+    """Return new DataFrame with per-column symlog transforms applied."""
     out = df.copy()
-    for col in UPTAKE_TARGETS:
-        out[col] = symlog(df[col].values)
-    # QstCH4 and QstN2 kept as-is
+    for col in ALL_TARGETS:
+        cfg = config[col]
+        if cfg["type"] == "symlog":
+            out[col] = symlog(df[col].values, cfg["tau"])
+        # else: raw → keep as-is
     return out
 
 
@@ -76,28 +96,46 @@ def apply_transforms(df: pd.DataFrame) -> pd.DataFrame:
 # Checks
 # ──────────────────────────────────────────────────────────────
 def check_symlog(df_raw: pd.DataFrame):
-    """Verify symlog round-trip and print distribution stats."""
-    print("\n=== Symlog transform verification ===")
-    for col in UPTAKE_TARGETS:
+    """Verify per-column symlog round-trip and print distribution stats."""
+    from scipy.stats import skew as _skew
+    print("\n=== Per-column symlog transform verification ===")
+    print(f"  {'Column':25s}  {'raw_range':>22}  {'τ*':>8}  "
+          f"{'old_skew(1e-4)':>14}  {'new_skew':>9}  {'err':>10}")
+    print("  " + "─" * 94)
+    OLD_THRESH = 1e-4
+    for col in ALL_TARGETS:
         raw = df_raw[col].values
-        transformed = symlog(raw)
-        recovered   = inv_symlog(transformed)
-        max_err = np.max(np.abs(recovered - raw))
-        print(f"  {col:25s}  raw=[{raw.min():.4f}, {raw.max():.4f}]  "
-              f"sym=[{transformed.min():.2f}, {transformed.max():.2f}]  "
-              f"round-trip max_err={max_err:.2e}")
-    print("\n  QstCH4 range: [{:.2f}, {:.2f}]".format(
-        df_raw['QstCH4'].min(), df_raw['QstCH4'].max()))
-    print("  QstN2  range: [{:.2f}, {:.2f}]".format(
-        df_raw['QstN2'].min(), df_raw['QstN2'].max()))
+        cfg = TRANSFORM_CONFIG[col]
+        if cfg["type"] == "symlog":
+            tau = cfg["tau"]
+            transformed = symlog(raw, tau)
+            recovered   = inv_symlog(transformed, tau)
+            max_err = float(np.max(np.abs(recovered - raw)))
+            old_xf  = np.sign(raw) * np.log10(1.0 + np.abs(raw) / OLD_THRESH)
+            old_sk  = float(_skew(old_xf))
+            new_sk  = float(_skew(transformed))
+            tau_str = str(tau)
+        else:
+            transformed = raw
+            max_err = 0.0
+            old_sk  = float(_skew(raw))
+            new_sk  = float(_skew(raw))
+            tau_str = "raw"
+        raw_range = f"[{raw.min():.3f}, {raw.max():.3f}]"
+        print(f"  {col:25s}  {raw_range:>22}  {tau_str:>8}  "
+              f"{old_sk:>14.3f}  {new_sk:>9.3f}  {max_err:>10.2e}")
 
-    # Plot raw vs symlog distributions
-    fig, axes = plt.subplots(2, 6, figsize=(18, 6))
-    for i, col in enumerate(UPTAKE_TARGETS):
-        axes[0, i].hist(df_raw[col].values, bins=100, color='steelblue', alpha=0.7)
-        axes[0, i].set_title(f"raw {col}", fontsize=7)
-        axes[1, i].hist(symlog(df_raw[col].values), bins=100, color='tomato', alpha=0.7)
-        axes[1, i].set_title(f"symlog {col}", fontsize=7)
+    # Plot raw vs new symlog distributions (2 rows: raw / transformed)
+    fig, axes = plt.subplots(2, len(ALL_TARGETS), figsize=(len(ALL_TARGETS) * 3, 6))
+    for i, col in enumerate(ALL_TARGETS):
+        raw = df_raw[col].values
+        cfg = TRANSFORM_CONFIG[col]
+        xf  = symlog(raw, cfg["tau"]) if cfg["type"] == "symlog" else raw
+        axes[0, i].hist(raw, bins=80, color="steelblue", alpha=0.7)
+        axes[0, i].set_title(f"raw\n{col}", fontsize=6)
+        axes[1, i].hist(xf, bins=80, color="tomato", alpha=0.7)
+        label = f"symlog τ={cfg['tau']}" if cfg["type"] == "symlog" else "raw (no xform)"
+        axes[1, i].set_title(label, fontsize=6)
     plt.tight_layout()
     out_path = ALIGNN_DIR / "symlog_distributions.png"
     plt.savefig(out_path, dpi=100)
@@ -175,9 +213,18 @@ def prepare_datasets(df_transformed: pd.DataFrame):
     # Write header with target names (for reference)
     with open(ALIGNN_DIR / "targets.txt", "w") as f:
         f.write("\n".join(ALL_TARGETS) + "\n")
-        f.write(f"# symlog_threshold={SYMLOG_THRESH}\n")
-        f.write("# symlog applied to: " + ", ".join(UPTAKE_TARGETS) + "\n")
-        f.write("# raw (no transform): " + ", ".join(QST_TARGETS) + "\n")
+        f.write("# per-column transform config (from CBM-MOF-symlog v2 Brent search):\n")
+        for col, cfg in TRANSFORM_CONFIG.items():
+            if cfg["type"] == "symlog":
+                f.write(f"#   {col}: symlog τ={cfg['tau']}\n")
+            else:
+                f.write(f"#   {col}: raw\n")
+
+    # Export transform config as JSON (consumed by evaluate_alignn.py)
+    config_path = ALIGNN_DIR / "transform_config.json"
+    with open(config_path, "w") as f:
+        json.dump(TRANSFORM_CONFIG, f, indent=2)
+    print(f"  Transform config: {config_path}")
 
     print(f"\n  Targets file: {ALIGNN_DIR}/targets.txt")
 
@@ -217,9 +264,12 @@ def main():
         check_atom_counts()
 
     if not args.skip_prepare:
-        print("\n=== Applying transforms ===")
+        print("\n=== Applying per-column transforms ===")
         df_transformed = apply_transforms(df_raw)
-        print("  Transformed uptake targets with symlog")
+        symlog_cols = [c for c, v in TRANSFORM_CONFIG.items() if v["type"] == "symlog"]
+        raw_cols    = [c for c, v in TRANSFORM_CONFIG.items() if v["type"] == "raw"]
+        print(f"  Symlog applied ({len(symlog_cols)}): {', '.join(symlog_cols)}")
+        print(f"  Raw kept ({len(raw_cols)}):         {', '.join(raw_cols)}")
 
         print("\n=== Writing ALIGNN data splits ===")
         prepare_datasets(df_transformed)

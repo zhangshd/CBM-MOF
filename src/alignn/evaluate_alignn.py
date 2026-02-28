@@ -55,7 +55,17 @@ QST_COLS    = ["QstCH4", "QstN2"]
 TARGET_COLS = UPTAKE_COLS + QST_COLS
 N_TARGETS   = len(TARGET_COLS)
 
-SYMLOG_THRESH = 1e-4
+# Default fallback config (old global τ=1e-4, used if transform_config.json absent)
+_DEFAULT_TRANSFORM_CONFIG = {
+    "AdsCH4_10kPa":   {"type": "symlog", "tau": 1e-4},
+    "AdsCH4_100kPa":  {"type": "symlog", "tau": 1e-4},
+    "AdsCH4_1000kPa": {"type": "symlog", "tau": 1e-4},
+    "AdsN2_10kPa":    {"type": "symlog", "tau": 1e-4},
+    "AdsN2_100kPa":   {"type": "symlog", "tau": 1e-4},
+    "AdsN2_1000kPa":  {"type": "symlog", "tau": 1e-4},
+    "QstCH4":         {"type": "raw"},
+    "QstN2":          {"type": "raw"},
+}
 
 # Pressure bar → target suffix (gas-specific handled in load_gcmc_uptake)
 PRESSURE_MAP = {0.1: "10kPa", 1.0: "100kPa", 10.0: "1000kPa"}
@@ -68,29 +78,66 @@ UNITS.update({col: "kJ/mol" for col in QST_COLS})
 
 
 # ──────────────────────────────────────────────────────────────
-# Math helpers
+# Transform config helpers
 # ──────────────────────────────────────────────────────────────
-def inv_symlog(y: np.ndarray, threshold: float = SYMLOG_THRESH) -> np.ndarray:
+def load_transform_config(config_path: Path = ALIGNN_DATA / "transform_config.json") -> dict:
+    """Load per-column transform config.  Falls back to old global τ=1e-4 if absent."""
+    if config_path.exists():
+        with open(config_path) as f:
+            cfg = json.load(f)
+        print(f"  Loaded transform config: {config_path}")
+        return cfg
+    else:
+        print(f"  WARNING: {config_path} not found — using fallback τ=1e-4 for all uptakes.")
+        return _DEFAULT_TRANSFORM_CONFIG
+
+
+def inv_symlog(y: np.ndarray, tau: float) -> np.ndarray:
     """Inverse of symlog(x, τ): sign(y) × τ × (10^|y| - 1)."""
-    return np.sign(y) * threshold * (10.0 ** np.abs(y) - 1.0)
+    return np.sign(y) * tau * (10.0 ** np.abs(y) - 1.0)
+
+
+def _inv_col(y: np.ndarray, cfg: dict) -> np.ndarray:
+    """Inverse transform for a single column based on its config entry."""
+    if cfg["type"] == "symlog":
+        return inv_symlog(y, cfg["tau"])
+    return y.copy()   # raw: identity
+
+
+def invert_targets(arr: np.ndarray, xform_cfg: dict) -> np.ndarray:
+    """Invert per-column transforms on an (N, 8) array.
+
+    Args:
+        arr:       (N, 8) float array in transformed space (symlog or raw)
+        xform_cfg: per-column config dict from load_transform_config()
+
+    Returns:
+        (N, 8) in original physical units (mol/kg and kJ/mol)
+    """
+    out = arr.copy()
+    for i, col in enumerate(TARGET_COLS):
+        out[:, i] = _inv_col(arr[:, i], xform_cfg[col])
+    return out
 
 
 def invert_prediction(pred_zscore: np.ndarray, norm_mean: np.ndarray,
-                      norm_std: np.ndarray) -> np.ndarray:
-    """Full inverse: z-score → symlog/kJ/mol → mol/kg (uptakes only).
+                      norm_std: np.ndarray,
+                      xform_cfg: dict = None) -> np.ndarray:
+    """Full inverse: z-score → transformed space → original physical units.
 
     Args:
         pred_zscore: (N, 8) model output in z-score space
-        norm_mean:   (8,)   training set mean per target
-        norm_std:    (8,)   training set std  per target
+        norm_mean:   (8,)   training set mean per target (in transformed space)
+        norm_std:    (8,)   training set std  per target (in transformed space)
+        xform_cfg:   per-column config; defaults to fallback τ=1e-4 if None
 
     Returns:
         (N, 8)  in original physical units (mol/kg and kJ/mol)
     """
-    pred_orig = pred_zscore * norm_std + norm_mean    # → symlog / kJ/mol
-    n_up = len(UPTAKE_COLS)
-    pred_orig[:, :n_up] = inv_symlog(pred_orig[:, :n_up])  # → mol/kg
-    return pred_orig
+    if xform_cfg is None:
+        xform_cfg = _DEFAULT_TRANSFORM_CONFIG
+    pred_orig = pred_zscore * norm_std + norm_mean    # → transformed space
+    return invert_targets(pred_orig, xform_cfg)
 
 
 # ──────────────────────────────────────────────────────────────
@@ -187,7 +234,8 @@ def collate_fn(samples):
 # ──────────────────────────────────────────────────────────────
 @torch.no_grad()
 def run_inference(model, dataset, norm_mean: np.ndarray, norm_std: np.ndarray,
-                  device: torch.device, batch_size: int = 16) -> np.ndarray:
+                  device: torch.device, batch_size: int = 16,
+                  xform_cfg: dict = None) -> np.ndarray:
     """Run batch inference and return predictions in original physical units.
 
     Returns:
@@ -203,23 +251,23 @@ def run_inference(model, dataset, norm_mean: np.ndarray, norm_std: np.ndarray,
         lat = lat.to(device)
         out = model((g, lg, lat)).cpu().numpy()          # (b, 8) z-score
         out = np.atleast_2d(out)                          # guard: shape (8,) when last batch_size=1
-        preds_list.append(invert_prediction(out, norm_mean, norm_std))
+        preds_list.append(invert_prediction(out, norm_mean, norm_std, xform_cfg))
     return np.vstack(preds_list)
 
 
 # ──────────────────────────────────────────────────────────────
 # Label loaders
 # ──────────────────────────────────────────────────────────────
-def load_test_labels(id_prop_csv: Path) -> pd.DataFrame:
-    """Load test set labels from id_prop.csv.
+def load_test_labels(id_prop_csv: Path, xform_cfg: dict) -> pd.DataFrame:
+    """Load test set labels from id_prop.csv and invert per-column transforms.
 
-    id_prop.csv columns: mol_id, {symlog uptake cols...}, {Qst kJ/mol cols...}
+    id_prop.csv columns: mol_id, {transformed target cols...}
     Returns DataFrame with columns [mol_id] + TARGET_COLS in original units.
     """
     df = pd.read_csv(id_prop_csv)
-    # Invert symlog transform on uptake columns (labels are in symlog space)
-    for col in UPTAKE_COLS:
-        df[col] = inv_symlog(df[col].values)
+    for col in TARGET_COLS:
+        cfg = xform_cfg.get(col, {"type": "raw"})
+        df[col] = _inv_col(df[col].values, cfg)
     return df.set_index("mol_id")
 
 
@@ -353,7 +401,8 @@ def plot_parity(pred_df: pd.DataFrame, true_df: pd.DataFrame,
 # ──────────────────────────────────────────────────────────────
 # Dataset evaluators
 # ──────────────────────────────────────────────────────────────
-def evaluate_test_set(model, norm_mean, norm_std, device, output_dir, max_atoms):
+def evaluate_test_set(model, norm_mean, norm_std, device, output_dir, max_atoms,
+                      xform_cfg: dict):
     """Evaluate model on the held-out test split."""
     from jarvis.core.atoms import Atoms
 
@@ -386,13 +435,15 @@ def evaluate_test_set(model, norm_mean, norm_std, device, output_dir, max_atoms)
     print(f"  Evaluating: {len(records)} structures")
 
     dataset, mol_ids = build_dataset_from_records(records, max_atoms)
-    preds_orig = run_inference(model, dataset, norm_mean, norm_std, device)  # (N, 8) mol/kg + kJ/mol
+    preds_orig = run_inference(model, dataset, norm_mean, norm_std, device,
+                               xform_cfg=xform_cfg)  # (N, 8) mol/kg + kJ/mol
 
-    # Ground truth: invert symlog for uptakes
+    # Ground truth: invert per-column transforms
     true_df = pd.DataFrame(true_rows).set_index("mol_id")
     true_orig = true_df[TARGET_COLS].copy()
-    for col in UPTAKE_COLS:
-        true_orig[col] = inv_symlog(true_orig[col].values)
+    for col in TARGET_COLS:
+        cfg = xform_cfg.get(col, {"type": "raw"})
+        true_orig[col] = _inv_col(true_orig[col].values, cfg)
 
     pred_df = pd.DataFrame(preds_orig, columns=TARGET_COLS, index=mol_ids)
     true_aligned = true_orig.loc[pred_df.index]
@@ -417,7 +468,8 @@ def evaluate_test_set(model, norm_mean, norm_std, device, output_dir, max_atoms)
 
 
 def evaluate_top100(model, norm_mean, norm_std, device, output_dir, max_atoms,
-                    name: str, cif_dir: Path, gcmc_csv: Path, widom_csv: Path):
+                    name: str, cif_dir: Path, gcmc_csv: Path, widom_csv: Path,
+                    xform_cfg: dict):
     """Evaluate model on Top-100 PSA or VSA dataset."""
     from jarvis.core.atoms import Atoms
 
@@ -453,7 +505,8 @@ def evaluate_top100(model, norm_mean, norm_std, device, output_dir, max_atoms,
         return {}
 
     dataset, mol_ids = build_dataset_from_records(records, max_atoms)
-    preds_orig = run_inference(model, dataset, norm_mean, norm_std, device)
+    preds_orig = run_inference(model, dataset, norm_mean, norm_std, device,
+                               xform_cfg=xform_cfg)
 
     pred_df   = pd.DataFrame(preds_orig, columns=TARGET_COLS, index=mol_ids)
     true_df   = pd.DataFrame(label_rows, index=mol_ids)[TARGET_COLS]
@@ -548,12 +601,19 @@ def main():
     print(f"  norm_mean: {norm_mean.tolist()}")
     print(f"  norm_std : {norm_std.tolist()}")
 
+    # Load per-column transform config
+    xform_cfg = load_transform_config(ALIGNN_DATA / "transform_config.json")
+    print(f"  xform_cfg summary: " +
+          ", ".join(f"{c}={'symlog τ='+str(v['tau']) if v['type']=='symlog' else 'raw'}"
+                    for c, v in xform_cfg.items()))
+
     all_metrics = {}
 
     # ── Dataset A: Test Set ──────────────────────────────────
     if not args.skip_test:
         all_metrics["test"] = evaluate_test_set(
-            model, norm_mean, norm_std, device, output_dir, args.max_atoms
+            model, norm_mean, norm_std, device, output_dir, args.max_atoms,
+            xform_cfg=xform_cfg,
         )
 
     # ── Dataset B: Top-100 PSA ───────────────────────────────
@@ -563,6 +623,7 @@ def main():
         cif_dir=INFER_DIR / "top_100_psa_performers_cifs_ml",
         gcmc_csv=INFER_DIR / "gcmc_top_100_psa_ml/raspa3_parsed_results.csv",
         widom_csv=INFER_DIR / "widom_top_100_psa_ml/raspa2_parsed_results.csv",
+        xform_cfg=xform_cfg,
     )
 
     # ── Dataset C: Top-100 VSA ───────────────────────────────
@@ -572,6 +633,7 @@ def main():
         cif_dir=INFER_DIR / "top_100_vsa_performers_cifs_ml",
         gcmc_csv=INFER_DIR / "gcmc_top_100_vsa_ml/raspa3_parsed_results.csv",
         widom_csv=INFER_DIR / "widom_top_100_vsa_ml/raspa2_parsed_results.csv",
+        xform_cfg=xform_cfg,
     )
 
     # ── Summary ─────────────────────────────────────────────

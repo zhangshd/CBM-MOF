@@ -32,6 +32,10 @@ if [[ "$MODE" == "full" ]]; then
     BATCH_SIZE=8   # reduced from 16; large MOFs (>300 atoms) fill 23.5 GB A30 GPU
     JOB_TAG="full_train"
     SBATCH_JOBNAME="alignn_full500ep"
+elif [[ "$MODE" == "optau" ]]; then
+    EPOCHS=50
+    BATCH_SIZE=4   # reduced from 8; batch_size=8 hit OOM at ep27 due to large line-graph batches
+    JOB_TAG="short_50ep_optau"   # per-column τ* comparison vs short_50ep baseline
 else
     EPOCHS=50
     BATCH_SIZE=8   # reduced from 16; --max-atoms 300 still leaves 86% of dataset
