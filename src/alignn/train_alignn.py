@@ -327,6 +327,9 @@ def parse_args():
                              "off (fp32 fallback), fp16 (unsafe—overflows for this project)")
     args = parser.parse_args()
     return args
+
+
+def train(rank: int, world_size: int, args):
     """Core training logic. rank=0 / world_size=1 for single-GPU."""
     # ── Config ──────────────────────────────────────────────
     default_cfg = dict(
