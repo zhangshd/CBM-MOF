@@ -66,7 +66,8 @@ torchrun \
     src/alignn/train_alignn.py \
     --epochs "$EPOCHS" \
     --batch-size 4 \
-    --max-atoms 300 \
+    --max-atoms 500 \
+    --amp-mode bf16 \
     --lr 3e-4 \
     --data-dir "$DATA_DIR" \
     --config src/alignn/train_config.json \
