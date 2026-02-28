@@ -425,9 +425,10 @@ def train(rank: int, world_size: int, args):
 
     if world_size > 1:
         model = torch.nn.parallel.DistributedDataParallel(
-            model, device_ids=[rank], find_unused_parameters=False
+            model, device_ids=[rank], find_unused_parameters=True
         )
-        # find_unused_parameters=False: all ALIGNN params used in every forward pass
+        # find_unused_parameters=True: ALIGNN has conditional paths (lattice layers)
+        # that may not receive gradients on every batch
 
     if rank == 0:
         n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
