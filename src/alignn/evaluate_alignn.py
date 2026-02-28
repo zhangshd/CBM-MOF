@@ -22,6 +22,13 @@ Usage:
         --checkpoint results/alignn/short_50ep/best_model.pt \\
         --output-dir results/alignn/short_50ep/evaluation \\
         --max-atoms 300
+
+    # Evaluate a variant with a different transform (reads transform_config.json from --data-dir):
+    python src/alignn/evaluate_alignn.py \\
+        --checkpoint results/alignn/50ep_log10/best_model.pt \\
+        --output-dir results/alignn/50ep_log10/evaluation \\
+        --data-dir data/alignn_log10 \\
+        --max-atoms 300
 """
 
 import argparse
@@ -101,6 +108,9 @@ def _inv_col(y: np.ndarray, cfg: dict) -> np.ndarray:
     """Inverse transform for a single column based on its config entry."""
     if cfg["type"] == "symlog":
         return inv_symlog(y, cfg["tau"])
+    elif cfg["type"] == "log10":
+        eps = cfg.get("eps", 1e-8)
+        return 10.0 ** y - eps
     return y.copy()   # raw: identity
 
 
@@ -402,13 +412,15 @@ def plot_parity(pred_df: pd.DataFrame, true_df: pd.DataFrame,
 # Dataset evaluators
 # ──────────────────────────────────────────────────────────────
 def evaluate_test_set(model, norm_mean, norm_std, device, output_dir, max_atoms,
-                      xform_cfg: dict):
+                      xform_cfg: dict, data_dir: Path = None):
     """Evaluate model on the held-out test split."""
     from jarvis.core.atoms import Atoms
 
+    if data_dir is None:
+        data_dir = ALIGNN_DATA
     print("\n=== Dataset A: Test Set ===")
-    id_prop_csv = ALIGNN_DATA / "test" / "id_prop.csv"
-    cif_dir     = ALIGNN_DATA / "cifs"
+    id_prop_csv = data_dir / "test" / "id_prop.csv"
+    cif_dir     = data_dir / "cifs"
 
     df = pd.read_csv(id_prop_csv)
     print(f"  Total in CSV: {len(df)}")
@@ -578,6 +590,14 @@ def main():
         default=16,
     )
     parser.add_argument(
+        "--data-dir",
+        type=str,
+        default=None,
+        help="Data directory containing transform_config.json and test/id_prop.csv "
+             "(default: data/alignn/). Use this to evaluate variants with different "
+             "transforms (e.g. data/alignn_log10, data/alignn_symlog_1e-2).",
+    )
+    parser.add_argument(
         "--skip-test",
         action="store_true",
         help="Skip test set evaluation (e.g., for quick top-100 check)",
@@ -601,11 +621,17 @@ def main():
     print(f"  norm_mean: {norm_mean.tolist()}")
     print(f"  norm_std : {norm_std.tolist()}")
 
+    # Resolve data directory (for transform_config.json and test/id_prop.csv)
+    data_dir = Path(args.data_dir) if args.data_dir else ALIGNN_DATA
+    print(f"Data dir   : {data_dir}")
+
     # Load per-column transform config
-    xform_cfg = load_transform_config(ALIGNN_DATA / "transform_config.json")
+    xform_cfg = load_transform_config(data_dir / "transform_config.json")
     print(f"  xform_cfg summary: " +
-          ", ".join(f"{c}={'symlog τ='+str(v['tau']) if v['type']=='symlog' else 'raw'}"
-                    for c, v in xform_cfg.items()))
+          ", ".join(
+              f"{c}={'symlog τ='+str(v['tau']) if v['type']=='symlog' else v['type']}"
+              for c, v in xform_cfg.items()
+          ))
 
     all_metrics = {}
 
@@ -613,7 +639,7 @@ def main():
     if not args.skip_test:
         all_metrics["test"] = evaluate_test_set(
             model, norm_mean, norm_std, device, output_dir, args.max_atoms,
-            xform_cfg=xform_cfg,
+            xform_cfg=xform_cfg, data_dir=data_dir,
         )
 
     # ── Dataset B: Top-100 PSA ───────────────────────────────
