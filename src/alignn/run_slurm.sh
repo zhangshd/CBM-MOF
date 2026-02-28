@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=alignn_train
-#SBATCH --output=slurm_logs/%x_%A.out
-#SBATCH --error=slurm_logs/%x_%A.err
+#SBATCH --output=/home/zhangsd/repos/CBM-MOF/slurm_logs/%x_%A.out
+#SBATCH --error=/home/zhangsd/repos/CBM-MOF/slurm_logs/%x_%A.err
 #SBATCH --partition=G4090
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
@@ -19,9 +19,12 @@ for _d in "$_SP"/nvidia/*/lib; do
     [ -d "$_d" ] && export LD_LIBRARY_PATH="$_d:$LD_LIBRARY_PATH"
 done
 
-# ── Repo root ───────────────────────────────────────────────────────────────
-cd /home/zhangsd/repos/CBM-MOF
-mkdir -p slurm_logs
+# ── Repo root (feat/alignn-mem worktree — contains BF16 train_alignn.py) ────────
+REPO_MEM=/home/zhangsd/repos/CBM-MOF-mem
+REPO_MAIN=/home/zhangsd/repos/CBM-MOF   # data/ and results/ live here
+cd "$REPO_MEM"
+mkdir -p "$REPO_MAIN/slurm_logs"
+
 
 # ── Usage ───────────────────────────────────────────────────────────────────
 # New interface:
@@ -114,7 +117,7 @@ CUDA_VISIBLE_DEVICES=0 python -u src/alignn/train_alignn.py \
     --amp-mode "$AMP_MODE" \
     --lr 3e-4 \
     --config src/alignn/train_config.json \
-    --output-dir results/alignn \
+    --output-dir "$REPO_MAIN/results/alignn" \
     --output-tag "$JOB_TAG" \
     $DATA_DIR_ARG
 
