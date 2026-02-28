@@ -463,8 +463,10 @@ def train(rank: int, world_size: int, args):
             train_loss = loss_t.item()
 
         # Validation + checkpoint: rank-0 only
+        # Use base model (no DDP wrapper) to avoid spurious collective ops on rank-0
         if rank == 0:
-            val_preds, val_true = eval_epoch(model, val_loader, device)
+            base_model = model.module if hasattr(model, "module") else model
+            val_preds, val_true = eval_epoch(base_model, val_loader, device)
             metrics = compute_metrics(val_preds, val_true)
             val_mae_mean = np.mean([v["MAE"] for v in metrics.values()])
 
@@ -511,7 +513,7 @@ def train(rank: int, world_size: int, args):
         ckpt = torch.load(best_ckpt, map_location=device)
         base_model = model.module if hasattr(model, "module") else model
         base_model.load_state_dict(ckpt["model_state"])
-        val_preds, val_true = eval_epoch(model, val_loader, device)
+        val_preds, val_true = eval_epoch(base_model, val_loader, device)
         final_metrics = compute_metrics(val_preds, val_true, tag="val")
         with open(output_dir / "final_metrics.json", "w") as f:
             json.dump(final_metrics, f, indent=2)
