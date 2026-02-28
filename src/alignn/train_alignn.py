@@ -395,10 +395,10 @@ def main():
         batched_lg = dgl.batch(line_graphs)
         return batched_g, batched_lg, torch.stack(lattices), torch.stack(labels)
     train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True,
-                              num_workers=4, pin_memory=True,
+                              num_workers=8, pin_memory=True,
                               collate_fn=collate_fn)
     val_loader   = DataLoader(val_data, batch_size=batch_size, shuffle=False,
-                              num_workers=4, pin_memory=True,
+                              num_workers=8, pin_memory=True,
                               collate_fn=collate_fn)
 
     # ── Model ───────────────────────────────────────────────

@@ -4,8 +4,8 @@
 #SBATCH --error=/home/zhangsd/repos/CBM-MOF/slurm_logs/%x_%A.err
 #SBATCH --partition=G4090
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=16
-#SBATCH --mem-per-gpu=200G
+#SBATCH --cpus-per-task=32          # rule: <= 60 (c3: 380 CPU / 6 GPU ≈ 63/GPU)
+#SBATCH --mem-per-gpu=100G          # rule: <= 150G (c3: ~168G/GPU); 100G leaves headroom
 #SBATCH --gres=gpu:1
 
 # ── Environment ─────────────────────────────────────────────────────────────
