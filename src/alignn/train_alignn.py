@@ -326,9 +326,7 @@ def parse_args():
                         help="Mixed precision mode: bf16 (default, ~40%% VRAM reduction), "
                              "off (fp32 fallback), fp16 (unsafe—overflows for this project)")
     args = parser.parse_args()
-
-
-def train(rank: int, world_size: int, args):
+    return args
     """Core training logic. rank=0 / world_size=1 for single-GPU."""
     # ── Config ──────────────────────────────────────────────
     default_cfg = dict(
