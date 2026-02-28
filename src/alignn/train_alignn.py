@@ -362,8 +362,13 @@ def train(rank: int, world_size: int, args):
         target_std  = torch.ones(N_TARGETS)
 
     if world_size > 1:
+        # NCCL requires tensors on GPU; move to device, broadcast, move back
+        target_mean = target_mean.to(device)
+        target_std  = target_std.to(device)
         dist.broadcast(target_mean, src=0)
         dist.broadcast(target_std,  src=0)
+        target_mean = target_mean.cpu()
+        target_std  = target_std.cpu()
 
     if rank == 0:
         print("  Target normalization (z-score from training set):")
