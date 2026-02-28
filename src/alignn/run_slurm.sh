@@ -5,7 +5,7 @@
 #SBATCH --partition=G4090
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=32          # rule: <= 60 (c3: 380 CPU / 6 GPU ≈ 63/GPU)
-#SBATCH --mem-per-gpu=100G          # rule: <= 150G (c3: ~168G/GPU); 100G leaves headroom
+#SBATCH --mem-per-gpu=90G           # rule: <= 150G; 90G works even alongside legacy 200G jobs
 #SBATCH --gres=gpu:1
 
 # ── Environment ─────────────────────────────────────────────────────────────
