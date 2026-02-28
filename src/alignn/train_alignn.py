@@ -31,7 +31,8 @@ import pandas as pd
 import dgl
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import DataLoader, DistributedSampler, Subset
+import torch.distributed as dist
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -74,6 +75,24 @@ def compute_metrics(pred: np.ndarray, true: np.ndarray, tag: str = ""):
             unit = "symlog" if col in UPTAKE_COLS else "kJ/mol"
             print(f"  [{tag}] {col:25s}  MAE={mae:.4f} {unit}  R²={r2:.4f}")
     return results
+
+
+# ──────────────────────────────────────────────────────────────
+# Distributed training helpers
+# ──────────────────────────────────────────────────────────────
+def setup_ddp(rank: int, world_size: int):
+    """Initialize NCCL process group for DDP training.
+
+    torchrun auto-injects RANK, WORLD_SIZE, MASTER_ADDR, MASTER_PORT.
+    """
+    os.environ.setdefault("MASTER_ADDR", "localhost")
+    os.environ.setdefault("MASTER_PORT", "29500")
+    dist.init_process_group("nccl", rank=rank, world_size=world_size)
+    torch.cuda.set_device(rank)
+
+
+def cleanup_ddp():
+    dist.destroy_process_group()
 
 
 # ──────────────────────────────────────────────────────────────
@@ -258,7 +277,7 @@ def eval_epoch(model, loader, device):
 # ──────────────────────────────────────────────────────────────
 # Main
 # ──────────────────────────────────────────────────────────────
-def main():
+def parse_args():
     parser = argparse.ArgumentParser(description="Multi-task ALIGNN training for CBM-MOF")
     parser.add_argument("--dry-run",      action="store_true",
                         help="Use 100 samples × 5 epochs for pipeline verification")
@@ -276,8 +295,11 @@ def main():
                         help="Override the auto-generated output subdirectory tag")
     parser.add_argument("--config",       type=str, default=None,
                         help="Path to JSON config (overrides defaults)")
-    args = parser.parse_args()
+    return parser.parse_args()
 
+
+def train(rank: int, world_size: int, args):
+    """Core training logic. rank=0 / world_size=1 for single-GPU."""
     # ── Config ──────────────────────────────────────────────
     default_cfg = dict(
         hidden_features=256,
@@ -304,36 +326,49 @@ def main():
     else:
         tag = f"dryrun_{args.dry_run_size}" if args.dry_run else "full"
     output_dir = Path(args.output_dir) / tag
-    output_dir.mkdir(parents=True, exist_ok=True)
+    if rank == 0:
+        output_dir.mkdir(parents=True, exist_ok=True)
     print(f"Output dir: {output_dir}")
 
     # ── Device ──────────────────────────────────────────────
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    n_gpus = torch.cuda.device_count()
-    print(f"Device: {device} ({n_gpus} GPU(s) visible)")
-    print("NOTE: AMP disabled (fp16 overflows with Qst targets ~14 kJ/mol × scale 65536)")
+    device = torch.device(f"cuda:{rank}" if torch.cuda.is_available() else "cpu")
+    if rank == 0:
+        n_gpus = torch.cuda.device_count()
+        print(f"Device: {device} ({n_gpus} GPU(s) visible, world_size={world_size})")
+        print("NOTE: AMP disabled (fp16 overflows with Qst targets ~14 kJ/mol × scale 65536)")
 
     # ── Data dir ─────────────────────────────────────────────
     data_dir = Path(args.data_dir) if args.data_dir else ALIGNN_DATA
-    print(f"\nData directory: {data_dir}")
+    if rank == 0:
+        print(f"\nData directory: {data_dir}")
 
     # ── Data ────────────────────────────────────────────────
-    print("Loading datasets...")
-    train_data = load_dataset("train", data_dir=data_dir, dry_run=args.dry_run, dry_run_size=args.dry_run_size, max_atoms=args.max_atoms)
-    val_data   = load_dataset("val",   data_dir=data_dir, dry_run=args.dry_run, dry_run_size=min(50, args.dry_run_size), max_atoms=args.max_atoms)
-    print(f"  train: {len(train_data)}, val: {len(val_data)}")
+    if rank == 0:
+        print("Loading datasets...")
+    train_data = load_dataset("train", data_dir=data_dir, dry_run=args.dry_run,
+                              dry_run_size=args.dry_run_size, max_atoms=args.max_atoms)
+    val_data   = load_dataset("val",   data_dir=data_dir, dry_run=args.dry_run,
+                              dry_run_size=min(50, args.dry_run_size), max_atoms=args.max_atoms)
+    if rank == 0:
+        print(f"  train: {len(train_data)}, val: {len(val_data)}")
 
     # ── Z-score target normalization ────────────────────────
-    # Qst columns (raw kJ/mol, mean≈14/11) dominate MSE at ~75% while
-    # symlog uptake columns (scale ~0–2) only contribute ~25%.  Without
-    # normalization the model ignores uptake signal entirely.
-    # Compute stats from training labels only; apply same transform to val.
-    train_labels = train_data.labels          # shape (N_train, 8)
-    target_mean  = train_labels.mean(dim=0)   # (8,)
-    target_std   = train_labels.std(dim=0).clamp(min=1e-6)  # (8,)
-    print("  Target normalization (z-score from training set):")
-    for i, col in enumerate(TARGET_COLS):
-        print(f"    {col:30s}  mean={target_mean[i]:8.4f}  std={target_std[i]:8.4f}")
+    # rank-0 computes stats; broadcast to all ranks for consistency
+    if rank == 0:
+        target_mean = train_data.labels.mean(dim=0)
+        target_std  = train_data.labels.std(dim=0).clamp(min=1e-6)
+    else:
+        target_mean = torch.zeros(N_TARGETS)
+        target_std  = torch.ones(N_TARGETS)
+
+    if world_size > 1:
+        dist.broadcast(target_mean, src=0)
+        dist.broadcast(target_std,  src=0)
+
+    if rank == 0:
+        print("  Target normalization (z-score from training set):")
+        for i, col in enumerate(TARGET_COLS):
+            print(f"    {col:30s}  mean={target_mean[i]:8.4f}  std={target_std[i]:8.4f}")
 
     # Normalize in-place (these tensors are not used elsewhere)
     train_data.labels = (train_data.labels - target_mean) / target_std
@@ -353,90 +388,142 @@ def main():
         batched_g  = dgl.batch(graphs)
         batched_lg = dgl.batch(line_graphs)
         return batched_g, batched_lg, torch.stack(lattices), torch.stack(labels)
-    train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True,
-                              num_workers=4, pin_memory=True,
-                              collate_fn=collate_fn)
-    val_loader   = DataLoader(val_data, batch_size=batch_size, shuffle=False,
-                              num_workers=4, pin_memory=True,
-                              collate_fn=collate_fn)
+
+    # Training loader: use DistributedSampler for DDP, shuffle for single-GPU
+    if world_size > 1:
+        train_sampler = DistributedSampler(train_data, num_replicas=world_size,
+                                           rank=rank, shuffle=True)
+        train_loader = DataLoader(train_data, batch_size=batch_size,
+                                  sampler=train_sampler,
+                                  num_workers=4, pin_memory=True,
+                                  collate_fn=collate_fn)
+    else:
+        train_sampler = None
+        train_loader = DataLoader(train_data, batch_size=batch_size,
+                                  shuffle=True, num_workers=4,
+                                  pin_memory=True, collate_fn=collate_fn)
+
+    # Validation loader: rank-0 only (val set is small, no need for all-gather)
+    val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False,
+                            num_workers=4, pin_memory=True,
+                            collate_fn=collate_fn) if rank == 0 else None
+
+    # Ensure all ranks finish loading/caching graphs before training starts
+    if world_size > 1:
+        dist.barrier()
 
     # ── Model ───────────────────────────────────────────────
-    print("\nBuilding ALIGNN model...")
-    model = build_model(cfg)
-    # NOTE: DGL graphs do NOT support PyTorch DataParallel (graphs stay on
-    # cuda:0 while replicas run on other devices → DGLError on first forward).
-    # Single-GPU training is used here. Multi-GPU training requires DDP.
-    model = model.to(device)
-    n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"  Trainable parameters: {n_params:,}")
+    if rank == 0:
+        print("\nBuilding ALIGNN model...")
+    # NOTE: DGL graphs do NOT support PyTorch DataParallel; use DDP instead.
+    model = build_model(cfg).to(device)
+
+    if world_size > 1:
+        model = torch.nn.parallel.DistributedDataParallel(
+            model, device_ids=[rank], find_unused_parameters=False
+        )
+        # find_unused_parameters=False: all ALIGNN params used in every forward pass
+
+    if rank == 0:
+        n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        print(f"  Trainable parameters: {n_params:,}")
 
     # ── Optimizer / Scheduler ───────────────────────────────
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-5)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
 
     # ── Training ────────────────────────────────────────────
-    history   = []
+    history      = []
     best_val_mae = float("inf")
-    best_ckpt = output_dir / "best_model.pt"
+    best_ckpt    = output_dir / "best_model.pt"
 
-    print(f"\n{'Epoch':>6} {'train_loss':>12} {'val_MAE_mean':>14} {'time':>8}")
-    print("-" * 48)
+    if rank == 0:
+        print(f"\n{'Epoch':>6} {'train_loss':>12} {'val_MAE_mean':>14} {'time':>8}")
+        print("-" * 48)
 
     for epoch in range(1, epochs + 1):
+        # DDP: shuffle varies per epoch
+        if train_sampler is not None:
+            train_sampler.set_epoch(epoch)
+
         t0 = time.time()
         train_loss = train_epoch(model, train_loader, optimizer, device)
         scheduler.step()
 
+        # Sync train_loss across ranks for consistent logging
+        if world_size > 1:
+            loss_t = torch.tensor(train_loss, device=device)
+            dist.all_reduce(loss_t, op=dist.ReduceOp.AVG)
+            train_loss = loss_t.item()
+
+        # Validation + checkpoint: rank-0 only
+        if rank == 0:
+            val_preds, val_true = eval_epoch(model, val_loader, device)
+            metrics = compute_metrics(val_preds, val_true)
+            val_mae_mean = np.mean([v["MAE"] for v in metrics.values()])
+
+            elapsed = time.time() - t0
+            print(f"{epoch:6d} {train_loss:12.5f} {val_mae_mean:14.5f} {elapsed:8.1f}s")
+
+            record = {"epoch": epoch, "train_loss": train_loss, "val_mae_mean": val_mae_mean}
+            for col, m in metrics.items():
+                record[f"val_MAE_{col}"] = m["MAE"]
+                record[f"val_R2_{col}"]  = m["R2"]
+            history.append(record)
+
+            if val_mae_mean < best_val_mae:
+                best_val_mae = val_mae_mean
+                torch.save({
+                    "epoch":       epoch,
+                    "model_state": (model.module if hasattr(model, "module") else model).state_dict(),
+                    "optimizer":   optimizer.state_dict(),
+                    "val_mae":     val_mae_mean,
+                    "norm_stats":  norm_stats,
+                    "metrics":     metrics,
+                    "config":      cfg,
+                }, best_ckpt)
+
+            if epoch % 10 == 0 or epoch == epochs:
+                torch.save({
+                    "epoch":       epoch,
+                    "model_state": (model.module if hasattr(model, "module") else model).state_dict(),
+                    "optimizer":   optimizer.state_dict(),
+                }, output_dir / f"checkpoint_epoch{epoch:04d}.pt")
+
+        # All ranks wait for rank-0 to finish checkpoint write
+        if world_size > 1:
+            dist.barrier()
+
+    # ── Save history + final eval ────────────────────────────
+    if rank == 0:
+        hist_df = pd.DataFrame(history)
+        hist_df.to_csv(output_dir / "training_history.csv", index=False)
+        print(f"\n✓ Training complete! Best val MAE: {best_val_mae:.5f}")
+        print(f"  Best model: {best_ckpt}")
+
+        print("\nFinal evaluation on val set (best model):")
+        ckpt = torch.load(best_ckpt, map_location=device)
+        base_model = model.module if hasattr(model, "module") else model
+        base_model.load_state_dict(ckpt["model_state"])
         val_preds, val_true = eval_epoch(model, val_loader, device)
-        metrics = compute_metrics(val_preds, val_true)
-        val_mae_mean = np.mean([v["MAE"] for v in metrics.values()])
+        final_metrics = compute_metrics(val_preds, val_true, tag="val")
+        with open(output_dir / "final_metrics.json", "w") as f:
+            json.dump(final_metrics, f, indent=2)
+        print(f"  Metrics saved: {output_dir}/final_metrics.json")
 
-        elapsed = time.time() - t0
-        print(f"{epoch:6d} {train_loss:12.5f} {val_mae_mean:14.5f} {elapsed:8.1f}s")
 
-        record = {"epoch": epoch, "train_loss": train_loss, "val_mae_mean": val_mae_mean}
-        for col, m in metrics.items():
-            record[f"val_MAE_{col}"]   = m["MAE"]
-            record[f"val_R2_{col}"]    = m["R2"]
-        history.append(record)
+def main():
+    args       = parse_args()
+    rank       = int(os.environ.get("RANK", 0))
+    world_size = int(os.environ.get("WORLD_SIZE", 1))
 
-        # Save best checkpoint
-        if val_mae_mean < best_val_mae:
-            best_val_mae = val_mae_mean
-            torch.save({
-                "epoch":       epoch,
-                "model_state": (model.module if hasattr(model, "module") else model).state_dict(),
-                "optimizer":   optimizer.state_dict(),
-                "val_mae":     val_mae_mean,
-                "norm_stats":  norm_stats,  # target normalization constants
-                "metrics":    metrics,
-                "config":     cfg,
-            }, best_ckpt)
-
-        # Save latest checkpoint every 10 epochs
-        if epoch % 10 == 0 or epoch == epochs:
-            torch.save({
-                "epoch":      epoch,
-                "model_state": (model.module if hasattr(model, "module") else model).state_dict(),
-                "optimizer":  optimizer.state_dict(),
-            }, output_dir / f"checkpoint_epoch{epoch:04d}.pt")
-
-    # ── Save history ────────────────────────────────────────
-    hist_df = pd.DataFrame(history)
-    hist_df.to_csv(output_dir / "training_history.csv", index=False)
-    print(f"\n✓ Training complete! Best val MAE: {best_val_mae:.5f}")
-    print(f"  Best model: {best_ckpt}")
-
-    # ── Final evaluation on best model ──────────────────────
-    print("\nFinal evaluation on val set (best model):")
-    ckpt = torch.load(best_ckpt, map_location=device)
-    base_model = model.module if hasattr(model, "module") else model
-    base_model.load_state_dict(ckpt["model_state"])
-    val_preds, val_true = eval_epoch(model, val_loader, device)
-    final_metrics = compute_metrics(val_preds, val_true, tag="val")
-    with open(output_dir / "final_metrics.json", "w") as f:
-        json.dump(final_metrics, f, indent=2)
-    print(f"  Metrics saved: {output_dir}/final_metrics.json")
+    if world_size > 1:
+        setup_ddp(rank, world_size)
+    try:
+        train(rank, world_size, args)
+    finally:
+        if world_size > 1:
+            cleanup_ddp()
 
 
 if __name__ == "__main__":
