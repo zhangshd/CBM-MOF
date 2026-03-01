@@ -180,3 +180,21 @@ def ads_qst_ch4_n2_org():
     }
     max_epochs = 200
     per_gpu_batchsize = 32
+
+@ex.named_config
+def ads_qst_ch4_n2_symlog_1e3():
+    exp_name = "ads_qst_ch4_n2_symlog_1e3"
+    root_dataset = 'src/moftransformer/data/round2'  # Data directory
+    root_dataset = str(Path(__file__).parent.parent.parent/root_dataset)
+    tasks = {
+        'symlogAdsCH4_10kPa_1e3':   "regression",
+        'symlogAdsCH4_100kPa_1e3':  "regression",
+        'symlogAdsCH4_1000kPa_1e3': "regression",
+        'symlogAdsN2_10kPa_1e3':    "regression",
+        'symlogAdsN2_100kPa_1e3':   "regression",
+        'symlogAdsN2_1000kPa_1e3':  "regression",
+        'QstCH4': "regression",
+        'QstN2':  "regression",
+    }
+    max_epochs = 200
+    per_gpu_batchsize = 32
