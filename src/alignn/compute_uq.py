@@ -306,19 +306,36 @@ def compute_lsv(
     index,
     baseline_dist: float,
     k: int = K_NEIGHBORS,
+    baseline_lsv_mean: np.ndarray = None,
 ) -> np.ndarray:
     """
     Compute Latent Space Variance (LSV) uncertainty scores.
+
+    The raw LSV is the Gaussian-weighted variance of k-NN training labels:
+        LSV_t = sum_i w_i * (y_{t,i} - y_bar_t)^2
+
+    When baseline_lsv_mean is provided, LSV is normalised to a dimensionless
+    relative uncertainty score anchored to the training distribution:
+        LSV_norm_t = LSV_t / mean(LSV_train_t)
+
+    Semantic interpretation of LSV_norm:
+        ≈ 1 : as uncertain as a typical training sample (in-distribution)
+        << 1: less uncertain than average (well in-distribution)
+        >> 1: far more uncertain than training baseline (OOD signal)
 
     Args:
         query_emb:         (N, D) float32 query embeddings
         train_labels_orig: (M, T) float32 training labels in original space
         index:             faiss index containing training embeddings
-        baseline_dist:     mean k-NN L2 distance in training set (for normalization)
+        baseline_dist:     mean k-NN L2 distance in training set (normalises Gaussian kernel)
         k:                 number of nearest neighbors
+        baseline_lsv_mean: (T,) per-target mean raw LSV of training set (optional).
+                           If provided, output is dimensionless LSV_norm = LSV / mean(LSV_train).
+                           Compute by calling this function on training embeddings first
+                           (without baseline_lsv_mean), then taking .mean(axis=0).
 
     Returns:
-        lsv: (N, T) LSV scores (weighted variance per target)
+        lsv: (N, T) LSV scores; dimensionless relative uncertainty if baseline_lsv_mean is given.
     """
     D, I = index.search(query_emb, k)   # D: (N, k) L2 distances, I: (N, k) indices
 
@@ -336,6 +353,11 @@ def compute_lsv(
     # Weighted variance
     diff = neighbor_labels - weighted_mean[:, None, :]  # (N, k, T)
     lsv  = (w[:, :, None] * diff ** 2).sum(axis=1)      # (N, T)
+
+    # Normalise by per-target mean training LSV → dimensionless relative uncertainty
+    # LSV_norm_t = LSV_t / mean(LSV_train_t); training samples average ≈ 1.0
+    if baseline_lsv_mean is not None:
+        lsv = lsv / (baseline_lsv_mean + 1e-12)
 
     return lsv
 
