@@ -103,9 +103,11 @@ def parse_gcmc(gcmc_dir: Path) -> pd.DataFrame:
               AdsN2_10kPa,  AdsN2_100kPa,  AdsN2_1000kPa
     Units: mmol/g (mol/kg → mmol/g × 1.0 conversion: 1 mol/kg = 1 mmol/g)
     """
+    # Search in both gcmc_dir root and batch_* subdirectories
     csv_files = sorted(gcmc_dir.glob("raspa3_parsed_results*.csv"))
+    csv_files += sorted(gcmc_dir.glob("batch_*/raspa3_parsed_results*.csv"))
     if not csv_files:
-        raise FileNotFoundError(f"No raspa3_parsed_results*.csv found in {gcmc_dir}")
+        raise FileNotFoundError(f"No raspa3_parsed_results*.csv found in {gcmc_dir} or its batch_* subdirs")
 
     dfs = [pd.read_csv(f) for f in csv_files]
     df_raw = pd.concat(dfs, ignore_index=True)
@@ -159,9 +161,11 @@ def parse_widom(widom_dir: Path) -> pd.DataFrame:
     Returns DataFrame with columns: mof_id, QstCH4_gcmc, QstN2_gcmc [kJ/mol]
     AdsorptionHeat is already in kJ/mol in the Widom output.
     """
+    # Search in both widom_dir root and batch_* subdirectories
     csv_files = sorted(widom_dir.glob("widom_results*.csv"))
+    csv_files += sorted(widom_dir.glob("batch_*/widom_results*.csv"))
     if not csv_files:
-        raise FileNotFoundError(f"No widom_results*.csv found in {widom_dir}")
+        raise FileNotFoundError(f"No widom_results*.csv found in {widom_dir} or its batch_* subdirs")
 
     dfs = [pd.read_csv(f) for f in csv_files]
     df_raw = pd.concat(dfs, ignore_index=True)
