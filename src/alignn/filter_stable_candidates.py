@@ -205,5 +205,17 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Task 2.3a: Stability screening")
     parser.add_argument("--test", action="store_true",
                         help="Test mode: process first 500 rows only")
+    parser.add_argument("--model-dir", type=str, default=None,
+                        help="Model-specific results dir (e.g. results/alignn/model_ep220). "
+                             "Overrides SCREENED_CSV and OUTPUT_DIR.")
     args = parser.parse_args()
+
+    if args.model_dir:
+        _md = Path(args.model_dir)
+        if not _md.is_absolute():
+            _md = REPO_ROOT / _md
+        SCREENED_CSV = _md / "full_library_inference" / "full_library_screened.csv"
+        OUTPUT_DIR   = _md / "top_candidates"
+        OUTPUT_CSV   = OUTPUT_DIR / "full_library_stable.csv"
+
     main(test_mode=args.test)

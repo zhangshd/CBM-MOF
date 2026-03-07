@@ -120,13 +120,25 @@ def submit_widom(output_dir: str, dry_run: bool) -> None:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
+    global CIF_DIR, OUT_DIR
+
     parser = argparse.ArgumentParser(
         description="Task 2.4a: Submit GCMC + Widom SLURM jobs for Top candidates."
     )
     parser.add_argument("--test", action="store_true",
                         help="Dry run: generate SLURM scripts but do not submit.")
+    parser.add_argument("--model-dir", type=str, default=None,
+                        help="Model-specific results dir (e.g. results/alignn/model_ep220). "
+                             "Overrides CIF_DIR and OUT_DIR.")
     args = parser.parse_args()
     dry_run = args.test
+
+    if args.model_dir:
+        _md = Path(args.model_dir)
+        if not _md.is_absolute():
+            _md = REPO_ROOT / _md
+        CIF_DIR = str(_md / "top_candidates" / "cifs")
+        OUT_DIR = str(_md / "gcmc_top_candidates")
 
     gcmc_out  = str(Path(OUT_DIR) / "gcmc_DreidingTraPPEJson")
     widom_out = str(Path(OUT_DIR) / "widom_DREIDING")

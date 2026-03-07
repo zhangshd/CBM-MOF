@@ -202,6 +202,8 @@ def phase_b(df: pd.DataFrame, out_dir: Path) -> pd.DataFrame:
 # Main
 # ---------------------------------------------------------------------------
 def main() -> None:
+    global BATCH_DIR, UQ_CSV, OUT_DIR
+
     parser = argparse.ArgumentParser(
         description="Compute API metrics (Task 2.1) and apply UQ pre-screening (Task 2.2)."
     )
@@ -210,7 +212,21 @@ def main() -> None:
         action="store_true",
         help=f"Dry-run: load only first {TEST_BATCHES} batches, write to results/test_run/",
     )
+    parser.add_argument(
+        "--model-dir", type=str, default=None,
+        help="Model-specific results dir (e.g. results/alignn/model_ep220). "
+             "Overrides BATCH_DIR, UQ_CSV, OUT_DIR to {model-dir}/full_library_inference/.",
+    )
     args = parser.parse_args()
+
+    # Override paths for per-model pipeline
+    if args.model_dir:
+        model_dir = Path(args.model_dir)
+        if not model_dir.is_absolute():
+            model_dir = REPO_ROOT / model_dir
+        BATCH_DIR = model_dir / "full_library_inference" / "batches"
+        UQ_CSV    = model_dir / "full_library_inference" / "full_library_uq.csv"
+        OUT_DIR   = model_dir / "full_library_inference"
 
     if args.test:
         out_dir = TEST_DIR
