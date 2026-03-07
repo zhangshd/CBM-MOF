@@ -36,6 +36,12 @@ DATA_FILE   = REPO_ROOT / "results" / "alignn" / "gcmc_top_candidates" / "gcmc_v
 UMAP_CSV    = REPO_ROOT / "results" / "cbm_screening" / "inference" / "umap_coordinates_descriptor_with_metrics_ml.csv"
 TRAIN_ADS   = REPO_ROOT / "results" / "cbm_screening" / "raspa3_parsed_results_round2_0917.csv"
 TRAIN_WIDOM = REPO_ROOT / "results" / "cbm_screening" / "widom_results_round2_0917.csv"
+# Round 1 GCMC data — contains ATC-Cu benchmark (not in Round 2)
+MOF_HTS_REPO        = Path("/home/zhangsd/repos/MOF-HTS")
+TRAINING_ADS_R1_CSV  = (MOF_HTS_REPO / "results" / "cbm_screening"
+                         / "gcmc_round1_DreidingTraPPEJson" / "raspa3_parsed_results_0911.csv")
+TRAINING_WIDOM_R1_CSV = (MOF_HTS_REPO / "results" / "cbm_screening"
+                          / "widom_round1_DREIDING" / "widom_results_0911.csv")
 FIG_DIR     = REPO_ROOT / "results" / "figures" / "gcmc_validation"
 FIG_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -126,9 +132,14 @@ def load_training_gcmc_api() -> pd.DataFrame:
     """
     ads   = pd.read_csv(TRAIN_ADS)
     widom = pd.read_csv(TRAIN_WIDOM)
+    df    = _create_integrated_dataset(ads, widom)
+    df    = _calculate_separation_metrics(df)
+    return df[["CifId", "PSA_API_CH4", "VSA_API_CH4"]].dropna(how="all")
 
-    # Adsorption pivot
-    ads_piv = ads.pivot_table(
+
+def _create_integrated_dataset(ads_df: pd.DataFrame, widom_df: pd.DataFrame) -> pd.DataFrame:
+    """Integrate adsorption (RASPA3) + Widom (RASPA2) → wide format per MOF."""
+    ads_piv = ads_df.pivot_table(
         index="MofName", columns=["GasName", "Pressure[bar]"],
         values="AbsLoading", aggfunc="first",
     )
@@ -139,8 +150,7 @@ def load_training_gcmc_api() -> pd.DataFrame:
         inplace=True,
     )
 
-    # Widom pivot
-    widom_piv = widom.pivot_table(
+    widom_piv = widom_df.pivot_table(
         index="MofName", columns="GasName",
         values="AdsorptionHeat", aggfunc="first",
     )
@@ -148,34 +158,44 @@ def load_training_gcmc_api() -> pd.DataFrame:
     widom_piv.rename(columns={"Qstmethane": "QstCH4"}, inplace=True)
     widom_piv = widom_piv.reset_index()
 
-    df = pd.merge(ads_piv, widom_piv, on="MofName", how="outer")
-    df.rename(columns={"MofName": "CifId"}, inplace=True)
+    merged = pd.merge(ads_piv, widom_piv, on="MofName", how="outer")
+    merged.rename(columns={"MofName": "CifId"}, inplace=True)
+    return merged
 
-    # Compute PSA/VSA API: API = (alpha-1) * WC / |Qst|
-    for process, ads_p, des_p in [("PSA", "1000kPa", "100kPa"), ("VSA", "100kPa", "10kPa")]:
-        wc  = df[f"AdsCH4_{ads_p}"] - df[f"AdsCH4_{des_p}"]
-        q_ch4, q_n2 = df[f"AdsCH4_{ads_p}"], df[f"AdsN2_{ads_p}"]
-        alpha = np.where(q_n2 > 1e-10, (q_ch4 / q_n2) * (0.8 / 0.2), np.nan)
-        qst_abs = np.abs(df["QstCH4"])
-        api = np.where(
-            (qst_abs > 1e-10) & (np.array(alpha) > 1e-10) & (np.array(wc) > 0),
-            (np.array(alpha) - 1) * np.array(wc) / qst_abs,
+
+def _calculate_separation_metrics(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute PSA/VSA WC, alpha, API. Mirrors exp08 calculate_separation_metrics."""
+    result = df.copy()
+    for process, ads_p, des_p in [("PSA", "1000kPa", "100kPa"),
+                                   ("VSA", "100kPa",  "10kPa")]:
+        result[f"{process}_WC_CH4"] = result[f"AdsCH4_{ads_p}"] - result[f"AdsCH4_{des_p}"]
+        q_ch4 = result[f"AdsCH4_{ads_p}"]
+        q_n2  = result[f"AdsN2_{ads_p}"]
+        result[f"{process}_alpha_CH4_N2"] = np.where(
+            q_n2 > 1e-10, (q_ch4 / q_n2) * (0.8 / 0.2), np.nan,
+        )
+        qst_abs = np.abs(result["QstCH4"])
+        alpha   = result[f"{process}_alpha_CH4_N2"]
+        result[f"{process}_API_CH4"] = np.where(
+            (qst_abs > 1e-10) & (alpha > 1e-10),
+            ((alpha - 1) * result[f"{process}_WC_CH4"]) / qst_abs,
             np.nan,
         )
-        df[f"{process}_API_CH4"] = api
-
-    return df[["CifId", "PSA_API_CH4", "VSA_API_CH4"]].dropna(how="all")
+    return result
 
 
 def get_benchmark_row() -> pd.Series:
     """
-    Return ATC-Cu benchmark performance metrics from the UMAP ML-prediction CSV.
-    (ATC-Cu has no GCMC data in the accessible training sets; ML values used as proxy.)
+    Return ATC-Cu benchmark from Round 1 GCMC simulation data.
+    This matches exp08's get_benchmark_api() — actual GCMC values, NOT ML predictions.
     """
-    umap = pd.read_csv(UMAP_CSV)
-    brow = umap[umap["CifId"] == BENCHMARK_MOF]
+    ads_r1   = pd.read_csv(TRAINING_ADS_R1_CSV)
+    widom_r1 = pd.read_csv(TRAINING_WIDOM_R1_CSV)
+    int_r1   = _create_integrated_dataset(ads_r1, widom_r1)
+    enh_r1   = _calculate_separation_metrics(int_r1)
+    brow     = enh_r1[enh_r1["CifId"] == BENCHMARK_MOF]
     if brow.empty:
-        raise ValueError(f"Benchmark MOF '{BENCHMARK_MOF}' not found in UMAP CSV.")
+        raise ValueError(f"Benchmark MOF '{BENCHMARK_MOF}' not found in training R1 GCMC data.")
     return brow.iloc[0]
 
 

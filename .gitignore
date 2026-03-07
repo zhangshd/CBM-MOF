@@ -29,3 +29,4 @@ results/test_run/         # isolated output for --test mode (exp scripts)
 results/summary/*
 !results/summary/*.json
 **/graphs_grids
+.serena
