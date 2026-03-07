@@ -414,6 +414,9 @@ def main():
                         help="Skip MOFs with more atoms than this")
     parser.add_argument("--no-cache",    action="store_true",
                         help="Disable graph cache (re-build even if cache exists)")
+    parser.add_argument("--cache-dir",   type=str, default=None,
+                        help="External graph cache directory (reuse across models). "
+                             "Defaults to {output-dir}/graph_cache/.")
     args = parser.parse_args()
 
     # ── Resolve batch index ────────────────────────────────────────────────────
@@ -428,7 +431,7 @@ def main():
     xform_cfg_path = Path(args.xform_config)
     output_dir     = Path(args.output_dir)
     batches_dir    = output_dir / "batches"
-    cache_dir      = output_dir / "graph_cache"
+    cache_dir      = Path(args.cache_dir) if args.cache_dir else output_dir / "graph_cache"
 
     batches_dir.mkdir(parents=True, exist_ok=True)
     cache_dir.mkdir(parents=True, exist_ok=True)

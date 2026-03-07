@@ -368,5 +368,20 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Task 2.4b: Parse GCMC results")
     parser.add_argument("--test", action="store_true",
                         help="Test mode: check file structure only (no parsing)")
+    parser.add_argument("--model-dir", type=str, default=None,
+                        help="Model-specific results dir (e.g. results/alignn/model_ep220). "
+                             "Overrides TOP_CAND_DIR, GCMC_BASE and derived paths.")
     args = parser.parse_args()
+
+    if args.model_dir:
+        _md = Path(args.model_dir)
+        if not _md.is_absolute():
+            _md = REPO_ROOT / _md
+        TOP_CAND_DIR = _md / "top_candidates"
+        GCMC_BASE    = _md / "gcmc_top_candidates"
+        GCMC_DIR     = GCMC_BASE / "gcmc_DreidingTraPPEJson"
+        WIDOM_DIR    = GCMC_BASE / "widom_DREIDING"
+        UNION_CSV    = TOP_CAND_DIR / "top_union.csv"
+        OUTPUT_DIR   = GCMC_BASE
+
     main(test_mode=args.test)

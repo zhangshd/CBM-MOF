@@ -217,5 +217,20 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Task 2.3b: Top-100 candidate selection")
     parser.add_argument("--test", action="store_true",
                         help="Test mode: use *_test.csv files (from filter --test)")
+    parser.add_argument("--model-dir", type=str, default=None,
+                        help="Model-specific results dir (e.g. results/alignn/model_ep220). "
+                             "Overrides TOP_CAND_DIR and derived paths.")
     args = parser.parse_args()
+
+    if args.model_dir:
+        _md = Path(args.model_dir)
+        if not _md.is_absolute():
+            _md = REPO_ROOT / _md
+        TOP_CAND_DIR = _md / "top_candidates"
+        STABLE_CSV   = TOP_CAND_DIR / "full_library_stable.csv"
+        OUTPUT_PSA   = TOP_CAND_DIR / "top100_psa.csv"
+        OUTPUT_VSA   = TOP_CAND_DIR / "top100_vsa.csv"
+        OUTPUT_UNION = TOP_CAND_DIR / "top_union.csv"
+        CIF_LINK_DIR = TOP_CAND_DIR / "cifs"
+
     main(test_mode=args.test)
