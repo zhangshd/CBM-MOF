@@ -5,18 +5,19 @@ Publication-quality figures for GCMC validation (Task 2.4b enhanced).
 
 Outputs
 -------
-results/figures/gcmc_validation/gcmc_parity_all199.png
-    Parity scatter: GCMC vs ML for 8 adsorption properties (all 199 MOFs).
+results/figures/gcmc_validation/gcmc_parity_4x4.png
+    4×4 parity grid: rows 1-2 = PSA Top-100, rows 3-4 = VSA Top-100.
+results/figures/gcmc_validation/gcmc_parity_metrics.csv
+    Per-property, per-group (PSA/VSA) R², MAE, MAPE, n.
 results/figures/gcmc_validation/gcmc_performance_scatter.png
-    WC vs selectivity scatter coloured by API (PSA panel + VSA panel).
-results/figures/gcmc_validation/gcmc_api_boxplot.png
-    GCMC API distribution boxplot by case (PSA-only / VSA-only / Both).
-
-Also prints per-case statistics for updating gcmc_validation_summary.md.
+    WC vs selectivity scatter (GCMC data) with ATC-Cu benchmark annotation.
+results/figures/gcmc_validation/gcmc_api_kde.png
+    KDE: training GCMC distribution vs GCMC top-100, per process (PSA & VSA).
+results/figures/gcmc_validation/gcmc_cluster_distribution.png
+    Grouped bar chart: MOFs above ATC-Cu benchmark per cluster, PSA & VSA.
 """
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import matplotlib
@@ -24,18 +25,24 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import seaborn as sns
 from sklearn import metrics as skm
 
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-REPO_ROOT = Path(__file__).resolve().parents[2]
-DATA_FILE = REPO_ROOT / "results" / "alignn" / "gcmc_top_candidates" / "gcmc_vs_ml_comparison.csv"
-FIG_DIR   = REPO_ROOT / "results" / "figures" / "gcmc_validation"
+REPO_ROOT   = Path(__file__).resolve().parents[2]
+DATA_FILE   = REPO_ROOT / "results" / "alignn" / "gcmc_top_candidates" / "gcmc_vs_ml_comparison.csv"
+UMAP_CSV    = REPO_ROOT / "results" / "cbm_screening" / "inference" / "umap_coordinates_descriptor_with_metrics_ml.csv"
+TRAIN_ADS   = REPO_ROOT / "results" / "cbm_screening" / "raspa3_parsed_results_round2_0917.csv"
+TRAIN_WIDOM = REPO_ROOT / "results" / "cbm_screening" / "widom_results_round2_0917.csv"
+FIG_DIR     = REPO_ROOT / "results" / "figures" / "gcmc_validation"
 FIG_DIR.mkdir(parents=True, exist_ok=True)
 
+BENCHMARK_MOF = "CoRE-2020[Cu][pts]3[ASR]1"
+
 # ---------------------------------------------------------------------------
-# Style constants (mirroring src/experiments/utils.py)
+# Style constants
 # ---------------------------------------------------------------------------
 NATURE_COLORS = {
     "blue":    "#0173B2",
@@ -48,39 +55,32 @@ NATURE_COLORS = {
     "purple":  "#949494",
 }
 
-CASE_COLORS = {
-    "PSA-only": NATURE_COLORS["blue"],
-    "VSA-only": NATURE_COLORS["orange"],
-    "Both":     NATURE_COLORS["green"],
-}
-
 
 def setup_matplotlib() -> None:
     """Configure matplotlib for headless publication-quality output."""
-    plt.rcParams["font.family"]       = "sans-serif"
-    plt.rcParams["font.sans-serif"]   = ["Arial", "DejaVu Sans", "Liberation Sans"]
-    plt.rcParams["font.size"]         = 10
-    plt.rcParams["axes.labelsize"]    = 11
-    plt.rcParams["axes.titlesize"]    = 12
-    plt.rcParams["xtick.labelsize"]   = 10
-    plt.rcParams["ytick.labelsize"]   = 10
-    plt.rcParams["legend.fontsize"]   = 10
-    plt.rcParams["figure.titlesize"]  = 12
-    plt.rcParams["axes.linewidth"]    = 1.0
-    plt.rcParams["grid.linewidth"]    = 0.5
-    plt.rcParams["lines.linewidth"]   = 1.5
-    plt.rcParams["patch.linewidth"]   = 0.5
-    plt.rcParams["xtick.major.width"] = 1.0
-    plt.rcParams["ytick.major.width"] = 1.0
-    plt.rcParams["xtick.major.size"]  = 4
-    plt.rcParams["ytick.major.size"]  = 4
-    plt.rcParams["savefig.dpi"]       = 300
-    plt.rcParams["savefig.bbox"]      = "tight"
+    plt.rcParams["font.family"]        = "sans-serif"
+    plt.rcParams["font.sans-serif"]    = ["Arial", "DejaVu Sans", "Liberation Sans"]
+    plt.rcParams["font.size"]          = 10
+    plt.rcParams["axes.labelsize"]     = 11
+    plt.rcParams["axes.titlesize"]     = 12
+    plt.rcParams["xtick.labelsize"]    = 10
+    plt.rcParams["ytick.labelsize"]    = 10
+    plt.rcParams["legend.fontsize"]    = 10
+    plt.rcParams["figure.titlesize"]   = 12
+    plt.rcParams["axes.linewidth"]     = 1.0
+    plt.rcParams["grid.linewidth"]     = 0.5
+    plt.rcParams["lines.linewidth"]    = 1.5
+    plt.rcParams["patch.linewidth"]    = 0.5
+    plt.rcParams["xtick.major.width"]  = 1.0
+    plt.rcParams["ytick.major.width"]  = 1.0
+    plt.rcParams["xtick.major.size"]   = 4
+    plt.rcParams["ytick.major.size"]   = 4
+    plt.rcParams["savefig.dpi"]        = 300
+    plt.rcParams["savefig.bbox"]       = "tight"
     plt.rcParams["savefig.pad_inches"] = 0.1
 
 
 def apply_nature_axes(ax) -> None:
-    """Apply Nature-journal spine/tick style to an Axes."""
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     ax.spines["left"].set_linewidth(1.0)
@@ -99,131 +99,219 @@ def savefig(fig, path: Path, close: bool = True) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Data loading & subset definition
+# Data loading
 # ---------------------------------------------------------------------------
 
-def load_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def load_candidates() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
-    Load the comparison CSV and return (df_all, df_psa, df_vsa, df_psa_only, df_vsa_only).
+    Load 199 candidates and add cluster labels from UMAP CSV.
+    Returns (df_all, df_psa, df_vsa) with `cluster` column (1-indexed).
     """
-    df = pd.read_csv(DATA_FILE)
-    df_psa      = df[df["psa_rank"].notna()].copy()
-    df_vsa      = df[df["vsa_rank"].notna()].copy()
-    df_psa_only = df[df["psa_rank"].notna() & df["vsa_rank"].isna()].copy()
-    df_vsa_only = df[df["vsa_rank"].notna() & df["psa_rank"].isna()].copy()
-    return df, df_psa, df_vsa, df_psa_only, df_vsa_only
+    df   = pd.read_csv(DATA_FILE)
+    umap = pd.read_csv(UMAP_CSV, usecols=["CifId", "cluster", "UMAP1", "UMAP2"])
+
+    df = df.merge(umap, left_on="mof_id", right_on="CifId", how="left")
+    df["cluster"] = df["cluster"] + 1  # 0-indexed → 1-indexed
+
+    df_psa = df[df["psa_rank"].notna()].copy()
+    df_vsa = df[df["vsa_rank"].notna()].copy()
+    return df, df_psa, df_vsa
 
 
-# ---------------------------------------------------------------------------
-# Figure 1: Parity scatter (2×4, all 199 MOFs)
-# ---------------------------------------------------------------------------
-
-def plot_parity_all199(df: pd.DataFrame) -> None:
+def load_training_gcmc_api() -> pd.DataFrame:
     """
-    2×4 parity scatter: GCMC (x) vs ML predicted (y) for 8 adsorption properties.
-    All 199 MOFs are shown. Column mapping:
-        ML col          GCMC col
-        AdsCH4_Xkpa  →  gcmc_AdsCH4_XkPa
-        QstCH4       →  QstCH4_gcmc
-        QstN2        →  QstN2_gcmc
+    Load R2 training GCMC data and compute PSA/VSA API.
+    Returns DataFrame with columns [CifId, PSA_API_CH4, VSA_API_CH4].
+    ~21,976 MOFs.
     """
-    targets = [
-        ("AdsCH4_1000kPa", "gcmc_AdsCH4_1000kPa"),
-        ("AdsCH4_100kPa",  "gcmc_AdsCH4_100kPa"),
-        ("AdsCH4_10kPa",   "gcmc_AdsCH4_10kPa"),
-        ("QstCH4",         "QstCH4_gcmc"),
-        ("AdsN2_1000kPa",  "gcmc_AdsN2_1000kPa"),
-        ("AdsN2_100kPa",   "gcmc_AdsN2_100kPa"),
-        ("AdsN2_10kPa",    "gcmc_AdsN2_10kPa"),
-        ("QstN2",          "QstN2_gcmc"),
-    ]
+    ads   = pd.read_csv(TRAIN_ADS)
+    widom = pd.read_csv(TRAIN_WIDOM)
 
-    # Friendly axis titles
-    title_map = {
-        "AdsCH4_1000kPa": r"$\mathit{n}_{CH_4}$ @ 1000 kPa (mol/kg)",
-        "AdsCH4_100kPa":  r"$\mathit{n}_{CH_4}$ @ 100 kPa (mol/kg)",
-        "AdsCH4_10kPa":   r"$\mathit{n}_{CH_4}$ @ 10 kPa (mol/kg)",
-        "QstCH4":         r"$Q_{st,CH_4}$ (kJ/mol)",
-        "AdsN2_1000kPa":  r"$\mathit{n}_{N_2}$ @ 1000 kPa (mol/kg)",
-        "AdsN2_100kPa":   r"$\mathit{n}_{N_2}$ @ 100 kPa (mol/kg)",
-        "AdsN2_10kPa":    r"$\mathit{n}_{N_2}$ @ 10 kPa (mol/kg)",
-        "QstN2":          r"$Q_{st,N_2}$ (kJ/mol)",
-    }
-
-    subplot_labels = [f"({chr(ord('a') + i)})" for i in range(8)]
-
-    fig, axes = plt.subplots(2, 4, figsize=(16, 7))
-    axes_flat = axes.flatten()
-
-    fig.suptitle(
-        "GCMC Simulation vs ML Predictions — All 199 Top Candidates",
-        fontsize=14, fontweight="bold", y=0.998,
+    # Adsorption pivot
+    ads_piv = ads.pivot_table(
+        index="MofName", columns=["GasName", "Pressure[bar]"],
+        values="AbsLoading", aggfunc="first",
+    )
+    ads_piv.columns = [f"Ads{g}_{p * 100:.0f}kPa" for g, p in ads_piv.columns]
+    ads_piv = ads_piv.reset_index()
+    ads_piv.rename(
+        columns={c: c.replace("methane", "CH4") for c in ads_piv.columns if "methane" in c},
+        inplace=True,
     )
 
-    for i, (ml_col, gcmc_col) in enumerate(targets):
-        ax = axes_flat[i]
+    # Widom pivot
+    widom_piv = widom.pivot_table(
+        index="MofName", columns="GasName",
+        values="AdsorptionHeat", aggfunc="first",
+    )
+    widom_piv.columns = [f"Qst{g}" for g in widom_piv.columns]
+    widom_piv.rename(columns={"Qstmethane": "QstCH4"}, inplace=True)
+    widom_piv = widom_piv.reset_index()
 
-        mask   = df[gcmc_col].notna() & df[ml_col].notna()
-        y_true = df.loc[mask, gcmc_col].values   # GCMC = ground truth (x-axis)
-        y_pred = df.loc[mask, ml_col].values      # ML predicted (y-axis)
+    df = pd.merge(ads_piv, widom_piv, on="MofName", how="outer")
+    df.rename(columns={"MofName": "CifId"}, inplace=True)
 
-        ax.scatter(
-            y_true, y_pred,
-            alpha=0.6, s=30,
-            color=NATURE_COLORS["blue"],
-            edgecolors="black", linewidth=0.3,
+    # Compute PSA/VSA API: API = (alpha-1) * WC / |Qst|
+    for process, ads_p, des_p in [("PSA", "1000kPa", "100kPa"), ("VSA", "100kPa", "10kPa")]:
+        wc  = df[f"AdsCH4_{ads_p}"] - df[f"AdsCH4_{des_p}"]
+        q_ch4, q_n2 = df[f"AdsCH4_{ads_p}"], df[f"AdsN2_{ads_p}"]
+        alpha = np.where(q_n2 > 1e-10, (q_ch4 / q_n2) * (0.8 / 0.2), np.nan)
+        qst_abs = np.abs(df["QstCH4"])
+        api = np.where(
+            (qst_abs > 1e-10) & (np.array(alpha) > 1e-10) & (np.array(wc) > 0),
+            (np.array(alpha) - 1) * np.array(wc) / qst_abs,
+            np.nan,
         )
+        df[f"{process}_API_CH4"] = api
 
-        # 1:1 reference line
-        lo = min(y_true.min(), y_pred.min())
-        hi = max(y_true.max(), y_pred.max())
-        ax.plot([lo, hi], [lo, hi], "r--", linewidth=1.5, alpha=0.8)
+    return df[["CifId", "PSA_API_CH4", "VSA_API_CH4"]].dropna(how="all")
 
-        # Axis labels
-        label = title_map[ml_col]
-        ax.set_xlabel(f"GCMC {label}", fontsize=10, fontweight="bold")
-        ax.set_ylabel(f"ML {label}",   fontsize=10, fontweight="bold")
-        ax.set_title(
-            f"{subplot_labels[i]} {ml_col.replace('_', ' ')}",
-            fontsize=12, fontweight="bold", loc="left",
+
+def get_benchmark_row() -> pd.Series:
+    """
+    Return ATC-Cu benchmark performance metrics from the UMAP ML-prediction CSV.
+    (ATC-Cu has no GCMC data in the accessible training sets; ML values used as proxy.)
+    """
+    umap = pd.read_csv(UMAP_CSV)
+    brow = umap[umap["CifId"] == BENCHMARK_MOF]
+    if brow.empty:
+        raise ValueError(f"Benchmark MOF '{BENCHMARK_MOF}' not found in UMAP CSV.")
+    return brow.iloc[0]
+
+
+# ---------------------------------------------------------------------------
+# Figure 1: Parity scatter 4×4 (PSA rows 0-1, VSA rows 2-3)
+# ---------------------------------------------------------------------------
+
+# Column pairs: (ML col, GCMC col, short label)
+PARITY_TARGETS = [
+    ("AdsCH4_1000kPa", "gcmc_AdsCH4_1000kPa", r"$n_{CH_4}$@1000 kPa"),
+    ("AdsCH4_100kPa",  "gcmc_AdsCH4_100kPa",  r"$n_{CH_4}$@100 kPa"),
+    ("AdsCH4_10kPa",   "gcmc_AdsCH4_10kPa",   r"$n_{CH_4}$@10 kPa"),
+    ("QstCH4",         "QstCH4_gcmc",          r"$Q_{st,CH_4}$"),
+    ("AdsN2_1000kPa",  "gcmc_AdsN2_1000kPa",  r"$n_{N_2}$@1000 kPa"),
+    ("AdsN2_100kPa",   "gcmc_AdsN2_100kPa",   r"$n_{N_2}$@100 kPa"),
+    ("AdsN2_10kPa",    "gcmc_AdsN2_10kPa",    r"$n_{N_2}$@10 kPa"),
+    ("QstN2",          "QstN2_gcmc",           r"$Q_{st,N_2}$"),
+]
+
+
+def _draw_parity_panel(
+    ax,
+    df_sub: pd.DataFrame,
+    ml_col: str,
+    gcmc_col: str,
+    subplot_label: str,
+    prop_label: str,
+    color: str,
+) -> dict:
+    """Draw one parity subplot; return metrics dict."""
+    mask   = df_sub[gcmc_col].notna() & df_sub[ml_col].notna()
+    y_true = df_sub.loc[mask, gcmc_col].values
+    y_pred = df_sub.loc[mask, ml_col].values
+
+    ax.scatter(
+        y_true, y_pred,
+        alpha=0.6, s=30, color=color,
+        edgecolors="black", linewidth=0.3,
+    )
+    lo = min(y_true.min(), y_pred.min())
+    hi = max(y_true.max(), y_pred.max())
+    ax.plot([lo, hi], [lo, hi], "r--", linewidth=1.5, alpha=0.8)
+
+    ax.set_title(f"{subplot_label} {prop_label}", fontsize=11, fontweight="bold", loc="left")
+    ax.set_xlabel("GCMC (ground truth)", fontsize=10, fontweight="bold")
+    ax.set_ylabel("ML (predicted)",       fontsize=10, fontweight="bold")
+
+    r2   = skm.r2_score(y_true, y_pred)
+    mae  = skm.mean_absolute_error(y_true, y_pred)
+    mape = skm.mean_absolute_percentage_error(y_true, y_pred)
+    textstr = f"$R^2$ = {r2:.3f}\nMAE = {mae:.3f}\nMAPE = {mape:.3f}\nn = {len(y_true)}"
+    ax.text(
+        0.05, 0.95, textstr,
+        transform=ax.transAxes, fontsize=9,
+        verticalalignment="top",
+        bbox=dict(boxstyle="round", facecolor="white", alpha=0.8,
+                  edgecolor="black", linewidth=1.0),
+        family="monospace",
+    )
+    apply_nature_axes(ax)
+    return {"R2": r2, "MAE": mae, "MAPE": mape, "n": len(y_true)}
+
+
+def plot_parity_4x4(df_psa: pd.DataFrame, df_vsa: pd.DataFrame) -> pd.DataFrame:
+    """
+    4×4 parity figure:
+      rows 0-1 = PSA Top-100 (8 targets)
+      rows 2-3 = VSA Top-100 (8 targets)
+    Also returns a metrics DataFrame (16 rows).
+    """
+    subplot_labels = [f"({chr(ord('a') + i)})" for i in range(16)]
+    fig, axes = plt.subplots(4, 4, figsize=(16, 14))
+
+    fig.suptitle(
+        "GCMC Simulation vs ML Predictions — PSA Top-100 (rows a–h) & VSA Top-100 (rows i–p)",
+        fontsize=13, fontweight="bold", y=1.00,
+    )
+
+    records = []
+    for row_off, (df_sub, process, color) in enumerate([
+        (df_psa, "PSA", NATURE_COLORS["blue"]),
+        (df_vsa, "VSA", NATURE_COLORS["orange"]),
+    ]):
+        # 8 targets across 2 rows × 4 cols  (row_off*2, row_off*2+1)
+        for col_idx, (ml_col, gcmc_col, prop_label) in enumerate(PARITY_TARGETS):
+            row = row_off * 2 + col_idx // 4
+            col = col_idx  % 4
+            flat_idx = row_off * 8 + col_idx
+            ax = axes[row, col]
+            metrics = _draw_parity_panel(
+                ax, df_sub,
+                ml_col, gcmc_col,
+                subplot_labels[flat_idx],
+                prop_label,
+                color,
+            )
+            records.append({"Property": ml_col, "Group": process, **metrics})
+
+        # Row labels on left spine
+        label_row = row_off * 2
+        axes[label_row, 0].set_ylabel(
+            f"{process} Top-100\nML (predicted)",
+            fontsize=11, fontweight="bold",
         )
-
-        # Metrics
-        r2   = skm.r2_score(y_true, y_pred)
-        mae  = skm.mean_absolute_error(y_true, y_pred)
-        mape = skm.mean_absolute_percentage_error(y_true, y_pred)
-        textstr = f"$R^2$ = {r2:.3f}\nMAE = {mae:.3f}\nMAPE = {mape:.3f}\nn = {len(y_true)}"
-        props = dict(boxstyle="round", facecolor="white", alpha=0.8,
-                     edgecolor="black", linewidth=1.0)
-        ax.text(
-            0.05, 0.95, textstr,
-            transform=ax.transAxes,
-            fontsize=9, verticalalignment="top",
-            bbox=props, family="monospace",
-        )
-
-        apply_nature_axes(ax)
 
     plt.tight_layout()
-    savefig(fig, FIG_DIR / "gcmc_parity_all199.png")
+    savefig(fig, FIG_DIR / "gcmc_parity_4x4.png")
+
+    metrics_df = pd.DataFrame(records)
+    csv_path   = FIG_DIR / "gcmc_parity_metrics.csv"
+    metrics_df.to_csv(csv_path, index=False, float_format="%.4f")
+    print(f"[SAVED] {csv_path}")
+    return metrics_df
 
 
 # ---------------------------------------------------------------------------
-# Figure 2: Performance scatter (PSA + VSA, WC vs selectivity)
+# Figure 2: Performance scatter (PSA + VSA, GCMC data, ATC-Cu annotated)
 # ---------------------------------------------------------------------------
 
-def plot_performance_scatter(df_psa: pd.DataFrame, df_vsa: pd.DataFrame) -> None:
+def plot_performance_scatter(
+    df_psa: pd.DataFrame,
+    df_vsa: pd.DataFrame,
+    benchmark: pd.Series,
+) -> None:
     """
-    1×2 WC vs selectivity scatter coloured by GCMC API.
-    Uses GCMC-derived columns for both axes and colormap.
+    1×2 WC vs selectivity scatter coloured by GCMC API, with ATC-Cu annotation.
+    Uses ML-predicted metrics from UMAP CSV for ATC-Cu (no GCMC available).
     """
     datasets = [
-        (df_psa, "PSA", "(a) PSA Process (10 bar ↔ 1 bar)"),
-        (df_vsa, "VSA", "(b) VSA Process (1 bar ↔ 0.1 bar)"),
+        (df_psa, "PSA", "(a) PSA Process (10 bar ↔ 1 bar)",   "PSA", (-110, -60)),
+        (df_vsa, "VSA", "(b) VSA Process (1 bar ↔ 0.1 bar)",  "VSA", (-80,  +50)),
     ]
+
     fig = plt.figure(figsize=(14, 6))
 
-    for idx, (df_data, process_type, title) in enumerate(datasets, 1):
+    for idx, (df_data, process_type, title, bm_prefix, text_offset) in enumerate(datasets, 1):
         ax = plt.subplot(1, 2, idx)
 
         x_col = f"gcmc_{process_type}_WC_CH4"
@@ -247,12 +335,29 @@ def plot_performance_scatter(df_psa: pd.DataFrame, df_vsa: pd.DataFrame) -> None
         )
         cbar.ax.tick_params(labelsize=10)
 
+        # ATC-Cu benchmark annotation (ML-predicted values from UMAP CSV)
+        bx = float(benchmark[f"{bm_prefix}_WC_CH4"])
+        by = float(benchmark[f"{bm_prefix}_alpha_CH4_N2"])
+        bc = float(benchmark[f"{bm_prefix}_API_CH4"])
+        ax.scatter(bx, by, marker="*", s=200, color="black", zorder=6)
+        ax.annotate(
+            f"ATC-Cu\nWC={bx:.2f}\nα={by:.1f}\nAPI={bc:.3f}",
+            xy=(bx, by), xytext=text_offset, textcoords="offset points",
+            bbox=dict(boxstyle="round,pad=0.5",
+                      fc=NATURE_COLORS["yellow"],
+                      ec="black", alpha=0.8, linewidth=1.5),
+            arrowprops=dict(arrowstyle="->",
+                            connectionstyle="arc3,rad=0.3",
+                            color="black", lw=1.5),
+            fontsize=11, fontweight="bold",
+        )
+
         if process_type == "PSA":
             xlabel = r"CH$_4$ PSA Working Capacity (mol/kg)"
-            ylabel = r"(CH$_4$/N$_2$) PSA Selectivity at 10 bar"
+            ylabel = r"(CH$_4$/N$_2$) PSA Selectivity @ 10 bar"
         else:
             xlabel = r"CH$_4$ VSA Working Capacity (mol/kg)"
-            ylabel = r"(CH$_4$/N$_2$) VSA Selectivity at 1 bar"
+            ylabel = r"(CH$_4$/N$_2$) VSA Selectivity @ 1 bar"
 
         ax.set_xlabel(xlabel, fontsize=12, fontweight="bold")
         ax.set_ylabel(ylabel, fontsize=12, fontweight="bold")
@@ -273,192 +378,164 @@ def plot_performance_scatter(df_psa: pd.DataFrame, df_vsa: pd.DataFrame) -> None
 
 
 # ---------------------------------------------------------------------------
-# Figure 3: API distribution boxplot by case
+# Figure 3: API KDE — training GCMC vs GCMC top-100 candidates
 # ---------------------------------------------------------------------------
 
-def plot_api_boxplot(
-    df_psa_only: pd.DataFrame,
-    df_vsa_only: pd.DataFrame,
-    df_both: pd.DataFrame,
-) -> None:
-    """
-    1×2 boxplot + stripplot: GCMC PSA/VSA API grouped by case.
-    Groups: PSA-only (99), VSA-only (99), Both (1).
-    """
-    # Build labelled frames
-    psa_only_psa = pd.DataFrame({
-        "API": df_psa_only["gcmc_PSA_API_CH4"].dropna().values,
-        "Case": "PSA-only",
-        "type": "PSA",
-    })
-    vsa_only_psa = pd.DataFrame({
-        "API": df_vsa_only["gcmc_PSA_API_CH4"].dropna().values,
-        "Case": "VSA-only",
-        "type": "PSA",
-    })
-    both_psa = pd.DataFrame({
-        "API": df_both["gcmc_PSA_API_CH4"].dropna().values,
-        "Case": "Both",
-        "type": "PSA",
-    })
-
-    psa_only_vsa = pd.DataFrame({
-        "API": df_psa_only["gcmc_VSA_API_CH4"].dropna().values,
-        "Case": "PSA-only",
-        "type": "VSA",
-    })
-    vsa_only_vsa = pd.DataFrame({
-        "API": df_vsa_only["gcmc_VSA_API_CH4"].dropna().values,
-        "Case": "VSA-only",
-        "type": "VSA",
-    })
-    both_vsa = pd.DataFrame({
-        "API": df_both["gcmc_VSA_API_CH4"].dropna().values,
-        "Case": "Both",
-        "type": "VSA",
-    })
-
-    psa_data = pd.concat([psa_only_psa, vsa_only_psa, both_psa], ignore_index=True)
-    vsa_data = pd.concat([psa_only_vsa, vsa_only_vsa, both_vsa], ignore_index=True)
-
-    cases  = ["PSA-only", "VSA-only", "Both"]
-    colors = [CASE_COLORS[c] for c in cases]
-
-    fig, axes = plt.subplots(1, 2, figsize=(10, 5))
-    rng = np.random.default_rng(42)
-
-    for ax, (data, api_type) in zip(axes, [
-        (psa_data, "PSA"),
-        (vsa_data, "VSA"),
-    ]):
-        groups   = [data.loc[data["Case"] == c, "API"].values for c in cases]
-        n_groups = [len(g) for g in groups]
-        positions = range(len(cases))
-
-        # Boxplot
-        bp = ax.boxplot(
-            groups,
-            positions=list(positions),
-            widths=0.5,
-            patch_artist=True,
-            medianprops=dict(color="black", linewidth=2),
-            whiskerprops=dict(linewidth=1.0),
-            capprops=dict(linewidth=1.0),
-            flierprops=dict(marker="o", markersize=4, alpha=0.4),
-        )
-        for patch, color in zip(bp["boxes"], colors):
-            patch.set_facecolor(color)
-            patch.set_alpha(0.6)
-
-        # Strip (jitter)
-        for j, (group_vals, pos, color) in enumerate(zip(groups, positions, colors)):
-            if len(group_vals) == 0:
-                continue
-            jitter = rng.uniform(-0.12, 0.12, size=len(group_vals))
-            ax.scatter(
-                np.full(len(group_vals), pos) + jitter,
-                group_vals,
-                color=color, s=20, alpha=0.7,
-                edgecolors="black", linewidths=0.3, zorder=3,
-            )
-            # Mean diamond
-            mean_val = np.mean(group_vals)
-            ax.scatter(
-                pos, mean_val,
-                marker="D", s=60, color="black", zorder=5,
-            )
-
-        ax.set_xticks(list(positions))
-        ax.set_xticklabels(
-            [f"{c}\n(n={n})" for c, n in zip(cases, n_groups)],
-            fontsize=11,
-        )
-        ax.set_ylabel(
-            rf"GCMC {api_type} API$_{{CH_4}}$ (mol²·kg⁻¹·kJ⁻¹)",
-            fontsize=11, fontweight="bold",
-        )
-        panel_label = "(a)" if api_type == "PSA" else "(b)"
-        ax.set_title(
-            f"{panel_label} {api_type} Process — GCMC API by Case",
-            fontsize=12, fontweight="bold", loc="left",
-        )
-        apply_nature_axes(ax)
-
-    fig.tight_layout()
-    savefig(fig, FIG_DIR / "gcmc_api_boxplot.png")
-
-
-# ---------------------------------------------------------------------------
-# Per-case statistics report
-# ---------------------------------------------------------------------------
-
-def print_case_statistics(
-    df: pd.DataFrame,
+def plot_api_kde(
+    df_train: pd.DataFrame,
     df_psa: pd.DataFrame,
     df_vsa: pd.DataFrame,
-    df_psa_only: pd.DataFrame,
-    df_vsa_only: pd.DataFrame,
-    df_both: pd.DataFrame,
+    benchmark: pd.Series,
 ) -> None:
-    """Print per-case GCMC statistics and Top-10 VSA table for summary update."""
+    """
+    1×2 KDE: training GCMC API distribution vs GCMC top-100 PSA/VSA.
+    ATC-Cu API indicated by vertical dashed line.
+    """
+    panels = [
+        (df_psa, "PSA", df_train["PSA_API_CH4"], "(a) PSA API$_{CH_4}$ Distribution"),
+        (df_vsa, "VSA", df_train["VSA_API_CH4"], "(b) VSA API$_{CH_4}$ Distribution"),
+    ]
+    fig = plt.figure(figsize=(14, 6))
 
-    def fmt_stats(subset: pd.DataFrame, process: str) -> None:
-        api_col = f"gcmc_{process}_API_CH4"
-        wc_col  = f"gcmc_{process}_WC_CH4"
-        sel_col = f"gcmc_{process}_alpha_CH4_N2"
-        ml_api  = f"{process}_API_CH4"
+    for idx, (df_top, process, train_api, title) in enumerate(panels, 1):
+        ax = plt.subplot(1, 2, idx)
 
-        api_vals = subset[api_col].dropna()
-        wc_vals  = subset[wc_col].dropna()
-        sel_vals = subset[sel_col].dropna()
+        gcmc_api_col = f"gcmc_{process}_API_CH4"
+        top100_data  = df_top[gcmc_api_col].dropna()
+        train_data   = train_api.dropna()
 
-        # R² between ML API and GCMC API
-        merged = subset[[ml_api, api_col]].dropna()
-        if len(merged) >= 2:
-            r2 = skm.r2_score(merged[api_col].values, merged[ml_api].values)
-        else:
-            r2 = float("nan")
-
-        label = "PSA 候选（Top-100 by ML PSA_API）" if process == "PSA" else \
-                "VSA 候选（Top-100 by ML VSA_API）"
-        print(f"\n### {label}")
-        print(f"| 指标 | 值 |")
-        print(f"|------|-----|")
-        print(f"| 候选数量 | {len(subset)} |")
-        print(f"| GCMC {process}_API 范围 | {api_vals.min():.4f} ~ {api_vals.max():.4f} |")
-        print(f"| GCMC {process}_API 均值 ± std | {api_vals.mean():.4f} ± {api_vals.std():.4f} |")
-        print(f"| GCMC {process}_WC_CH4 均值 | {wc_vals.mean():.4f} mol/kg |")
-        print(f"| GCMC {process}_alpha_CH4_N2 均值 | {sel_vals.mean():.2f} |")
-        print(f"| ML vs GCMC {process}_API R² | {r2:.4f} |")
-
-    print("\n" + "=" * 60)
-    print("PER-CASE GCMC VALIDATION STATISTICS")
-    print("=" * 60)
-
-    fmt_stats(df_psa, "PSA")
-    fmt_stats(df_vsa, "VSA")
-
-    print(f"\n### 重叠分析")
-    print(f"| 分组 | 数量 |")
-    print(f"|------|------|")
-    print(f"| PSA-only (仅入 PSA Top-100) | {len(df_psa_only)} |")
-    print(f"| VSA-only (仅入 VSA Top-100) | {len(df_vsa_only)} |")
-    print(f"| 同时入选 PSA+VSA | {len(df_both)} |")
-
-    # Top-10 GCMC VSA candidates
-    print(f"\n### Top-10 GCMC-Based VSA Candidates")
-    print(f"| Rank | mof_id | GCMC VSA_API | ML VSA_API | PSA Rank | VSA Rank |")
-    print(f"|------|--------|-------------|------------|----------|----------|")
-    top_vsa = df_vsa.sort_values("gcmc_VSA_API_CH4", ascending=False).head(10)
-    for rank, (_, row) in enumerate(top_vsa.iterrows(), 1):
-        psa_r = int(row["psa_rank"]) if pd.notna(row["psa_rank"]) else "—"
-        vsa_r = int(row["vsa_rank"]) if pd.notna(row["vsa_rank"]) else "—"
-        print(
-            f"| {rank} | {row['mof_id']} | {row['gcmc_VSA_API_CH4']:.4f} | "
-            f"{row['VSA_API_CH4']:.4f} | {psa_r} | {vsa_r} |"
+        sns.kdeplot(
+            train_data,
+            label=f"Training GCMC (n={len(train_data):,})",
+            fill=True, alpha=0.4, color=NATURE_COLORS["blue"],
+            linewidth=2, ax=ax,
+        )
+        sns.kdeplot(
+            top100_data,
+            label=f"GCMC Top-100 {process} (n={len(top100_data)})",
+            fill=True, alpha=0.4, color=NATURE_COLORS["orange"],
+            linewidth=2, ax=ax,
         )
 
-    print("\n" + "=" * 60)
+        ax.axvline(
+            train_data.mean(), color=NATURE_COLORS["blue"],
+            linestyle="--", linewidth=1.5, alpha=0.8,
+            label=f"Training Mean: {train_data.mean():.3f}",
+        )
+        ax.axvline(
+            top100_data.mean(), color=NATURE_COLORS["orange"],
+            linestyle="--", linewidth=1.5, alpha=0.8,
+            label=f"Top-100 Mean: {top100_data.mean():.3f}",
+        )
+
+        # ATC-Cu benchmark vertical line (ML-predicted API)
+        bm_api = float(benchmark[f"{process}_API_CH4"])
+        ax.axvline(
+            bm_api, color="black",
+            linestyle=":", linewidth=2.0,
+            label=f"ATC-Cu: {bm_api:.3f}",
+        )
+
+        ax.set_xlabel(
+            rf"CH$_4$ {process} API (mol²·kg⁻¹·kJ⁻¹)",
+            fontsize=12, fontweight="bold",
+        )
+        ax.set_ylabel("Probability Density", fontsize=12, fontweight="bold")
+        ax.set_title(title, fontsize=13, fontweight="bold", loc="left")
+        ax.tick_params(axis="both", which="major", labelsize=11)
+
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.spines["left"].set_linewidth(1.0)
+        ax.spines["bottom"].set_linewidth(1.0)
+        ax.grid(True, linestyle="--", alpha=0.3, linewidth=0.5, axis="y")
+        ax.set_axisbelow(True)
+        ax.legend(loc="upper right", fontsize=11, frameon=True,
+                  edgecolor="black", fancybox=False, shadow=False)
+
+    fig.tight_layout()
+    savefig(fig, FIG_DIR / "gcmc_api_kde.png")
+
+
+# ---------------------------------------------------------------------------
+# Figure 4: Cluster distribution — MOFs above ATC-Cu per cluster
+# ---------------------------------------------------------------------------
+
+def plot_cluster_distribution(
+    df_psa: pd.DataFrame,
+    df_vsa: pd.DataFrame,
+    benchmark: pd.Series,
+) -> None:
+    """
+    Grouped bar chart: count of top-PSA/VSA MOFs whose GCMC API exceeds
+    the ATC-Cu benchmark (ML-predicted), grouped by structural cluster.
+    """
+    bm_psa_api = float(benchmark["PSA_API_CH4"])
+    bm_vsa_api = float(benchmark["VSA_API_CH4"])
+
+    filtered_psa = df_psa[df_psa["gcmc_PSA_API_CH4"] > bm_psa_api].copy()
+    filtered_vsa = df_vsa[df_vsa["gcmc_VSA_API_CH4"] > bm_vsa_api].copy()
+
+    print(f"[INFO] PSA MOFs > ATC-Cu API ({bm_psa_api:.3f}): "
+          f"{len(filtered_psa)} / {len(df_psa)}")
+    print(f"[INFO] VSA MOFs > ATC-Cu API ({bm_vsa_api:.3f}): "
+          f"{len(filtered_vsa)} / {len(df_vsa)}")
+
+    cnt_psa = filtered_psa.groupby("cluster")["mof_id"].count()
+    cnt_vsa = filtered_vsa.groupby("cluster")["mof_id"].count()
+
+    all_clusters = sorted(set(cnt_psa.index.tolist()) | set(cnt_vsa.index.tolist()))
+    cluster_df   = pd.DataFrame({"Cluster": all_clusters})
+    cluster_df["PSA Count"] = cluster_df["Cluster"].map(cnt_psa).fillna(0).astype(int)
+    cluster_df["VSA Count"] = cluster_df["Cluster"].map(cnt_vsa).fillna(0).astype(int)
+
+    x     = np.arange(len(cluster_df))
+    width = 0.35
+
+    fig, ax = plt.subplots(figsize=(12, 6))
+    bars1 = ax.bar(
+        x - width / 2, cluster_df["PSA Count"], width,
+        label=f"PSA Top-100 (GCMC API > {bm_psa_api:.3f})",
+        color=NATURE_COLORS["blue"], edgecolor="black", linewidth=1.0, alpha=0.8,
+    )
+    bars2 = ax.bar(
+        x + width / 2, cluster_df["VSA Count"], width,
+        label=f"VSA Top-100 (GCMC API > {bm_vsa_api:.3f})",
+        color=NATURE_COLORS["orange"], edgecolor="black", linewidth=1.0, alpha=0.8,
+    )
+
+    def _add_labels(bars):
+        for bar in bars:
+            h = bar.get_height()
+            if h > 0:
+                ax.text(
+                    bar.get_x() + bar.get_width() / 2.0, h,
+                    f"{int(h)}", ha="center", va="bottom",
+                    fontsize=11, fontweight="bold",
+                )
+
+    _add_labels(bars1)
+    _add_labels(bars2)
+
+    ax.set_xlabel("Structural Cluster", fontsize=13, fontweight="bold")
+    ax.set_ylabel("Number of MOFs", fontsize=13, fontweight="bold")
+    ax.set_title(
+        "Cluster Distributions of Top PSA/VSA MOFs Surpassing ATC-Cu Benchmark",
+        fontsize=13, fontweight="bold", loc="left",
+    )
+    ax.set_xticks(x)
+    ax.set_xticklabels(cluster_df["Cluster"].astype(int), fontsize=12)
+    ax.tick_params(axis="both", which="major", labelsize=12)
+
+    for spine in ax.spines.values():
+        spine.set_linewidth(1.0)
+    ax.grid(True, axis="y", linestyle="--", alpha=0.3, linewidth=0.5)
+    ax.set_axisbelow(True)
+    ax.legend(loc="upper right", fontsize=12, frameon=True,
+              edgecolor="black", fancybox=False, shadow=False)
+
+    fig.tight_layout()
+    savefig(fig, FIG_DIR / "gcmc_cluster_distribution.png")
 
 
 # ---------------------------------------------------------------------------
@@ -466,25 +543,37 @@ def print_case_statistics(
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    print(f"[INFO] Loading data from: {DATA_FILE}")
-    df, df_psa, df_vsa, df_psa_only, df_vsa_only = load_data()
-    df_both = df[df["psa_rank"].notna() & df["vsa_rank"].notna()].copy()
+    print(f"[INFO] Loading candidate data …")
+    df, df_psa, df_vsa = load_candidates()
+    print(f"  Total={len(df)} | PSA={len(df_psa)} | VSA={len(df_vsa)}")
 
-    print(f"[INFO] Total: {len(df)} | PSA: {len(df_psa)} | VSA: {len(df_vsa)} | "
-          f"PSA-only: {len(df_psa_only)} | VSA-only: {len(df_vsa_only)} | Both: {len(df_both)}")
+    print(f"[INFO] Loading training GCMC data (R2) …")
+    df_train = load_training_gcmc_api()
+    print(f"  Training set: {len(df_train)} MOFs | "
+          f"PSA_API valid: {df_train['PSA_API_CH4'].notna().sum()} | "
+          f"VSA_API valid: {df_train['VSA_API_CH4'].notna().sum()}")
+
+    print(f"[INFO] Loading ATC-Cu benchmark …")
+    benchmark = get_benchmark_row()
+    print(f"  ATC-Cu PSA_API (ML): {benchmark['PSA_API_CH4']:.4f}  "
+          f"VSA_API (ML): {benchmark['VSA_API_CH4']:.4f}")
 
     setup_matplotlib()
 
-    print("\n[PLOT 1] Parity scatter (all 199 MOFs) ...")
-    plot_parity_all199(df)
+    print("\n[PLOT 1] Parity 4×4 (PSA + VSA) …")
+    metrics_df = plot_parity_4x4(df_psa, df_vsa)
+    print(metrics_df.to_string(index=False))
 
-    print("[PLOT 2] Performance scatter (PSA + VSA) ...")
-    plot_performance_scatter(df_psa, df_vsa)
+    print("\n[PLOT 2] Performance scatter with ATC-Cu …")
+    plot_performance_scatter(df_psa, df_vsa, benchmark)
 
-    print("[PLOT 3] API boxplot by case ...")
-    plot_api_boxplot(df_psa_only, df_vsa_only, df_both)
+    print("\n[PLOT 3] API KDE (training vs top-100) …")
+    plot_api_kde(df_train, df_psa, df_vsa, benchmark)
 
-    print_case_statistics(df, df_psa, df_vsa, df_psa_only, df_vsa_only, df_both)
+    print("\n[PLOT 4] Cluster distribution …")
+    plot_cluster_distribution(df_psa, df_vsa, benchmark)
+
+    print("\n[DONE] All figures saved to:", FIG_DIR)
 
 
 if __name__ == "__main__":
