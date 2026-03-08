@@ -27,7 +27,9 @@ import pandas as pd
 REPO_ROOT   = Path(__file__).resolve().parents[2]
 TOP_CAND_DIR = REPO_ROOT / "results" / "alignn" / "top_candidates"
 STABLE_CSV  = TOP_CAND_DIR / "full_library_stable.csv"
-CIF_DIR     = REPO_ROOT / "results" / "cbm_screening" / "all_graphs_grids"
+# NOTE: Use integrated_cifs (with _symmetry_space_group_name_H-M) for RASPA2 compatibility.
+# all_graphs_grids uses _space_group_name_H-M_alt which RASPA2 cannot parse.
+CIF_DIR     = Path("/home/zhangsd/repos/MOF-HTS/data/processed/integrated_cifs")
 
 OUTPUT_PSA  = TOP_CAND_DIR / "top100_psa.csv"
 OUTPUT_VSA  = TOP_CAND_DIR / "top100_vsa.csv"
