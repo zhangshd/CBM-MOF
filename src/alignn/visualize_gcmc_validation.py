@@ -3,21 +3,20 @@ visualize_gcmc_validation.py
 ============================
 Publication-quality figures for GCMC validation (Task 2.4b enhanced).
 
-Outputs
--------
-results/figures/gcmc_validation/gcmc_parity_4x4.png
-    4×4 parity grid: rows 1-2 = PSA Top-100, rows 3-4 = VSA Top-100.
-results/figures/gcmc_validation/gcmc_parity_metrics.csv
-    Per-property, per-group (PSA/VSA) R², MAE, MAPE, n.
-results/figures/gcmc_validation/gcmc_performance_scatter.png
-    WC vs selectivity scatter (GCMC data) with ATC-Cu benchmark annotation.
-results/figures/gcmc_validation/gcmc_api_kde.png
-    KDE: training GCMC distribution vs GCMC top-100, per process (PSA & VSA).
-results/figures/gcmc_validation/gcmc_cluster_distribution.png
-    Grouped bar chart: MOFs above ATC-Cu benchmark per cluster, PSA & VSA.
+Usage:
+    python src/alignn/visualize_gcmc_validation.py
+    python src/alignn/visualize_gcmc_validation.py --model-dir results/alignn/model_ep270
+
+Outputs (under <model-dir>/figures/ when --model-dir is given):
+    gcmc_parity_4x4.png            — 4×4 parity grid
+    gcmc_parity_metrics.csv        — Per-property metrics
+    gcmc_performance_scatter.png   — WC vs selectivity scatter
+    gcmc_api_kde.png               — KDE distribution comparison
+    gcmc_cluster_distribution.png  — Cluster bar chart
 """
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 
 import matplotlib
@@ -29,7 +28,7 @@ import seaborn as sns
 from sklearn import metrics as skm
 
 # ---------------------------------------------------------------------------
-# Paths
+# Paths (defaults; overridden by --model-dir at bottom)
 # ---------------------------------------------------------------------------
 REPO_ROOT   = Path(__file__).resolve().parents[2]
 DATA_FILE   = REPO_ROOT / "results" / "alignn" / "gcmc_top_candidates" / "gcmc_vs_ml_comparison.csv"
@@ -43,7 +42,6 @@ TRAINING_ADS_R1_CSV  = (MOF_HTS_REPO / "results" / "cbm_screening"
 TRAINING_WIDOM_R1_CSV = (MOF_HTS_REPO / "results" / "cbm_screening"
                           / "widom_round1_DREIDING" / "widom_results_0911.csv")
 FIG_DIR     = REPO_ROOT / "results" / "figures" / "gcmc_validation"
-FIG_DIR.mkdir(parents=True, exist_ok=True)
 
 BENCHMARK_MOF = "CoRE-2020[Cu][pts]3[ASR]1"
 
@@ -597,4 +595,18 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="GCMC validation visualization")
+    parser.add_argument("--model-dir", type=str, default=None,
+                        help="Model-specific results dir (e.g. results/alignn/model_ep270). "
+                             "Overrides DATA_FILE and FIG_DIR.")
+    args = parser.parse_args()
+
+    if args.model_dir:
+        _md = Path(args.model_dir)
+        if not _md.is_absolute():
+            _md = REPO_ROOT / _md
+        DATA_FILE = _md / "gcmc_top_candidates" / "gcmc_vs_ml_comparison.csv"
+        FIG_DIR   = _md / "figures"
+
+    FIG_DIR.mkdir(parents=True, exist_ok=True)
     main()
