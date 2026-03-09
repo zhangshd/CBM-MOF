@@ -393,12 +393,20 @@ def step1_breakthrough_overlay(bkt_dir: Path, fig_dir: Path):
 
     for ax, process, title in zip(
         axes, ["PSA", "VSA"],
-        [r"(a) PSA (10 bar)", r"(b) VSA (1 bar)"]
+        [r"(a) PSA Case (10 bar)", r"(b) VSA Case (1 bar)"]
     ):
         proc_curves = curves[process]
         # Sort: candidates first (by label), benchmark last
         candidates = [c for c in proc_curves if not c["is_benchmark"]]
         benchmarks = [c for c in proc_curves if c["is_benchmark"]]
+
+        # Sort: Benchmark first, then candidates
+        for curve in benchmarks:
+            ax.plot(
+                curve["time_min"][1:], curve["cc0_ch4"][1:],
+                color=BENCHMARK_COLOR, linestyle=BENCHMARK_LINESTYLE,
+                linewidth=1.2, label="ATC-Cu", zorder=3,
+            )
 
         for idx, curve in enumerate(candidates):
             color = CANDIDATE_COLORS[idx % len(CANDIDATE_COLORS)]
@@ -409,24 +417,17 @@ def step1_breakthrough_overlay(bkt_dir: Path, fig_dir: Path):
                 label=curve["label"], zorder=2,
             )
 
-        for curve in benchmarks:
-            ax.plot(
-                curve["time_min"][1:], curve["cc0_ch4"][1:],
-                color=BENCHMARK_COLOR, linestyle=BENCHMARK_LINESTYLE,
-                linewidth=1.2, label="ATC-Cu", zorder=3,
-            )
-
         ax.set_xlabel("Time (min)")
         ax.set_ylabel(r"$C_{\mathrm{CH_4}}/C_0$")
         ax.set_title(title, fontsize=8, fontweight="bold", loc="left")
         ax.set_ylim(-0.02, 1.08)
         ax.set_xlim(left=0)
 
-        # Legend: outside or inside depending on space
-        ax.legend(fontsize=5, loc="center right", ncol=1,
-                  framealpha=0.8, edgecolor="none")
+        ax.legend(fontsize=4.5, loc="upper left", ncol=2,
+                  framealpha=0.8, edgecolor="none",
+                  handletextpad=0.3, columnspacing=0.5)
 
-    fig.tight_layout()
+    fig.tight_layout(w_pad=0.5, h_pad=0.2)
     save_figure(fig, "FigX_breakthrough_overlay", fig_dir, formats=("png",))
     plt.close(fig)
     print(f"\nStep 1 complete: breakthrough overlay figure saved.")
@@ -675,14 +676,14 @@ def step3_selectivity_comparison(bkt_dir: Path, fig_dir: Path):
     panel_configs = [
         # row 0: α_dyn vs α_thermo
         (axes[0, 0], "PSA", psa_top10, "psa_top10_rank",
-         "(a) PSA (10 bar)", "thermo_vs_dyn"),
+         "(a) PSA Case (10 bar)", "thermo_vs_dyn"),
         (axes[0, 1], "VSA", vsa_top10, "vsa_top10_rank",
-         "(b) VSA (1 bar)", "thermo_vs_dyn"),
+         "(b) VSA Case (1 bar)", "thermo_vs_dyn"),
         # row 1: α_IAST vs α_dyn
         (axes[1, 0], "PSA", psa_top10, "psa_top10_rank",
-         "(c) PSA (10 bar)", "iast_vs_dyn"),
+         "(c) PSA Case (10 bar)", "iast_vs_dyn"),
         (axes[1, 1], "VSA", vsa_top10, "vsa_top10_rank",
-         "(d) VSA (1 bar)", "iast_vs_dyn"),
+         "(d) VSA Case (1 bar)", "iast_vs_dyn"),
     ]
 
     for ax, process, top10_df, rank_col, title, panel_type in panel_configs:
@@ -718,19 +719,7 @@ def step3_selectivity_comparison(bkt_dir: Path, fig_dir: Path):
             x_col, y_col = "alpha_IAST", "alpha_dyn"
             marker = "^"
 
-        # Plot candidates
-        for idx, (_, row) in enumerate(merged.iterrows()):
-            if pd.isna(row.get(x_col)) or pd.isna(row.get(y_col)):
-                continue
-            color = CANDIDATE_COLORS[idx % len(CANDIDATE_COLORS)]
-            label = simplify_mof_id(row["mof"])
-            ax.scatter(
-                row[x_col], row[y_col],
-                marker=marker, color=color, s=30, zorder=3,
-                label=label, edgecolors="none",
-            )
-
-        # ATC-Cu
+        # Compute ATC-Cu coordinates first (needed for legend-first plotting)
         if process == "PSA":
             atc_thermo_val = atc_thermo.get("PSA_alpha", np.nan)
             atc_bkt_row = atc_bkt_psa
@@ -753,11 +742,24 @@ def step3_selectivity_comparison(bkt_dir: Path, fig_dir: Path):
         else:
             atc_x, atc_y = atc_iast_val, atc_dyn
 
+        # Plot ATC-Cu first for legend order
         if not np.isnan(atc_x) and not np.isnan(atc_y):
             ax.scatter(
                 atc_x, atc_y,
                 marker="*", s=72, color=BENCHMARK_COLOR,
                 zorder=4, label="ATC-Cu",
+            )
+
+        # Plot candidates
+        for idx, (_, row) in enumerate(merged.iterrows()):
+            if pd.isna(row.get(x_col)) or pd.isna(row.get(y_col)):
+                continue
+            color = CANDIDATE_COLORS[idx % len(CANDIDATE_COLORS)]
+            label = simplify_mof_id(row["mof"])
+            ax.scatter(
+                row[x_col], row[y_col],
+                marker=marker, color=color, s=30, zorder=3,
+                label=label, edgecolors="none",
             )
 
         # y=x diagonal
@@ -791,7 +793,7 @@ def step3_selectivity_comparison(bkt_dir: Path, fig_dir: Path):
                   framealpha=0.8, edgecolor="none",
                   handletextpad=0.3, columnspacing=0.5)
 
-    fig.tight_layout()
+    fig.tight_layout(w_pad=0.2, h_pad=0.2)
     save_figure(fig, "FigX_selectivity_comparison", fig_dir, formats=("png",))
     plt.close(fig)
     print(f"\nStep 3 complete: 4-panel selectivity comparison figure saved.")
@@ -836,7 +838,9 @@ def step4_isotherm_multipanel(bkt_dir: Path, fig_dir: Path):
     ch4_color = "#D62728"   # red
     n2_color = "#1F77B4"    # blue
 
-    for idx, mof_name in enumerate(sorted(mof_list)):
+    # Sort ATC-Cu first
+    mof_list_sorted = sorted(mof_list, key=lambda x: 0 if "CoRE-2020" in x else 1)
+    for idx, mof_name in enumerate(mof_list_sorted):
         row, col = divmod(idx, ncols)
         ax = axes[row][col]
 
@@ -854,51 +858,42 @@ def step4_isotherm_multipanel(bkt_dir: Path, fig_dir: Path):
             P_data = gas_data["Pressure[bar]"].values
             q_data = gas_data["AbsLoading"].values
 
-            ax.scatter(
-                P_data, q_data,
-                color=color, marker=marker, s=12, zorder=3,
-                label=gas_label, edgecolors="none", alpha=0.8,
-            )
-
-            # Fit curve
+            # Fit curve (compute R² for legend label)
             gas_fit = mof_fits[mof_fits["GasName"] == gas_name]
+            r2_str = ""
             if not gas_fit.empty:
                 K = gas_fit["K"].iloc[0]
                 n_m = gas_fit["n_m"].iloc[0]
                 r2 = gas_fit["R2"].iloc[0]
+                r2_str = f" ($R^2$={r2:.3f})"
                 P_fit = np.logspace(np.log10(max(P_data.min(), 0.001)),
                                     np.log10(P_data.max()), 100)
                 q_fit = langmuir(P_fit, K, n_m)
                 ax.plot(P_fit, q_fit, color=color, linewidth=0.8, zorder=2)
 
-                # R² annotation
-                if gas_name == "methane":
-                    ax.text(0.95, 0.35, f"$R^2$={r2:.4f}",
-                            transform=ax.transAxes, fontsize=4.5,
-                            ha="right", color=color)
-                else:
-                    ax.text(0.95, 0.22, f"$R^2$={r2:.4f}",
-                            transform=ax.transAxes, fontsize=4.5,
-                            ha="right", color=color)
+            ax.scatter(
+                P_data, q_data,
+                color=color, marker=marker, s=12, zorder=3,
+                label=f"{gas_label}{r2_str}", edgecolors="none", alpha=0.8,
+            )
 
         ax.set_xscale("log")
-        ax.set_title(simplify_mof_id(mof_name), fontsize=5.5, pad=2)
-        ax.tick_params(axis="both", labelsize=5)
+        ax.set_title(simplify_mof_id(mof_name), fontsize=7.5, pad=2)
+        ax.tick_params(axis="both", labelsize=7.0)
 
         if col == 0:
-            ax.set_ylabel("q (mol/kg)", fontsize=6)
+            ax.set_ylabel("q (mol/kg)", fontsize=8.0)
         if row == nrows - 1:
-            ax.set_xlabel("P (bar)", fontsize=6)
+            ax.set_xlabel("P (bar)", fontsize=8.0)
 
-        if idx == 0:
-            ax.legend(fontsize=4.5, loc="upper left", framealpha=0.8)
+        ax.legend(fontsize=6.0, loc="lower right", framealpha=0.8, ncol=1)
 
     # Hide empty subplots
     for idx in range(n_mofs, nrows * ncols):
         row, col = divmod(idx, ncols)
         axes[row][col].set_visible(False)
 
-    fig.tight_layout(h_pad=0.5, w_pad=0.3)
+    fig.tight_layout(h_pad=0.4, w_pad=0.2)
     save_figure(fig, "FigSX_isotherm_fits", fig_dir, formats=("png",))
     plt.close(fig)
     print(f"\nStep 4 complete: isotherm multi-panel figure saved.")
