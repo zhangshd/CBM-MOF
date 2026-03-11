@@ -242,7 +242,7 @@ def get_atc_cu_thermo_selectivity():
         index="MofName", columns=["GasName", "Pressure[bar]"],
         values="AbsLoading", aggfunc="first",
     )
-    ads_piv.columns = [f"Ads{g}_{int(p*1000)}kPa" if p < 1 else f"Ads{g}_{int(p)}{'kPa' if p < 10 else 'kPa'}"
+    ads_piv.columns = [f"Ads{g}_{int(p*100)}kPa"
                        for g, p in ads_piv.columns]
     # Simpler: reconstruct column names to match expected format
     ads_piv2 = ads_r1.pivot_table(
@@ -257,15 +257,13 @@ def get_atc_cu_thermo_selectivity():
     for gas, gas_label in [("methane", "CH4"), ("N2", "N2")]:
         gas_data = atc[atc["GasName"] == gas]
         for p_bar in [0.1, 1.0, 10.0]:
-            p_key = f"{int(p_bar*1000)}kPa" if p_bar < 1 else f"{int(p_bar*100) if p_bar < 10 else int(p_bar*1000)}kPa"
+            p_key = f"{int(p_bar*100)}kPa"
             # Map pressure to kPa label
-            p_kpa = p_bar * 1000 if p_bar >= 1 else p_bar * 1000
+            p_kpa = p_bar * 100
             if p_kpa == 100:
                 key = f"Ads{gas_label}_100kPa"
             elif p_kpa == 1000:
                 key = f"Ads{gas_label}_1000kPa"
-            elif p_kpa == 10000:
-                key = f"Ads{gas_label}_10000kPa"
             elif p_kpa == 10:
                 key = f"Ads{gas_label}_10kPa"
             else:
@@ -275,10 +273,9 @@ def get_atc_cu_thermo_selectivity():
                 result[key] = float(row["AbsLoading"].iloc[0])
 
     # Compute selectivities: α = (q_CH4 / q_N2) × (y_N2 / y_CH4) = (q_CH4 / q_N2) × 4
-    # PSA: at 1000 kPa (10 bar)
     if "AdsCH4_1000kPa" in result and "AdsN2_1000kPa" in result:
         result["PSA_alpha"] = (result["AdsCH4_1000kPa"] / result["AdsN2_1000kPa"]) * 4
-    # VSA: at 100 kPa (1 bar)
+    # VSA: at 1 bar (key "100kPa" = p_bar=1.0)
     if "AdsCH4_100kPa" in result and "AdsN2_100kPa" in result:
         result["VSA_alpha"] = (result["AdsCH4_100kPa"] / result["AdsN2_100kPa"]) * 4
 
