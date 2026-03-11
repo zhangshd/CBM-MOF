@@ -13,21 +13,15 @@ Usage:
 """
 
 import argparse
-import collections
-import glob
-import os
-import signal
 import sys
-import warnings
+from typing import Optional
 from pathlib import Path
 
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import matplotlib.ticker as mticker
 import numpy as np
 import pandas as pd
-from pymatgen.core import Structure
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -41,17 +35,7 @@ from style import (
     set_publication_style, save_figure,
     SINGLE_COL_INCH, DOUBLE_COL_INCH, MAX_HEIGHT_INCH, DPI,
 )
-
-# BKT modules
-import scipy.integrate
-import bkt.src.model as model
-import bkt.src.params as params
-from bkt.src.util import calculate_ki_Dax
-from bkt.src.plot import data_to_state
-
-# Suppress BKT/pymatgen/scipy verbose output
-warnings.filterwarnings("ignore", category=UserWarning)
-warnings.filterwarnings("ignore", category=RuntimeWarning, module="scipy")
+from alignn.bkt_curve_cache import CURVE_CACHE_COLUMNS
 
 # Force unbuffered output
 import functools
@@ -60,10 +44,6 @@ print = functools.partial(print, flush=True)
 # ---------------------------------------------------------------------------
 # Constants from run_bkt_top_candidates.py
 # ---------------------------------------------------------------------------
-ATC_CU_CIF = Path(
-    "/home/zhangsd/repos/MOF-HTS/src/gcmc/examples/dup_demo_ATC-Cu/"
-    "CoRE-2020[Cu][pts]3[ASR]1.cif"
-)
 ATC_CU_NAME = "CoRE-2020[Cu][pts]3[ASR]1"
 
 # Clustered CSV for looking up ATC-Cu cluster ID
@@ -71,17 +51,6 @@ CLUSTERED_CSV = (
     REPO_ROOT / "data" / "processed" / "textural_screened"
     / "textural_screened_clustered_with_umap.csv"
 )
-
-STANDARD_BED = {
-    "D": 9e-3, "L": 0.15, "epsilon": 0.4, "rp": 2e-4,
-    "r_pore": 25e-9, "tor": 3, "epsilon_p": 0.35,
-    "tN": 500, "Ta": 298, "R": 8.314,
-}
-
-PROCESS_CONFIG = {
-    "PSA": {"feed_pressure": 10, "tstop_init": 25000, "tstop_extend": 5000, "N": 30},
-    "VSA": {"feed_pressure": 1,  "tstop_init": 12000, "tstop_extend": 3000, "N": 30},
-}
 
 # ATC-Cu GCMC data paths (for thermodynamic selectivity)
 MOF_HTS_REPO = Path("/home/zhangsd/repos/MOF-HTS")
@@ -117,115 +86,6 @@ def simplify_mof_id(mof_id: str) -> str:
     if "CoRE-2020" in mof_id:
         return "ATC-Cu"
     return s
-
-
-# ---------------------------------------------------------------------------
-# Helper: BKT parameter building (from run_bkt_top_candidates.py)
-# ---------------------------------------------------------------------------
-
-def get_rho_s(cif_path: Path) -> float:
-    """Calculate adsorbent density from CIF (g/cm³ → kg/m³)."""
-    struct = Structure.from_file(str(cif_path))
-    return struct.density * 1000
-
-
-def build_mods(mof_name, process, iso_params, rho_s):
-    """Build BKT parameter dict for one simulation."""
-    cfg = PROCESS_CONFIG[process]
-    bed = STANDARD_BED
-
-    mods = collections.defaultdict()
-    mods["nocomponents"] = 2
-    mods["feed_yi"] = [0.2, 0.8]
-    mods["ini_yi"] = [1e-10, 1e-10]
-    mods["isomodel"] = "Langmuir-Freundlich"
-    mods["component_names"] = ["CH4", "N2"]
-    mods["bi"] = [iso_params["K_CH4"], iso_params["K_N2"]]
-    mods["qsi"] = [iso_params["n_m_CH4"], iso_params["n_m_N2"]]
-    mods["ni"] = [1, 1]
-    mods["Hi"] = [0, 0]
-    mods["R"] = bed["R"]
-    mods["D"] = bed["D"]
-    mods["A"] = np.pi * (bed["D"] / 2) ** 2
-    mods["L"] = bed["L"]
-    mods["epsilon"] = bed["epsilon"]
-    mods["rp"] = bed["rp"]
-    mods["Ta"] = bed["Ta"]
-    mods["feed_pressure"] = cfg["feed_pressure"]
-
-    flow_rate_ml_min = 10 / cfg["feed_pressure"]
-    flow_rate_m3_s = flow_rate_ml_min * 1e-6 / 60
-    mods["vfeed"] = flow_rate_m3_s / mods["A"] / mods["epsilon"]
-    mods["rho_s"] = rho_s
-
-    k1, k2, Dax = calculate_ki_Dax(
-        "CH4", "N2", bed["Ta"], cfg["feed_pressure"],
-        bed["rp"], bed["r_pore"], bed["epsilon_p"], bed["tor"],
-        mods["vfeed"],
-    )
-    mods["ki"] = [k1, k2]
-    mods["DL"] = Dax
-
-    mods["bed"] = "Breakthrough"
-    mods["tstart"] = 0
-    mods["tstop"] = cfg["tstop_init"]
-    mods["tbreak"] = 0
-    mods["tN"] = bed["tN"]
-    mods["N"] = cfg["N"]
-    return mods
-
-
-class _SolverTimeout(Exception):
-    pass
-
-
-def _timeout_handler(signum, frame):
-    raise _SolverTimeout("Solver timed out")
-
-
-def solve_breakthrough_robust(localparam, min_points=10, timeout_per_strategy=120):
-    """Robust BKT solver with fallback strategies and per-strategy timeout."""
-    x0_all = model.init(localparam)
-    x0 = np.hstack([x0_all[item] for item in localparam.state_names])
-    breakthroughmodel = model.oadesmodel
-    ev = np.linspace(0, localparam.norm_tbreak, localparam.tN + 1, endpoint=True)
-    t_span = (0, localparam.norm_tbreak)
-
-    strategies = [
-        ("BDF",   1e-6, 1e-9, "BDF tight"),
-        ("Radau", 1e-6, 1e-9, "Radau tight"),
-        ("BDF",   1e-4, 1e-7, "BDF default"),
-        ("Radau", 1e-4, 1e-7, "Radau default"),
-        ("Radau", 1e-3, 1e-6, "Radau relaxed"),
-        ("LSODA", 1e-3, 1e-6, "LSODA relaxed"),
-    ]
-    outcome = None
-    old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
-    try:
-        for method, rtol, atol, label in strategies:
-            try:
-                signal.alarm(timeout_per_strategy)
-                with warnings.catch_warnings():
-                    warnings.filterwarnings("ignore", category=RuntimeWarning)
-                    outcome = scipy.integrate.solve_ivp(
-                        breakthroughmodel, t_span, x0,
-                        vectorized=False, t_eval=ev, method=method,
-                        rtol=rtol, atol=atol, args=(localparam,),
-                    )
-                signal.alarm(0)
-                if outcome.success and len(outcome.t) >= min_points:
-                    print(f"    Solver OK: {label} ({len(outcome.t)} points)")
-                    return outcome
-            except _SolverTimeout:
-                print(f"    Solver {label}: TIMEOUT ({timeout_per_strategy}s)")
-                signal.alarm(0)
-            except Exception as e:
-                signal.alarm(0)
-                print(f"    Solver {label} exception: {e}")
-    finally:
-        signal.alarm(0)
-        signal.signal(signal.SIGALRM, old_handler)
-    return outcome
 
 
 # ---------------------------------------------------------------------------
@@ -288,9 +148,11 @@ def get_atc_cu_thermo_selectivity():
 
 def load_bkt_summaries(bkt_dir: Path) -> pd.DataFrame:
     """Load and concatenate all bkt_summary_job*.csv files."""
-    files = sorted(bkt_dir.glob("bkt_summary_job*.csv"))
+    files = sorted((bkt_dir / "summaries" / "jobs").glob("bkt_summary_job*.csv"))
     if not files:
-        raise FileNotFoundError(f"No bkt_summary_job*.csv found in {bkt_dir}")
+        raise FileNotFoundError(
+            f"No bkt_summary_job*.csv found in {bkt_dir / 'summaries' / 'jobs'}"
+        )
     dfs = [pd.read_csv(f) for f in files]
     df = pd.concat(dfs, ignore_index=True)
     # Drop duplicated header rows (from cat concat)
@@ -302,91 +164,64 @@ def load_bkt_summaries(bkt_dir: Path) -> pd.DataFrame:
     return df
 
 
+def load_breakthrough_curve_cache(bkt_dir: Path) -> pd.DataFrame:
+    """Load cached breakthrough curves generated by run_bkt_top_candidates.py."""
+    cache_csv = bkt_dir / "breakthrough_curves_data.csv"
+    if not cache_csv.exists():
+        raise FileNotFoundError(
+            "Missing breakthrough curve cache: "
+            f"{cache_csv}. Run "
+            "`python src/alignn/run_bkt_top_candidates.py --rebuild-curve-cache` "
+            "after generating per-run BKT outputs."
+        )
+    df = pd.read_csv(cache_csv)
+    missing = [col for col in CURVE_CACHE_COLUMNS if col not in df.columns]
+    if missing:
+        raise ValueError(f"{cache_csv} is missing required columns: {missing}")
+    return df[CURVE_CACHE_COLUMNS].copy()
+
+
 # ===================================================================
 # STEP 1: Breakthrough Curve Overlay (2-panel)
 # ===================================================================
 
 def step1_breakthrough_overlay(bkt_dir: Path, fig_dir: Path):
-    """Re-run 22 BKT simulations to extract C/C0 curves, generate 2-panel figure."""
+    """Load cached C/C0 curves and generate the 2-panel breakthrough figure."""
     print("\n" + "=" * 70)
     print("STEP 1: Breakthrough Curve Overlay")
     print("=" * 70)
 
-    # Load data
-    fit_csv = bkt_dir / "isotherm_fits" / "best_isotherm_fits.csv"
-    fits = pd.read_csv(fit_csv)
-    iso_lookup = {}
-    for mof in fits["MofName"].unique():
-        mof_fits = fits[fits["MofName"] == mof]
-        ch4 = mof_fits[mof_fits["GasName"] == "methane"].iloc[0]
-        n2 = mof_fits[mof_fits["GasName"] == "N2"].iloc[0]
-        iso_lookup[mof] = {
-            "K_CH4": ch4["K"], "n_m_CH4": ch4["n_m"],
-            "K_N2": n2["K"], "n_m_N2": n2["n_m"],
-        }
-
+    curve_df = load_breakthrough_curve_cache(bkt_dir)
     psa_mofs = pd.read_csv(bkt_dir / "top10_psa.csv")["mof_id"].tolist()
     vsa_mofs = pd.read_csv(bkt_dir / "top10_vsa.csv")["mof_id"].tolist()
-    cif_dir = bkt_dir / "cifs"
 
-    # Build simulation queue
-    queue = []
-    for mof_id in psa_mofs:
-        queue.append((mof_id, "PSA", cif_dir / f"{mof_id}.cif"))
-    queue.append((ATC_CU_NAME, "PSA", ATC_CU_CIF))
-    for mof_id in vsa_mofs:
-        queue.append((mof_id, "VSA", cif_dir / f"{mof_id}.cif"))
-    queue.append((ATC_CU_NAME, "VSA", ATC_CU_CIF))
-
-    # Run simulations and extract C/C0
     curves = {"PSA": [], "VSA": []}
-    all_cc0_data = []
+    process_order = {
+        "PSA": psa_mofs + [ATC_CU_NAME],
+        "VSA": vsa_mofs + [ATC_CU_NAME],
+    }
 
-    for i, (mof_name, process, cif_path) in enumerate(queue):
-        print(f"\n[{i+1}/{len(queue)}] {simplify_mof_id(mof_name)} — {process}")
-        rho_s = get_rho_s(cif_path)
-        mods = build_mods(mof_name, process, iso_lookup[mof_name], rho_s)
-        localparam = params.create_param(mods)
-        outcome = solve_breakthrough_robust(localparam)
-
-        if outcome is None or not outcome.success:
-            print(f"  WARNING: Solver failed for {mof_name} [{process}]")
-            continue
-
-        data1 = data_to_state(outcome.y, localparam)
-        time_min = outcome.t * localparam.norm_t0 / 60  # seconds → minutes
-
-        # Extract CH4 C/C0 (component A = CH4)
-        y_inlet = data1.yA[0]    # inlet mole fraction over time
-        y_outlet = data1.yA[-1]  # outlet mole fraction over time (z=L)
-        cc0_ch4 = y_outlet / y_inlet
-
-        # Store
-        curves[process].append({
-            "mof": mof_name,
-            "label": simplify_mof_id(mof_name),
-            "time_min": time_min,
-            "cc0_ch4": cc0_ch4,
-            "is_benchmark": mof_name == ATC_CU_NAME,
-        })
-
-        # CSV data for reproducibility
-        for t, c in zip(time_min, cc0_ch4):
-            all_cc0_data.append({
-                "mof": mof_name, "process": process,
-                "time_min": t, "CC0_CH4": c,
+    for process, ordered_mofs in process_order.items():
+        for mof_name in ordered_mofs:
+            mof_curve = curve_df[
+                (curve_df["process"] == process) & (curve_df["mof"] == mof_name)
+            ].sort_values("time_min")
+            if mof_curve.empty:
+                print(f"  WARNING: Missing cached curve for {mof_name} [{process}]")
+                continue
+            curves[process].append({
+                "mof": mof_name,
+                "label": simplify_mof_id(mof_name),
+                "time_min": mof_curve["time_min"].to_numpy(),
+                "cc0_ch4": mof_curve["CC0_CH4"].to_numpy(),
+                "is_benchmark": mof_name == ATC_CU_NAME,
             })
-        print(f"  OK: {len(time_min)} time points, C/C0 range [{cc0_ch4.min():.4f}, {cc0_ch4.max():.4f}]")
-
-    # Save C/C0 data CSV
-    cc0_df = pd.DataFrame(all_cc0_data)
-    cc0_csv = bkt_dir / "breakthrough_curves_data.csv"
-    cc0_df.to_csv(cc0_csv, index=False)
-    print(f"\nC/C0 data saved: {cc0_csv}")
 
     # Generate 2-panel figure
     set_publication_style()
-    fig, axes = plt.subplots(1, 2, figsize=(DOUBLE_COL_INCH, 0.45 * DOUBLE_COL_INCH))
+    fig, axes = plt.subplots(
+        1, 2, figsize=(1.08 * DOUBLE_COL_INCH, 0.60 * DOUBLE_COL_INCH)
+    )
 
     for ax, process, title in zip(
         axes, ["PSA", "VSA"],
@@ -420,7 +255,7 @@ def step1_breakthrough_overlay(bkt_dir: Path, fig_dir: Path):
         ax.set_ylim(-0.02, 1.08)
         ax.set_xlim(left=0)
 
-        ax.legend(fontsize=4.5, loc="upper left", ncol=2,
+        ax.legend(fontsize=5.5, loc="upper left", ncol=1,
                   framealpha=0.8, edgecolor="none",
                   handletextpad=0.3, columnspacing=0.5)
 
@@ -639,8 +474,55 @@ def step2_performance_table(bkt_dir: Path, fig_dir: Path):
 # STEP 3: Selectivity Comparison (GCMC Thermodynamic vs BKT Dynamic)
 # ===================================================================
 
+def _prepare_selectivity_process_df(
+    bkt_df: pd.DataFrame,
+    top10_df: pd.DataFrame,
+    iast_df: Optional[pd.DataFrame],
+    atc_thermo: dict,
+    process: str,
+) -> pd.DataFrame:
+    """Build a plotting table for one process."""
+    proc_bkt = bkt_df[bkt_df["process"] == process].copy()
+    proc_bkt["alpha_BKT"] = (
+        proc_bkt["q_CH4_mol_per_kg"] / proc_bkt["q_N2_mol_per_kg"]
+    ) * 4
+
+    gcmc_col = f"gcmc_{process}_alpha_CH4_N2"
+    rank_col = f"{process.lower()}_top10_rank"
+    merged = proc_bkt.merge(
+        top10_df[["mof_id", gcmc_col, rank_col]],
+        left_on="mof",
+        right_on="mof_id",
+        how="left",
+    )
+    merged["alpha_GCMC"] = merged[gcmc_col]
+
+    iast_col = f"alpha_IAST_{process}"
+    if iast_df is not None and iast_col in iast_df.columns:
+        merged = merged.merge(
+            iast_df[["MofName", iast_col]],
+            left_on="mof",
+            right_on="MofName",
+            how="left",
+        )
+        merged["alpha_IAST"] = merged[iast_col]
+    else:
+        merged["alpha_IAST"] = np.nan
+
+    atc_mask = merged["mof"] == ATC_CU_NAME
+    if atc_mask.any():
+        merged.loc[atc_mask, "alpha_GCMC"] = atc_thermo.get(f"{process}_alpha", np.nan)
+
+    merged["label"] = merged["mof"].map(simplify_mof_id)
+    merged["is_benchmark"] = merged["mof"] == ATC_CU_NAME
+    merged = merged.sort_values(
+        ["alpha_BKT", "is_benchmark"], ascending=[False, False]
+    ).reset_index(drop=True)
+    merged["ypos"] = np.arange(len(merged))[::-1]
+    return merged
+
 def step3_selectivity_comparison(bkt_dir: Path, fig_dir: Path):
-    """Generate 4-panel selectivity comparison: α_dyn vs α_thermo + α_IAST vs α_dyn."""
+    """Generate 2-panel dumbbell plot comparing GCMC, IAST, and BKT selectivities."""
     print("\n" + "=" * 70)
     print("STEP 3: Selectivity Comparison (3-way: GCMC / IAST / BKT)")
     print("=" * 70)
@@ -663,137 +545,78 @@ def step3_selectivity_comparison(bkt_dir: Path, fig_dir: Path):
         print(f"  WARNING: {iast_csv} not found — run compute_iast_selectivity.py first")
         iast_df = None
 
-    # ATC-Cu BKT dynamic selectivity
-    atc_bkt_psa = bkt_df[(bkt_df["mof"] == ATC_CU_NAME) & (bkt_df["process"] == "PSA")]
-    atc_bkt_vsa = bkt_df[(bkt_df["mof"] == ATC_CU_NAME) & (bkt_df["process"] == "VSA")]
+    psa_df = _prepare_selectivity_process_df(
+        bkt_df=bkt_df,
+        top10_df=psa_top10,
+        iast_df=iast_df,
+        atc_thermo=atc_thermo,
+        process="PSA",
+    )
+    vsa_df = _prepare_selectivity_process_df(
+        bkt_df=bkt_df,
+        top10_df=vsa_top10,
+        iast_df=iast_df,
+        atc_thermo=atc_thermo,
+        process="VSA",
+    )
 
     set_publication_style()
-    fig, axes = plt.subplots(2, 2, figsize=(DOUBLE_COL_INCH, DOUBLE_COL_INCH * 0.7))
+    fig, axes = plt.subplots(
+        1, 2, figsize=(1.16 * DOUBLE_COL_INCH, 0.78 * DOUBLE_COL_INCH), sharey=False
+    )
 
-    panel_configs = [
-        # row 0: α_dyn vs α_thermo
-        (axes[0, 0], "PSA", psa_top10, "psa_top10_rank",
-         "(a) PSA Case (10 bar)", "thermo_vs_dyn"),
-        (axes[0, 1], "VSA", vsa_top10, "vsa_top10_rank",
-         "(b) VSA Case (1 bar)", "thermo_vs_dyn"),
-        # row 1: α_IAST vs α_dyn
-        (axes[1, 0], "PSA", psa_top10, "psa_top10_rank",
-         "(c) PSA Case (10 bar)", "iast_vs_dyn"),
-        (axes[1, 1], "VSA", vsa_top10, "vsa_top10_rank",
-         "(d) VSA Case (1 bar)", "iast_vs_dyn"),
-    ]
+    style_map = {
+        "alpha_GCMC": dict(color="#1f77b4", marker="o", label=r"$\alpha_{\mathrm{GCMC}}$"),
+        "alpha_IAST": dict(color="#d55e00", marker="^", label=r"$\alpha_{\mathrm{IAST}}$"),
+        "alpha_BKT": dict(color="black", marker="s", label=r"$\alpha_{\mathrm{BKT}}$"),
+    }
 
-    for ax, process, top10_df, rank_col, title, panel_type in panel_configs:
-        proc_bkt = bkt_df[(bkt_df["process"] == process) & (bkt_df["mof"] != ATC_CU_NAME)]
-
-        # Merge BKT with GCMC thermodynamic selectivity
-        gcmc_alpha_col = f"gcmc_{process}_alpha_CH4_N2"
-        merged = proc_bkt.merge(
-            top10_df[["mof_id", gcmc_alpha_col, rank_col]],
-            left_on="mof", right_on="mof_id", how="inner",
-        )
-        merged["alpha_dyn"] = (merged["q_CH4_mol_per_kg"] / merged["q_N2_mol_per_kg"]) * 4
-        merged["alpha_thermo"] = merged[gcmc_alpha_col]
-
-        # Merge IAST
-        iast_col = f"alpha_IAST_{process}"
-        if iast_df is not None and iast_col in iast_df.columns:
-            merged = merged.merge(
-                iast_df[["MofName", iast_col]],
-                left_on="mof", right_on="MofName", how="left",
-            )
-            merged["alpha_IAST"] = merged[iast_col]
-        else:
-            merged["alpha_IAST"] = np.nan
-
-        merged = merged.sort_values(rank_col)
-
-        # Determine x/y columns and marker style
-        if panel_type == "thermo_vs_dyn":
-            x_col, y_col = "alpha_thermo", "alpha_dyn"
-            marker = "o"
-        else:  # iast_vs_dyn
-            x_col, y_col = "alpha_IAST", "alpha_dyn"
-            marker = "^"
-
-        # Compute ATC-Cu coordinates first (needed for legend-first plotting)
-        if process == "PSA":
-            atc_thermo_val = atc_thermo.get("PSA_alpha", np.nan)
-            atc_bkt_row = atc_bkt_psa
-        else:
-            atc_thermo_val = atc_thermo.get("VSA_alpha", np.nan)
-            atc_bkt_row = atc_bkt_vsa
-
-        atc_dyn = np.nan
-        atc_iast_val = np.nan
-        if not atc_bkt_row.empty:
-            atc_dyn = (float(atc_bkt_row["q_CH4_mol_per_kg"].iloc[0]) /
-                       float(atc_bkt_row["q_N2_mol_per_kg"].iloc[0])) * 4
-            if iast_df is not None:
-                atc_iast_row = iast_df[iast_df["MofName"] == ATC_CU_NAME]
-                if not atc_iast_row.empty:
-                    atc_iast_val = float(atc_iast_row[iast_col].iloc[0])
-
-        if panel_type == "thermo_vs_dyn":
-            atc_x, atc_y = atc_thermo_val, atc_dyn
-        else:
-            atc_x, atc_y = atc_iast_val, atc_dyn
-
-        # Plot ATC-Cu first for legend order
-        if not np.isnan(atc_x) and not np.isnan(atc_y):
-            ax.scatter(
-                atc_x, atc_y,
-                marker="*", s=72, color=BENCHMARK_COLOR,
-                zorder=4, label="ATC-Cu",
-            )
-
-        # Plot candidates
-        for idx, (_, row) in enumerate(merged.iterrows()):
-            if pd.isna(row.get(x_col)) or pd.isna(row.get(y_col)):
+    for ax, df, title in zip(
+        axes,
+        [psa_df, vsa_df],
+        ["(a) PSA Case (10 bar)", "(b) VSA Case (1 bar)"],
+    ):
+        for _, row in df.iterrows():
+            vals = [row["alpha_GCMC"], row["alpha_IAST"], row["alpha_BKT"]]
+            vals = [v for v in vals if pd.notna(v)]
+            if len(vals) < 2:
                 continue
-            color = CANDIDATE_COLORS[idx % len(CANDIDATE_COLORS)]
-            label = simplify_mof_id(row["mof"])
-            ax.scatter(
-                row[x_col], row[y_col],
-                marker=marker, color=color, s=30, zorder=3,
-                label=label, edgecolors="none",
+            ax.plot(
+                [min(vals), max(vals)],
+                [row["ypos"], row["ypos"]],
+                color="0.85",
+                linewidth=1.0,
+                zorder=1,
             )
 
-        # y=x diagonal
-        x_vals = list(merged[x_col].dropna())
-        y_vals = list(merged[y_col].dropna())
-        all_vals = x_vals + y_vals
-        if not np.isnan(atc_x):
-            all_vals.append(atc_x)
-        if not np.isnan(atc_y):
-            all_vals.append(atc_y)
-        if all_vals:
-            vmin = min(all_vals) * 0.85
-            vmax = max(all_vals) * 1.1
-            ax.plot([vmin, vmax], [vmin, vmax], ":", color="gray",
-                    linewidth=0.6, zorder=1)
-            ax.set_xlim(vmin, vmax)
-            ax.set_ylim(vmin, vmax)
+        for key, style in style_map.items():
+            sizes = np.where(df["is_benchmark"], 56, 34)
+            ax.scatter(
+                df[key],
+                df["ypos"],
+                s=sizes,
+                zorder=3,
+                edgecolors="none",
+                **style,
+            )
 
-        # Axis labels
-        if panel_type == "thermo_vs_dyn":
-            ax.set_xlabel(r"$\alpha_{\mathrm{thermo}}$ (GCMC)")
-            ax.set_ylabel(r"$\alpha_{\mathrm{dyn}}$ (BKT)")
-        else:
-            ax.set_xlabel(r"$\alpha_{\mathrm{IAST}}$")
-            ax.set_ylabel(r"$\alpha_{\mathrm{dyn}}$ (BKT)")
+        ax.set_yticks(df["ypos"])
+        ax.set_yticklabels(df["label"], fontsize=9)
+        for tick, is_benchmark in zip(ax.get_yticklabels(), df["is_benchmark"]):
+            if is_benchmark:
+                tick.set_fontweight("bold")
+        ax.set_xlabel(r"Selectivity, $\alpha$", fontsize=11)
+        ax.set_title(title, fontsize=10, fontweight="bold", loc="left")
+        ax.tick_params(axis="x", labelsize=9)
+        ax.grid(axis="x", color="0.92", linewidth=0.6)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
 
-        ax.set_title(title, fontsize=8, fontweight="bold", loc="left")
-        ax.set_aspect("equal", adjustable="box")
-
-        ax.legend(fontsize=4, loc="upper left", ncol=2,
-                  framealpha=0.8, edgecolor="none",
-                  handletextpad=0.3, columnspacing=0.5)
-
-    fig.tight_layout(w_pad=0.2, h_pad=0.2)
+    axes[0].legend(frameon=False, fontsize=8.5, loc="lower right")
+    fig.subplots_adjust(left=0.20, right=0.985, bottom=0.13, top=0.92, wspace=0.12)
     save_figure(fig, "FigX_selectivity_comparison", fig_dir, formats=("png",))
     plt.close(fig)
-    print(f"\nStep 3 complete: 4-panel selectivity comparison figure saved.")
+    print(f"\nStep 3 complete: dumbbell selectivity comparison figure saved.")
 
 
 # ===================================================================

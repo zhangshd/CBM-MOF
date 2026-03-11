@@ -16,6 +16,7 @@ Usage:
     python src/alignn/run_bkt_top_candidates.py
     python src/alignn/run_bkt_top_candidates.py --model-dir results/alignn/model_ep150
     python src/alignn/run_bkt_top_candidates.py --dry-run   # print params only
+    python src/alignn/run_bkt_top_candidates.py --rebuild-curve-cache
 """
 
 import argparse
@@ -25,14 +26,8 @@ import sys
 import traceback
 from pathlib import Path
 
-# Matplotlib backend for headless rendering
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-
 import numpy as np
 import pandas as pd
-from pymatgen.core import Structure
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -42,16 +37,7 @@ BKT_ROOT = REPO_ROOT / "src" / "bkt"
 
 # Add BKT to path
 sys.path.insert(0, str(REPO_ROOT / "src"))
-
-import scipy.integrate
-
-import bkt.src.model as model
-import bkt.src.params as params
-import bkt.src.solver as solver
-import bkt.src.plot as plot
-import bkt.src.analysis as analysis
-from bkt.src.util import calculate_ki_Dax
-from bkt.src.plot import data_to_state
+from alignn.bkt_curve_cache import build_curve_dataframe, rebuild_curve_cache
 
 
 def solve_breakthrough_robust(localparam, min_points=10):
@@ -60,6 +46,9 @@ def solve_breakthrough_robust(localparam, min_points=10):
     Tries BDF first (default), then Radau, then LSODA, with progressively
     relaxed tolerances. Returns the first successful outcome.
     """
+    import scipy.integrate
+    import bkt.src.model as model
+
     param = localparam
     x0_all = model.init(param)
     x0 = np.hstack([x0_all[item] for item in param.state_names])
@@ -145,6 +134,8 @@ PROCESS_CONFIG = {
 
 def get_rho_s(cif_path: Path) -> float:
     """Calculate adsorbent density from CIF (pymatgen Structure.density g/cm³ → kg/m³)."""
+    from pymatgen.core import Structure
+
     struct = Structure.from_file(str(cif_path))
     rho_s = struct.density * 1000  # g/cm³ → kg/m³
     return rho_s
@@ -157,6 +148,8 @@ def build_mods(
     rho_s: float,
 ) -> dict:
     """Build BKT parameter dict for one simulation."""
+    from bkt.src.util import calculate_ki_Dax
+
     cfg = PROCESS_CONFIG[process]
     bed = STANDARD_BED
 
@@ -225,6 +218,11 @@ def run_single_simulation(
     dry_run: bool = False,
 ) -> dict:
     """Run one BKT simulation with iterative time extension."""
+    import bkt.src.analysis as analysis
+    import bkt.src.params as params
+    import bkt.src.plot as plot
+    from bkt.src.plot import data_to_state
+
     label = f"{mof_name} [{process}]"
     print(f"\n{'='*70}")
     print(f"  {label}")
@@ -319,6 +317,19 @@ def run_single_simulation(
 
     # Analysis (separate data extraction from plotting for robustness)
     try:
+        curve_state = data_to_state(outcome.y, localparam)
+        time_min = outcome.t * localparam.norm_t0 / 60
+        y_inlet = curve_state.yA[0]
+        y_outlet = curve_state.yA[-1]
+        curve_df = build_curve_dataframe(
+            mof_name=mof_name,
+            process=process,
+            time_min=time_min,
+            cc0_ch4=(y_outlet / y_inlet),
+        )
+        curve_csv_path = output_dir / "breakthrough_curve_data.csv"
+        curve_df.to_csv(curve_csv_path, index=False)
+
         adsorption_results = analysis.calculate_cumulative_adsorption(
             outcome, localparam, validate=True
         )
@@ -339,6 +350,7 @@ def run_single_simulation(
             "mof": mof_name,
             "process": process,
             "status": "success",
+            "curve_csv": str(curve_csv_path),
             "tstop_final": mods["tstop"],
             "iterations": iteration,
             "N_final": mods["N"],
@@ -418,6 +430,10 @@ def main() -> None:
         "--job-index", type=int, default=None,
         help="SLURM array index: run only the i-th simulation from the queue.",
     )
+    parser.add_argument(
+        "--rebuild-curve-cache", action="store_true",
+        help="Rebuild breakthrough_curves_data.csv from per-run curve CSV files.",
+    )
     args = parser.parse_args()
 
     # Resolve paths
@@ -433,6 +449,17 @@ def main() -> None:
     fit_csv = bkt_dir / "isotherm_fits" / "best_isotherm_fits.csv"
     psa_csv = bkt_dir / "top10_psa.csv"
     vsa_csv = bkt_dir / "top10_vsa.csv"
+
+    if args.rebuild_curve_cache:
+        output_csv = bkt_dir / "breakthrough_curves_data.csv"
+        merged = rebuild_curve_cache(bkt_dir, output_csv=output_csv)
+        print(f"Rebuilt curve cache: {output_csv}")
+        print(f"  Rows: {len(merged)}")
+        print(
+            "  Groups: "
+            f"{merged[['process', 'mof']].drop_duplicates().shape[0]}"
+        )
+        return
 
     # Load isotherm fits
     print(f"Loading isotherm fits: {fit_csv}")
@@ -552,11 +579,15 @@ def main() -> None:
         if len(failed) > 0:
             print(f"  Failed MOFs: {failed[['mof', 'process', 'status']].to_string()}")
 
+    summaries_dir = bkt_dir / "summaries"
+    job_summaries_dir = summaries_dir / "jobs"
+    job_summaries_dir.mkdir(parents=True, exist_ok=True)
+
     # Save summary (per-job for array mode, combined otherwise)
     if args.job_index is not None:
-        summary_path = bkt_dir / f"bkt_summary_job{args.job_index:03d}.csv"
+        summary_path = job_summaries_dir / f"bkt_summary_job{args.job_index:03d}.csv"
     else:
-        summary_path = bkt_dir / "bkt_simulation_summary.csv"
+        summary_path = summaries_dir / "bkt_simulation_summary.csv"
     summary_df.to_csv(summary_path, index=False)
     print(f"\nSummary saved: {summary_path}")
 
