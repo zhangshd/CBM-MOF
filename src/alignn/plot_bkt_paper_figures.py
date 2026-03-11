@@ -53,13 +53,12 @@ CLUSTERED_CSV = (
 )
 
 # ATC-Cu GCMC data paths (for thermodynamic selectivity)
-MOF_HTS_REPO = Path("/home/zhangsd/repos/MOF-HTS")
 TRAINING_ADS_R1_CSV = (
-    MOF_HTS_REPO / "results" / "cbm_screening"
+    REPO_ROOT / "results" / "cbm_screening"
     / "gcmc_round1_DreidingTraPPEJson" / "raspa3_parsed_results_0911.csv"
 )
 TRAINING_WIDOM_R1_CSV = (
-    MOF_HTS_REPO / "results" / "cbm_screening"
+    REPO_ROOT / "results" / "cbm_screening"
     / "widom_round1_DREIDING" / "widom_results_0911.csv"
 )
 BENCHMARK_MOF = "CoRE-2020[Cu][pts]3[ASR]1"
@@ -68,6 +67,11 @@ BENCHMARK_MOF = "CoRE-2020[Cu][pts]3[ASR]1"
 CANDIDATE_COLORS = plt.cm.tab10.colors[:10]
 BENCHMARK_COLOR = "black"
 BENCHMARK_LINESTYLE = "--"
+
+
+def get_default_fig_dir(model_dir: Path) -> Path:
+    """Return the default figure directory for a given model results dir."""
+    return model_dir / "figures"
 
 # ---------------------------------------------------------------------------
 # Helper: MOF ID simplification
@@ -760,9 +764,7 @@ def main():
     if args.fig_dir:
         fig_dir = Path(args.fig_dir)
     else:
-        # Default: paper repo figures dir
-        paper_repo = Path("/home/zhangsd/repos/CBM-MOF-paper")
-        fig_dir = paper_repo / "manuscript" / "figures"
+        fig_dir = get_default_fig_dir(md)
     fig_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"BKT data: {bkt_dir}")

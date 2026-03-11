@@ -1,0 +1,9 @@
+{
+  "PseudoAtoms": [
+  ],
+  "SelfInteractions": [
+  ],
+  "MixingRule": "Lorentz-Berthelot",
+  "TruncationMethod": "truncated",
+  "TailCorrections": true
+}

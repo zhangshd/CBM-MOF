@@ -1,0 +1,34 @@
+{
+  "SimulationType": "MonteCarlo",
+  "NumberOfCycles": 10000,
+  "NumberOfInitializationCycles": 10000,
+  "PrintEvery": 5000,
+  "Systems": [
+    {
+      "Type": "Framework",
+      "UseChargesFrom": "ChargeEquilibration",
+      "ChargeMethod": "Ewald",
+      "CutOff": 12.8
+    }
+  ],
+  "Components": [
+    {
+      "MoleculeDefinition": "TraPPE",
+      "FugacityCoefficient": 1.0,
+      "TranslationProbability": 0.5,
+      "RotationProbability": 0.5,
+      "ReinsertionProbability": 0.5,
+      "SwapProbability": 1.0,
+      "CreateNumberOfMolecules": 0
+    },
+    {
+      "MoleculeDefinition": "TraPPE",
+      "FugacityCoefficient": 1.0,
+      "TranslationProbability": 0.5,
+      "RotationProbability": 0.5,
+      "ReinsertionProbability": 0.5,
+      "SwapProbability": 1.0,
+      "CreateNumberOfMolecules": 0
+    }
+  ]
+}

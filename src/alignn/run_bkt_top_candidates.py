@@ -90,8 +90,8 @@ def solve_breakthrough_robust(localparam, min_points=10):
 
 # ATC-Cu CIF (benchmark)
 ATC_CU_CIF = Path(
-    "/home/zhangsd/repos/MOF-HTS/src/gcmc/examples/dup_demo_ATC-Cu/"
-    "CoRE-2020[Cu][pts]3[ASR]1.cif"
+    REPO_ROOT / "src" / "gcmc" / "examples" / "dup_demo_ATC-Cu"
+    / "CoRE-2020[Cu][pts]3[ASR]1.cif"
 )
 ATC_CU_NAME = "CoRE-2020[Cu][pts]3[ASR]1"
 

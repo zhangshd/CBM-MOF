@@ -27,7 +27,7 @@ import pandas as pd
 # ---------------------------------------------------------------------------
 REPO_ROOT       = Path(__file__).resolve().parents[2]
 SCREENED_CSV    = REPO_ROOT / "results" / "alignn" / "full_library_inference" / "full_library_screened.csv"
-STABILITY_CSV   = Path("/home/zhangsd/repos/MOF-HTS/data/processed/stabilities/infer_results_mofsnn.csv")
+STABILITY_CSV   = REPO_ROOT / "data" / "processed" / "stabilities" / "infer_results_mofsnn.csv"
 CIF_DIR         = REPO_ROOT / "results" / "cbm_screening" / "all_graphs_grids"
 OUTPUT_DIR      = REPO_ROOT / "results" / "alignn" / "top_candidates"
 OUTPUT_CSV      = OUTPUT_DIR / "full_library_stable.csv"

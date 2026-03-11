@@ -27,8 +27,8 @@ from pathlib import Path
 # Paths
 # ---------------------------------------------------------------------------
 REPO_ROOT    = Path(__file__).resolve().parents[2]
-MOF_HTS_SRC  = Path("/home/zhangsd/repos/MOF-HTS/src")
-GCMC_SCRIPT_DIR  = MOF_HTS_SRC / "gcmc"
+GCMC_SRC  = REPO_ROOT / "src" / "gcmc"
+GCMC_SCRIPT_DIR  = GCMC_SRC
 FORCE_FIELD_DIR  = GCMC_SCRIPT_DIR / "DreidingTraPPEJson"
 WIDOM_FORCE_FIELD_DIR = GCMC_SCRIPT_DIR / "DREIDING"
 
@@ -38,10 +38,10 @@ CIF_DIR     = str(REPO_ROOT / "results" / "alignn" / "top_candidates" / "cifs")
 OUT_DIR     = str(REPO_ROOT / "results" / "alignn" / "gcmc_top_candidates")
 
 # Custom simulation param files (same as used in exp03b full-library screening)
-SIMULATION_PARAMS_FILE  = "/home/zhangsd/repos/MOF-HTS/examples/custom_params/custom_simulation.json"
-FORCE_FIELD_PARAMS_FILE = "/home/zhangsd/repos/MOF-HTS/examples/custom_params/custom_force_field.json"
-SIMULATION_WIDOM_PARAMS = "/home/zhangsd/repos/MOF-HTS/examples/custom_params/custom_widom_simulation.json"
-COMPONENT_WIDOM_PARAMS  = "/home/zhangsd/repos/MOF-HTS/examples/custom_params/custom_widom_component.json"
+SIMULATION_PARAMS_FILE  = str(REPO_ROOT / "configs" / "custom_simulation.json")
+FORCE_FIELD_PARAMS_FILE = str(REPO_ROOT / "configs" / "custom_force_field.json")
+SIMULATION_WIDOM_PARAMS = str(REPO_ROOT / "configs" / "custom_widom_simulation.json")
+COMPONENT_WIDOM_PARAMS  = str(REPO_ROOT / "configs" / "custom_widom_component.json")
 
 # ---------------------------------------------------------------------------
 # GCMC / Widom parameters
@@ -63,9 +63,9 @@ PARTITION        = "C9654"
 
 def submit_gcmc(output_dir: str, dry_run: bool) -> None:
     """Submit RASPA3 GCMC jobs for Top candidates."""
-    sys.path.insert(0, str(MOF_HTS_SRC))
+    sys.path.insert(0, str(GCMC_SRC))
     try:
-        from gcmc.raspa3_batch_slurm_submitter import main as raspa3_batch_slurm_submitter
+        from raspa3_batch_slurm_submitter import main as raspa3_batch_slurm_submitter
     except ImportError:
         print("[WARN] MOF-HTS raspa3_batch_slurm_submitter not available; skipping GCMC submission.")
         return
@@ -87,9 +87,9 @@ def submit_gcmc(output_dir: str, dry_run: bool) -> None:
 
 def submit_widom(output_dir: str, dry_run: bool) -> None:
     """Submit RASPA2 Widom insertion jobs for Top candidates."""
-    sys.path.insert(0, str(MOF_HTS_SRC))
+    sys.path.insert(0, str(GCMC_SRC))
     try:
-        from gcmc.raspa2_widom_batch_slurm_submitter import main as raspa2_widom_batch_slurm_submitter
+        from raspa2_widom_batch_slurm_submitter import main as raspa2_widom_batch_slurm_submitter
     except ImportError:
         print("[WARN] MOF-HTS raspa2_widom_batch_slurm_submitter not available; skipping Widom submission.")
         return

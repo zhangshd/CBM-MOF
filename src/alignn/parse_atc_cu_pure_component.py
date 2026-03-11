@@ -21,13 +21,13 @@ import pandas as pd
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-MOF_HTS_SRC = Path("/home/zhangsd/repos/MOF-HTS/src")
+GCMC_SRC = REPO_ROOT / "src" / "gcmc"
 
 BENCHMARK_MOF = "CoRE-2020[Cu][pts]3[ASR]1"
 PURE_COMPONENTS = {"methane", "N2"}
 
-RESULT_DIR_DEFAULT = Path(
-    "/home/zhangsd/repos/MOF-HTS/results/cbm_screening/gcmc_ATC-Cu_DreidingTraPPEJson"
+RESULT_DIR_DEFAULT = (
+    REPO_ROOT / "results" / "cbm_screening" / "gcmc_ATC-Cu_DreidingTraPPEJson"
 )
 OUTPUT_CSV_DEFAULT = (
     REPO_ROOT
@@ -63,10 +63,10 @@ def _require_columns(df: pd.DataFrame, columns: Iterable[str]) -> None:
 
 def load_with_raspa3_parser(result_dir: Path) -> pd.DataFrame:
     """Load benchmark result directory using the canonical MOF-HTS parser."""
-    if str(MOF_HTS_SRC) not in sys.path:
-        sys.path.insert(0, str(MOF_HTS_SRC))
+    if str(GCMC_SRC) not in sys.path:
+        sys.path.insert(0, str(GCMC_SRC))
 
-    from gcmc.raspa3_result_parser import RASPA3ResultParser
+    from raspa3_result_parser import RASPA3ResultParser
 
     parser = RASPA3ResultParser(result_dir)
     df = parser.parse_all_results()

@@ -31,13 +31,12 @@ from pathlib import Path
 # Paths
 # ---------------------------------------------------------------------------
 REPO_ROOT = Path(__file__).resolve().parents[2]
-MOF_HTS_SRC = Path("/home/zhangsd/repos/MOF-HTS/src")
-GCMC_SCRIPT_DIR = MOF_HTS_SRC / "gcmc"
-FORCE_FIELD_DIR = GCMC_SCRIPT_DIR / "DreidingTraPPEJson"
+GCMC_SRC = REPO_ROOT / "src" / "gcmc"
+FORCE_FIELD_DIR = GCMC_SRC / "DreidingTraPPEJson"
 
 # Custom simulation param files (same as used in full-library screening)
-SIMULATION_PARAMS_FILE = "/home/zhangsd/repos/MOF-HTS/examples/custom_params/custom_simulation.json"
-FORCE_FIELD_PARAMS_FILE = "/home/zhangsd/repos/MOF-HTS/examples/custom_params/custom_force_field.json"
+SIMULATION_PARAMS_FILE = str(REPO_ROOT / "configs" / "custom_simulation.json")
+FORCE_FIELD_PARAMS_FILE = str(REPO_ROOT / "configs" / "custom_force_field.json")
 
 # ---------------------------------------------------------------------------
 # GCMC parameters
@@ -69,9 +68,9 @@ def submit_pure_component(
     dry_run: bool,
 ) -> None:
     """Submit pure-component GCMC jobs for a single gas."""
-    sys.path.insert(0, str(MOF_HTS_SRC))
+    sys.path.insert(0, str(GCMC_SRC))
     try:
-        from gcmc.raspa3_batch_slurm_submitter import main as raspa3_batch_slurm_submitter
+        from raspa3_batch_slurm_submitter import main as raspa3_batch_slurm_submitter
     except ImportError:
         print("[ERROR] MOF-HTS raspa3_batch_slurm_submitter not available.")
         return

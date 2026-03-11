@@ -1,0 +1,39 @@
+{
+  "SimulationType": "MonteCarlo",
+  "NumberOfCycles": 10000,
+  "NumberOfInitializationCycles": 10000,
+  "PrintEvery": 5000,
+  "Systems": [
+    {
+      "Type": "Framework",
+      "UseChargesFrom": "CIF_File",
+      "ChargeMethod": "Ewald",
+      "CutOff": 14,
+      "OutputPDBMovie" : true , 
+      "SampleMovieEvery" : 100,
+      "ComputeEnergyHistogram" : true,
+      "SampleEnergyHistogramEvery" : 100,
+      "WriteEnergyHistogramEvery": 5000,
+      "ComputeNumberOfMoleculesHistogram" : true,
+      "SampleNumberOfMoleculesHistogramEvery" : 100,
+      "WriteNumberOfMoleculesHistogramEvery": 5000,
+      "ComputeRDF" : true,
+      "SampleRDFEvery" : 100,
+      "WriteRDFEvery": 5000,
+      "ComputeDensityGrid" : true,
+      "SampleDensityGridEvery" : 100,
+      "WriteDensityGridEvery": 5000
+    }
+  ],
+  "Components": [
+    {
+      "MoleculeDefinition": "TraPPE",
+      "FugacityCoefficient": 1.0,
+      "TranslationProbability": 0.5,
+      "RotationProbability": 0.5,
+      "ReinsertionProbability": 0.5,
+      "SwapProbability": 1.0,
+      "CreateNumberOfMolecules": 0
+    }
+  ]
+}

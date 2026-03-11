@@ -1,0 +1,7 @@
+{
+  "NumberOfCycles": 100000,
+  "NumberOfInitializationCycles": 0,
+  "PrintEvery": 5000,
+  "CutOff": 14,
+  "EwaldPrecision": "1e-5"
+}

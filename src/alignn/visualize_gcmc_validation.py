@@ -36,10 +36,9 @@ UMAP_CSV    = REPO_ROOT / "results" / "cbm_screening" / "inference" / "umap_coor
 TRAIN_ADS   = REPO_ROOT / "results" / "cbm_screening" / "raspa3_parsed_results_round2_0917.csv"
 TRAIN_WIDOM = REPO_ROOT / "results" / "cbm_screening" / "widom_results_round2_0917.csv"
 # Round 1 GCMC data — contains ATC-Cu benchmark (not in Round 2)
-MOF_HTS_REPO        = Path("/home/zhangsd/repos/MOF-HTS")
-TRAINING_ADS_R1_CSV  = (MOF_HTS_REPO / "results" / "cbm_screening"
+TRAINING_ADS_R1_CSV  = (REPO_ROOT / "results" / "cbm_screening"
                          / "gcmc_round1_DreidingTraPPEJson" / "raspa3_parsed_results_0911.csv")
-TRAINING_WIDOM_R1_CSV = (MOF_HTS_REPO / "results" / "cbm_screening"
+TRAINING_WIDOM_R1_CSV = (REPO_ROOT / "results" / "cbm_screening"
                           / "widom_round1_DREIDING" / "widom_results_0911.csv")
 FIG_DIR     = REPO_ROOT / "results" / "figures" / "gcmc_validation"
 
