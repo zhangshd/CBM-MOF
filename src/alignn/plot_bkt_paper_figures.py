@@ -698,7 +698,12 @@ def step4_isotherm_multipanel(bkt_dir: Path, fig_dir: Path):
             )
 
         ax.set_xscale("log")
-        ax.set_title(simplify_mof_id(mof_name), fontsize=7.5, pad=2)
+        ax.set_title(
+            simplify_mof_id(mof_name),
+            fontsize=7.5,
+            pad=2,
+            fontweight="bold",
+        )
         ax.tick_params(axis="both", labelsize=7.0)
 
         if col == 0:
@@ -706,7 +711,7 @@ def step4_isotherm_multipanel(bkt_dir: Path, fig_dir: Path):
         if row == nrows - 1:
             ax.set_xlabel("P (bar)", fontsize=8.0)
 
-        ax.legend(fontsize=6.0, loc="lower right", framealpha=0.8, ncol=1)
+        ax.legend(fontsize=6.0, loc="upper left", framealpha=0.8, ncol=1)
 
     # Hide empty subplots
     for idx in range(n_mofs, nrows * ncols):
