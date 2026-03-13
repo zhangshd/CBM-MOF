@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+from dataclasses import dataclass
 from pathlib import Path
 
 # ── Journal layout constants (Elsevier / SPT) ──────────────────────────────
@@ -15,24 +16,142 @@ SINGLE_COL_INCH = 3.35          # 8.5 cm
 DOUBLE_COL_INCH = 6.89          # 17.5 cm
 MAX_HEIGHT_INCH = 9.19          # 23.35 cm (full page)
 DPI = 300
+A4_TEXT_WIDTH_INCH = 6.26
+WORD_TITLE_PT = 12.0
+WORD_BODY_PT = 10.5
+FONT_VISUAL_COMPENSATION = 1.36
+TYPOGRAPHY_FINE_TUNE_PT = -0.5
+
+# ── Typography tuned for direct placement in A4 Word documents ─────────────
+# Figures are usually pasted close to full text width in A4 Word documents.
+# The effective source font therefore needs a visual compensation factor rather
+# than a one-to-one point mapping.
+
+
+def _round_to_half_point(value: float) -> float:
+    """Round font sizes to stable 0.5 pt steps."""
+    return round(value * 2.0) / 2.0
+
+
+def derive_word_equivalent_fonts(
+    figure_width_inch: float,
+    target_print_width_inch: float = A4_TEXT_WIDTH_INCH,
+    target_title_pt: float = WORD_TITLE_PT,
+    target_body_pt: float = WORD_BODY_PT,
+    compensation: float = FONT_VISUAL_COMPENSATION,
+) -> tuple[float, float]:
+    """Map Word-equivalent target typography to source matplotlib sizes."""
+    print_scale = min(1.0, target_print_width_inch / figure_width_inch)
+    title_size = target_title_pt / (print_scale * compensation)
+    body_size = target_body_pt / (print_scale * compensation)
+    return (
+        _round_to_half_point(title_size + TYPOGRAPHY_FINE_TUNE_PT),
+        _round_to_half_point(body_size + TYPOGRAPHY_FINE_TUNE_PT),
+    )
+
+
+TITLE_FONT_SIZE, BODY_FONT_SIZE = derive_word_equivalent_fonts(DOUBLE_COL_INCH)
+LABEL_FONT_SIZE = BODY_FONT_SIZE
+TICK_FONT_SIZE = max(7.5, _round_to_half_point(BODY_FONT_SIZE - 0.5))
+LEGEND_FONT_SIZE = TICK_FONT_SIZE
+
+
+@dataclass(frozen=True)
+class PanelGridLayout:
+    """Physical layout recipe for grid figures."""
+
+    figure_width: float
+    figure_height: float
+    panel_width: float
+    panel_height: float
+    left: float
+    right: float
+    bottom: float
+    top: float
+    wspace: float
+    hspace: float
+    title_font: float
+    body_font: float
+    tick_font: float
+    annotation_font: float
+    marker_area: float
+
+
+def compute_panel_grid_layout(
+    nrows: int,
+    ncols: int,
+    figure_width_inch: float,
+    *,
+    left_margin_inch: float = 0.38,
+    right_margin_inch: float = 0.08,
+    top_margin_inch: float = 0.22,
+    bottom_margin_inch: float = 0.42,
+    gap_ratio_x: float = 0.14,
+    gap_ratio_y: float = 0.08,
+    panel_aspect: float = 0.98,
+) -> PanelGridLayout:
+    """Compute a coordinated layout from panel count and target figure width."""
+    usable_width = figure_width_inch - left_margin_inch - right_margin_inch
+    panel_width = usable_width / (ncols + (ncols - 1) * gap_ratio_x)
+    panel_height = panel_width * panel_aspect
+    gap_x = gap_ratio_x * panel_width
+    gap_y = gap_ratio_y * panel_height
+    figure_height = (
+        top_margin_inch
+        + bottom_margin_inch
+        + nrows * panel_height
+        + (nrows - 1) * gap_y
+    )
+
+    title_font, body_font = derive_word_equivalent_fonts(figure_width_inch)
+    scale = panel_width / 1.35
+    tick_font = max(7.5, _round_to_half_point(body_font - 0.5))
+    annotation_font = max(7.0, _round_to_half_point(body_font - 1.0))
+    marker_area = max(6.0, 8.0 * (scale ** 1.05))
+
+    return PanelGridLayout(
+        figure_width=figure_width_inch,
+        figure_height=figure_height,
+        panel_width=panel_width,
+        panel_height=panel_height,
+        left=left_margin_inch / figure_width_inch,
+        right=1.0 - right_margin_inch / figure_width_inch,
+        bottom=bottom_margin_inch / figure_height,
+        top=1.0 - top_margin_inch / figure_height,
+        wspace=gap_x / panel_width,
+        hspace=gap_y / panel_height,
+        title_font=title_font,
+        body_font=body_font,
+        tick_font=tick_font,
+        annotation_font=annotation_font,
+        marker_area=marker_area,
+    )
 
 # ── Model visual identity ───────────────────────────────────────────────────
+NATURE_COLORS = {
+    "blue": "#0173B2",
+    "orange": "#DE8F05",
+    "green": "#029E73",
+    "red": "#CC78BC",
+    "cyan": "#56B4E9",
+    "magenta": "#CA9161",
+    "yellow": "#ECE133",
+    "purple": "#949494",
+}
+
 MODEL_COLORS = {
-    "XGBoost":        "#949494",   # grey
-    "MOFTransformer": "#DE8F05",   # orange
-    "ALIGNN":         "#029E73",   # green
-    "CGCNN":          "#0173B2",   # blue  (SI only)
+    "CGCNN": NATURE_COLORS["green"],
+    "MOFTransformer": NATURE_COLORS["orange"],
+    "ALIGNN": NATURE_COLORS["blue"],
 }
 
 MODEL_MARKERS = {
-    "XGBoost":        "o",
+    "CGCNN": "s",
     "MOFTransformer": "^",
-    "ALIGNN":         "D",
-    "CGCNN":          "s",          # SI only
+    "ALIGNN": "D",
 }
 
-MODEL_ORDER = ["XGBoost", "MOFTransformer", "ALIGNN"]   # main-text order
-MODEL_ORDER_SI = ["XGBoost", "CGCNN", "MOFTransformer", "ALIGNN"]
+MODEL_ORDER = ["CGCNN", "MOFTransformer", "ALIGNN"]
 
 
 # ── Task display metadata ───────────────────────────────────────────────────
@@ -73,12 +192,14 @@ def set_publication_style():
         # Font
         "font.family":      "sans-serif",
         "font.sans-serif":  ["Arial", "DejaVu Sans", "Helvetica"],
-        "font.size":        7,
-        "axes.labelsize":   8,
-        "axes.titlesize":   8,
-        "xtick.labelsize":  7,
-        "ytick.labelsize":  7,
-        "legend.fontsize":  6.5,
+        "font.size":        BODY_FONT_SIZE,
+        "axes.labelsize":   LABEL_FONT_SIZE,
+        "axes.titlesize":   TITLE_FONT_SIZE,
+        "axes.titleweight": "bold",
+        "xtick.labelsize":  TICK_FONT_SIZE,
+        "ytick.labelsize":  TICK_FONT_SIZE,
+        "legend.fontsize":  LEGEND_FONT_SIZE,
+        "legend.title_fontsize": LEGEND_FONT_SIZE,
         # Ticks
         "xtick.direction":  "in",
         "ytick.direction":  "in",
@@ -106,7 +227,7 @@ def set_publication_style():
 
 
 def save_figure(fig, name: str, output_dir: str | Path,
-                formats=("pdf", "png")):
+                formats=("png",)):
     """Save figure in multiple formats with tight layout."""
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -116,10 +237,3 @@ def save_figure(fig, name: str, output_dir: str | Path,
         fig.savefig(path, format=fmt, dpi=DPI, bbox_inches="tight",
                     pad_inches=0.02)
         print(f"  Saved: {path}")
-
-
-# ── Convenience ──────────────────────────────────────────────────────────────
-# Default output directory for paper figures
-FIGURES_DIR = Path(__file__).resolve().parents[2] / "manuscript" / "figures"
-# This resolves to CBM-MOF-paper/manuscript/figures/ when called from
-# CBM-MOF/src/figures/style.py — but each script can override via --output_dir

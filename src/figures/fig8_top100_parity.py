@@ -1,12 +1,8 @@
 """
-Top-100 PSA/VSA parity plots: ALIGNN vs XGBoost (replaces Fig 8).
+Top-100 PSA/VSA parity plots for ALIGNN.
 
 Layout: two separate figures (8a: PSA, 8b: VSA), each 2 x 4 panels.
 Row 1 = CH4 (3 uptakes + QstCH4), Row 2 = N2 (3 uptakes + QstN2).
-Each panel shows ALIGNN scatter + R^2 annotation (ALIGNN & XGBoost).
-
-Usage:
-    python src/figures/fig8_top100_parity.py [--output_dir DIR]
 """
 
 from __future__ import annotations
@@ -24,9 +20,7 @@ from src.figures.style import (
     set_publication_style, save_figure, DOUBLE_COL_INCH,
     MODEL_COLORS, MODEL_MARKERS, TASK_LIST, TASK_LABELS, TASK_UNITS,
 )
-from src.figures.data_loader import (
-    load_alignn_predictions, r2_score, UPTAKE_TASKS,
-)
+from src.figures.data_loader import compute_task_metrics, load_alignn_predictions
 
 # ── Task ordering for 2x4 layout ──────────────────────────────────────────
 # Row 0: CH4 tasks (3 uptakes + Qst), Row 1: N2 tasks (3 uptakes + Qst)
@@ -37,23 +31,6 @@ PANEL_ORDER = [
     ["AdsN2_10kPa", "AdsN2_100kPa", "AdsN2_1000kPa", "QstN2"],
 ]
 
-# Known XGBoost R^2 for top-100 (from model_comparison.md)
-XGB_R2 = {
-    "top_100_psa": {
-        "AdsCH4_10kPa": 0.703, "AdsCH4_100kPa": 0.776,
-        "AdsCH4_1000kPa": 0.809, "AdsN2_10kPa": 0.664,
-        "AdsN2_100kPa": 0.768, "AdsN2_1000kPa": 0.886,
-        "QstCH4": 0.654, "QstN2": 0.734,
-    },
-    "top_100_vsa": {
-        "AdsCH4_10kPa": 0.688, "AdsCH4_100kPa": 0.439,
-        "AdsCH4_1000kPa": 0.599, "AdsN2_10kPa": 0.642,
-        "AdsN2_100kPa": 0.518, "AdsN2_1000kPa": 0.829,
-        "QstCH4": 0.826, "QstN2": 0.752,
-    },
-}
-
-
 def _plot_single_split(split: str, split_label: str,
                        output_dir: Path, fig_name: str):
     """Plot one 2x4 parity figure for a single top-100 split."""
@@ -62,8 +39,6 @@ def _plot_single_split(split: str, split_label: str,
     fig, axes = plt.subplots(2, 4, figsize=(DOUBLE_COL_INCH, 4.0))
 
     df = load_alignn_predictions(split)
-    xgb_r2 = XGB_R2[split]
-
     for row in range(2):
         for col in range(4):
             task = PANEL_ORDER[row][col]
@@ -71,7 +46,7 @@ def _plot_single_split(split: str, split_label: str,
 
             yt = df[f"{task}_true"].values
             yp = df[f"{task}_pred"].values
-            r2_aln = r2_score(yt, yp)
+            metrics = compute_task_metrics(df, task)
 
             # ALIGNN scatter
             ax.scatter(
@@ -90,23 +65,11 @@ def _plot_single_split(split: str, split_label: str,
             ax.set_ylim(lims)
             ax.set_aspect("equal", adjustable="box")
 
-            # R^2 annotation: two separate calls, no layering
-            r2_xgb = xgb_r2.get(task, float("nan"))
-            # Call 1: ALN row with $R^2$ header (bold, white bbox)
             ax.text(
                 0.05, 0.95,
-                f"$R^2$:\nALN {r2_aln:.3f}",
+                f"$R^2$ = {metrics['R2']:.3f}\nMAE = {metrics['MAE']:.3f}",
                 transform=ax.transAxes, fontsize=5.5,
                 va="top", ha="left", fontweight="bold",
-                bbox=dict(boxstyle="round,pad=0.2", fc="white",
-                          ec="none", alpha=0.8),
-            )
-            # Call 2: XGB row (normal weight, positioned below)
-            ax.text(
-                0.05, 0.80,
-                f"XGB {r2_xgb:.3f}",
-                transform=ax.transAxes, fontsize=5.5,
-                va="top", ha="left",
                 bbox=dict(boxstyle="round,pad=0.2", fc="white",
                           ec="none", alpha=0.8),
             )

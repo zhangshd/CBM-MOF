@@ -1,276 +1,194 @@
 """
-Unified data loading for CBM-MOF publication figures.
+Unified data loading and metric calculation for CBM-MOF figure scripts.
 
-Each loader returns a DataFrame with columns:
-    {Task}_true, {Task}_pred   (physical units: mol/kg or kJ/mol)
-and optionally CifId as index.
+All loaders return predictions in physical units.
 """
 
+from __future__ import annotations
+
 from pathlib import Path
+
 import numpy as np
 import pandas as pd
 
-# ── Project root (CBM-MOF repo, not CBM-MOF-paper) ─────────────────────────
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-# Fallback: if running from CBM-MOF-paper, look for the sibling CBM-MOF repo
-if not (PROJECT_ROOT / "results").is_dir():
-    _alt = PROJECT_ROOT.parent / "CBM-MOF"
-    if (_alt / "results").is_dir():
-        PROJECT_ROOT = _alt
 
-# ── Task definitions ────────────────────────────────────────────────────────
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
 TASK_LIST = [
-    "AdsCH4_10kPa", "AdsCH4_100kPa", "AdsCH4_1000kPa",
-    "AdsN2_10kPa",  "AdsN2_100kPa",  "AdsN2_1000kPa",
-    "QstCH4", "QstN2",
+    "AdsCH4_10kPa",
+    "AdsCH4_100kPa",
+    "AdsCH4_1000kPa",
+    "AdsN2_10kPa",
+    "AdsN2_100kPa",
+    "AdsN2_1000kPa",
+    "QstCH4",
+    "QstN2",
 ]
 
-UPTAKE_TASKS = [t for t in TASK_LIST if t.startswith("Ads")]
-QST_TASKS    = [t for t in TASK_LIST if t.startswith("Qst")]
-
-# Symlog file-name mapping (MFT/CGCNN-symlog CSVs use different names)
-_SYMLOG_FNAME = {}
-for t in UPTAKE_TASKS:
-    _SYMLOG_FNAME[t] = f"test_results_symlog{t}_1e3.csv"
-for t in QST_TASKS:
-    _SYMLOG_FNAME[t] = f"test_results_{t}.csv"
+UPTAKE_TASKS = [task for task in TASK_LIST if task.startswith("Ads")]
+QST_TASKS = [task for task in TASK_LIST if task.startswith("Qst")]
+MODEL_ORDER = ["CGCNN", "MOFTransformer", "ALIGNN"]
 
 
-# ── Inverse transforms ──────────────────────────────────────────────────────
+CGCNN_BASE = (
+    PROJECT_ROOT
+    / "results"
+    / "cgcnn_models"
+    / "ads_qst_ch4_n2_symlog_1e3_seed42_att_cgcnn"
+    / "version_3"
+)
+
+MFT_BASE = (
+    PROJECT_ROOT
+    / "results"
+    / "moftransformer_models"
+    / "ads_qst_ch4_n2_symlog_1e3_seed42_moftransformer_from_pmtransformer"
+    / "version_2"
+)
+
+ALIGNN_TEST_DIR = PROJECT_ROOT / "results" / "alignn" / "model_ep150" / "deployment"
+ALIGNN_TOP100_DIR = (
+    PROJECT_ROOT
+    / "results"
+    / "alignn"
+    / "500ep_symlog_1e-3_ddp2g"
+    / "evaluation_ep150"
+)
+
 
 def inv_symlog(y: np.ndarray, tau: float = 1e-3) -> np.ndarray:
-    """Inverse of symlog(x, tau) = sign(x) * log10(|x|/tau + 1).
-
-    Returns: sign(y) * tau * (10^|y| - 1).
-    """
+    """Inverse of sign(x) * log10(1 + |x| / tau)."""
     return np.sign(y) * tau * (10.0 ** np.abs(y) - 1.0)
 
 
-def inv_log10(y: np.ndarray, eps: float = 1e-8) -> np.ndarray:
-    """Inverse of log10(x + eps)."""
-    return 10.0 ** y - eps
-
-
-# ── ALIGNN loader ────────────────────────────────────────────────────────────
-
-ALIGNN_BASE = (PROJECT_ROOT / "results" / "alignn"
-               / "500ep_symlog_1e-3_ddp2g" / "evaluation_ep100")
-
-
-def load_alignn_predictions(split: str = "test") -> pd.DataFrame:
-    """Load ALIGNN ep100 predictions (already in physical units).
-
-    Parameters
-    ----------
-    split : str
-        One of 'test', 'top_100_psa', 'top_100_vsa'.
-
-    Returns
-    -------
-    DataFrame with CifId index and {Task}_true, {Task}_pred columns.
-    """
-    if split == "test":
-        path = ALIGNN_BASE / "test" / "test_predictions_vs_truth.csv"
-    elif split == "top_100_psa":
-        path = ALIGNN_BASE / "top_100_psa" / "top_100_psa_predictions_vs_truth.csv"
-    elif split == "top_100_vsa":
-        path = ALIGNN_BASE / "top_100_vsa" / "top_100_vsa_predictions_vs_truth.csv"
+def _load_task_frame(base_dir: Path, task: str) -> pd.DataFrame:
+    if task in UPTAKE_TASKS:
+        path = base_dir / f"test_results_symlog{task}_1e3.csv"
     else:
-        raise ValueError(f"Unknown split: {split}")
+        path = base_dir / f"test_results_{task}.csv"
 
-    df = pd.read_csv(path, index_col=0)
-    df.index.name = "CifId"
-    return df
+    df = pd.read_csv(path)
+    ground_truth = df["GroundTruth"].to_numpy()
+    predicted = df["Predicted"].to_numpy()
+    if task in UPTAKE_TASKS:
+        ground_truth = inv_symlog(ground_truth)
+        predicted = inv_symlog(predicted)
 
-
-# ── XGBoost loader ──────────────────────────────────────────────────────────
-
-XGBOOST_BASE = (PROJECT_ROOT / "results" / "ml_models" / "round2"
-                / "RAC_and_zeo_features_with_id_prop")
-
-
-def load_xgboost_predictions() -> pd.DataFrame:
-    """Load XGBoost predictions for all 8 tasks (physical units).
-
-    Returns DataFrame with numeric index and {Task}_true, {Task}_pred columns.
-    No CifId available for XGBoost.
-    """
-    frames = {}
-    for task in TASK_LIST:
-        path = XGBOOST_BASE / task / "test_predicted_XGBRegressor.csv"
-        df = pd.read_csv(path)
-        frames[f"{task}_true"] = df["GroundTruth"].values
-        frames[f"{task}_pred"] = df["Predicted"].values
-    # All tasks share the same sample ordering; combine into one DF
-    n = len(frames[f"{TASK_LIST[0]}_true"])
-    return pd.DataFrame(frames, index=range(n))
+    return pd.DataFrame(
+        {
+            "CifId": df["CifId"].to_numpy(),
+            f"{task}_true": ground_truth,
+            f"{task}_pred": predicted,
+        }
+    )
 
 
-# ── MOFTransformer-symlog loader ────────────────────────────────────────────
+def _merge_task_frames(task_frames: list[pd.DataFrame]) -> pd.DataFrame:
+    merged = task_frames[0]
+    for frame in task_frames[1:]:
+        merged = merged.merge(frame, on="CifId", how="inner")
+    merged = merged.set_index("CifId")
+    merged.index.name = "CifId"
+    return merged
 
-MFT_BASE = (PROJECT_ROOT / "results" / "moftransformer_models"
-            / "ads_qst_ch4_n2_symlog_1e3_seed42_moftransformer_from_pmtransformer"
-            / "version_2")
+
+def load_cgcnn_predictions() -> pd.DataFrame:
+    """Load CGCNN test-set predictions in physical units."""
+    frames = [_load_task_frame(CGCNN_BASE, task) for task in TASK_LIST]
+    return _merge_task_frames(frames)
 
 
 def load_mft_predictions() -> pd.DataFrame:
-    """Load MOFTransformer-symlog predictions, inverse-transforming uptakes.
-
-    Uptake CSVs are in symlog(tau=1e-3) space → apply inv_symlog.
-    Qst CSVs are already in physical units.
-    """
-    all_data: dict[str, pd.Series] = {}
-    cif_ids = None
-
-    for task in TASK_LIST:
-        path = MFT_BASE / _SYMLOG_FNAME[task]
-        df = pd.read_csv(path)
-        if cif_ids is None:
-            cif_ids = df["CifId"].values
-
-        gt = df["GroundTruth"].values
-        pred = df["Predicted"].values
-
-        if task in UPTAKE_TASKS:
-            gt = inv_symlog(gt)
-            pred = inv_symlog(pred)
-
-        all_data[f"{task}_true"] = gt
-        all_data[f"{task}_pred"] = pred
-
-    out = pd.DataFrame(all_data)
-    if cif_ids is not None:
-        out.index = cif_ids
-        out.index.name = "CifId"
-    return out
+    """Load MOFTransformer test-set predictions in physical units."""
+    frames = [_load_task_frame(MFT_BASE, task) for task in TASK_LIST]
+    return _merge_task_frames(frames)
 
 
-# ── CGCNN-log10 loader (SI only) ────────────────────────────────────────────
+def load_alignn_predictions(split: str = "test") -> pd.DataFrame:
+    """Load ALIGNN predictions in physical units for test or top-100 splits."""
+    if split == "test":
+        pred_path = ALIGNN_TEST_DIR / "test_predictions.csv"
+        true_path = ALIGNN_TEST_DIR / "test_groundtruth.csv"
+        pred_df = pd.read_csv(pred_path).rename(columns={"mof_id": "CifId"})
+        true_df = pd.read_csv(true_path).rename(columns={"mof_id": "CifId"})
+        merged = pred_df.merge(true_df, on="CifId", suffixes=("_pred", "_true"))
+        merged = merged.set_index("CifId")
+        merged.index.name = "CifId"
+        return merged
 
-CGCNN_L10_BASE = (PROJECT_ROOT / "results" / "cgcnn_models"
-                  / "ads_qst_ch4_n2_org_seed42_att_cgcnn" / "version_0")
+    if split in {"top_100_psa", "top_100_vsa"}:
+        path = ALIGNN_TOP100_DIR / split / f"{split}_predictions_vs_truth.csv"
+        df = pd.read_csv(path).rename(columns={"Unnamed: 0": "CifId"})
+        df = df.set_index("CifId")
+        df.index.name = "CifId"
+        return df
 
-
-def load_cgcnn_predictions(variant: str = "log10") -> pd.DataFrame:
-    """Load CGCNN predictions (physical units for log10 variant).
-
-    Parameters
-    ----------
-    variant : str
-        'log10' (default, SI) or 'symlog' (also SI, different training).
-    """
-    if variant == "log10":
-        base = CGCNN_L10_BASE
-        fname_template = "test_results_{task}.csv"
-        needs_inv = False
-    elif variant == "symlog":
-        base = (PROJECT_ROOT / "results" / "cgcnn_models"
-                / "ads_qst_ch4_n2_symlog_1e3_seed42_att_cgcnn" / "version_3")
-        fname_template = None  # will use _SYMLOG_FNAME
-        needs_inv = True
-    else:
-        raise ValueError(f"Unknown CGCNN variant: {variant}")
-
-    all_data: dict[str, np.ndarray] = {}
-    cif_ids = None
-
-    for task in TASK_LIST:
-        if variant == "symlog":
-            path = base / _SYMLOG_FNAME[task]
-        else:
-            path = base / f"test_results_{task}.csv"
-        df = pd.read_csv(path)
-        if cif_ids is None:
-            cif_ids = df["CifId"].values
-
-        gt = df["GroundTruth"].values
-        pred = df["Predicted"].values
-
-        if needs_inv and task in UPTAKE_TASKS:
-            gt = inv_symlog(gt)
-            pred = inv_symlog(pred)
-
-        all_data[f"{task}_true"] = gt
-        all_data[f"{task}_pred"] = pred
-
-    out = pd.DataFrame(all_data)
-    if cif_ids is not None:
-        out.index = cif_ids
-        out.index.name = "CifId"
-    return out
+    raise ValueError(f"Unknown split: {split}")
 
 
-# ── Synthesizability data ────────────────────────────────────────────────────
-
-SYNTH_PATH = PROJECT_ROOT / "results" / "synthesizability" / "synthesizability_screen.csv"
-
-
-def load_synthesizability() -> pd.DataFrame:
-    """Load synthesizability screening results."""
-    return pd.read_csv(SYNTH_PATH)
-
-
-# ── ALIGNN training curves ──────────────────────────────────────────────────
-
-CHECKPOINT_TRENDS_PATH = (PROJECT_ROOT / "results" / "alignn"
-                          / "500ep_symlog_1e-3_ddp2g" / "checkpoint_trends"
-                          / "checkpoint_trends.csv")
+def load_model_predictions(model_name: str, split: str = "test") -> pd.DataFrame:
+    """Load predictions for a named model."""
+    if model_name == "CGCNN":
+        if split != "test":
+            raise ValueError("CGCNN predictions are only available for the test split.")
+        return load_cgcnn_predictions()
+    if model_name == "MOFTransformer":
+        if split != "test":
+            raise ValueError("MOFTransformer predictions are only available for the test split.")
+        return load_mft_predictions()
+    if model_name == "ALIGNN":
+        return load_alignn_predictions(split)
+    raise ValueError(f"Unknown model: {model_name}")
 
 
-def load_checkpoint_trends() -> pd.DataFrame:
-    """Load ALIGNN checkpoint evaluation trends."""
-    return pd.read_csv(CHECKPOINT_TRENDS_PATH)
-
-
-# ── Model comparison JSON ────────────────────────────────────────────────────
-
-def load_r2_matrix(models=None):
-    """Build R² matrix from model_comparison.json.
-
-    Returns
-    -------
-    dict : {model_name: {task: r2_value, ..., "Mean": mean_r2}}
-    """
-    import json
-    json_path = (PROJECT_ROOT.parent / "CBM-MOF-paper" / "results"
-                 / "summary" / "model_comparison.json")
-    if not json_path.exists():
-        # Try same repo
-        json_path = PROJECT_ROOT / "results" / "summary" / "model_comparison.json"
-
-    with open(json_path) as f:
-        data = json.load(f)
-
-    test_models = data["splits"]["test"]["models"]
-
-    # Name mapping from JSON keys to display names
-    name_map = {
-        "XGBoost": "XGBoost",
-        "CGCNN (log10)": "CGCNN",
-        "MFT (symlog)": "MOFTransformer",
-        "ALIGNN (symlog1e-3-ep100)": "ALIGNN",
-    }
-
-    result = {}
-    for json_key, display_name in name_map.items():
-        if json_key not in test_models:
-            continue
-        if models and display_name not in models:
-            continue
-        m = test_models[json_key]
-        r2s = {task: m[task]["R2"] for task in TASK_LIST if task in m}
-        r2s["Mean"] = np.mean(list(r2s.values()))
-        result[display_name] = r2s
-
-    return result
-
-
-# ── Utility: compute R² ─────────────────────────────────────────────────────
-
-def r2_score(y_true, y_pred):
-    """Compute R² (coefficient of determination)."""
+def r2_score(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """Compute R^2 (coefficient of determination)."""
     ss_res = np.sum((y_true - y_pred) ** 2)
     ss_tot = np.sum((y_true - np.mean(y_true)) ** 2)
     if ss_tot == 0:
         return float("nan")
     return 1.0 - ss_res / ss_tot
+
+
+def mae_score(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """Compute mean absolute error."""
+    return float(np.mean(np.abs(y_true - y_pred)))
+
+
+def mape_score(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """Compute mean absolute percentage error."""
+    mask = np.abs(y_true) > 1e-12
+    if not np.any(mask):
+        return float("nan")
+    return float(np.mean(np.abs((y_true[mask] - y_pred[mask]) / y_true[mask])))
+
+
+def compute_task_metrics(df: pd.DataFrame, task: str) -> dict[str, float]:
+    """Compute R^2, MAE, and MAPE for a single task."""
+    y_true = df[f"{task}_true"].to_numpy()
+    y_pred = df[f"{task}_pred"].to_numpy()
+    return {
+        "R2": r2_score(y_true, y_pred),
+        "MAE": mae_score(y_true, y_pred),
+        "MAPE": mape_score(y_true, y_pred),
+    }
+
+
+def build_model_metrics_long() -> pd.DataFrame:
+    """Return long-format metrics table for the three retained models."""
+    rows: list[dict[str, float | str]] = []
+    for model_name in MODEL_ORDER:
+        df = load_model_predictions(model_name, split="test")
+        for task in TASK_LIST:
+            metrics = compute_task_metrics(df, task)
+            rows.append(
+                {
+                    "Model": model_name,
+                    "Target": task,
+                    "R2": metrics["R2"],
+                    "MAE": metrics["MAE"],
+                    "MAPE": metrics["MAPE"],
+                }
+            )
+    return pd.DataFrame(rows)
