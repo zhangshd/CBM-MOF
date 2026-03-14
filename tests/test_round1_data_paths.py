@@ -9,7 +9,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 
-from src.alignn import plot_bkt_paper_figures as plot_bkt  # noqa: E402
+from src.figures import fig_process_validation as plot_bkt  # noqa: E402
 
 if "seaborn" not in sys.modules:
     sys.modules["seaborn"] = types.ModuleType("seaborn")

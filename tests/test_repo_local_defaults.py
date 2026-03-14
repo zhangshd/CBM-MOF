@@ -9,8 +9,8 @@ if str(REPO_ROOT) not in sys.path:
 
 
 from src.alignn import filter_stable_candidates as stable_filter  # noqa: E402
-from src.alignn import parse_atc_cu_pure_component as parse_atc  # noqa: E402
-from src.alignn import plot_bkt_paper_figures as plot_bkt  # noqa: E402
+from src.alignn import parse_pure_component_results as parse_pure  # noqa: E402
+from src.figures import fig_process_validation as plot_bkt  # noqa: E402
 
 
 class TestRepoLocalDefaults(unittest.TestCase):
@@ -20,7 +20,7 @@ class TestRepoLocalDefaults(unittest.TestCase):
             REPO_ROOT / "data" / "processed" / "stabilities" / "infer_results_mofsnn.csv",
         )
         self.assertEqual(
-            parse_atc.RESULT_DIR_DEFAULT,
+            parse_pure.REPO_ROOT / "results" / "cbm_screening" / "gcmc_ATC-Cu_DreidingTraPPEJson",
             REPO_ROOT / "results" / "cbm_screening" / "gcmc_ATC-Cu_DreidingTraPPEJson",
         )
         self.assertEqual(

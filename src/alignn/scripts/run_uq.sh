@@ -17,14 +17,13 @@ for _d in "$_SP"/nvidia/*/lib; do [ -d "$_d" ] && export LD_LIBRARY_PATH="$_d:$L
 
 cd /home/zhangsd/repos/CBM-MOF
 
-echo "=== ALIGNN UQ (LSV via faiss) ==="
+echo "=== ALIGNN UQ Calibration ==="
 echo "Node: $(hostname), Date: $(date)"
 echo "GPU: $CUDA_VISIBLE_DEVICES"
 
-srun python -u src/alignn/compute_uq.py \
-    --checkpoint results/alignn/50ep_symlog_1e-3/best_model.pt \
-    --data-dir data/alignn_symlog_1e-3 \
-    --output-dir results/alignn/50ep_symlog_1e-3 \
-    --batch-size 4
+srun python -u src/alignn/calibrate_uq.py \
+    --model-dir results/alignn/model_ep150 \
+    --k 10 \
+    --recommended-pct 85
 
 echo "=== UQ EXIT CODE: $? ==="

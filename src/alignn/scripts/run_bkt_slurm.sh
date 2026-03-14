@@ -24,6 +24,6 @@ conda activate alignn_env
 echo "=== BKT Simulation: job index ${SLURM_ARRAY_TASK_ID} ==="
 echo "Node: $(hostname), Start: $(date)"
 
-python -u src/alignn/run_bkt_top_candidates.py --job-index ${SLURM_ARRAY_TASK_ID}
+python -u src/alignn/run_breakthrough.py --job-index ${SLURM_ARRAY_TASK_ID}
 
 echo "=== Done: $(date) ==="

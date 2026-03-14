@@ -23,7 +23,7 @@ Usage (interactive dry-run, single batch):
         --batch-idx 0 --n-batches 24 --batch-size 8 --max-atoms 500
 
 SLURM submission:
-    sbatch --array=0-23 src/alignn/run_full_library_inference.sh
+    sbatch --array=0-23 src/alignn/scripts/run_full_library_inference.sh 150
 """
 
 import argparse

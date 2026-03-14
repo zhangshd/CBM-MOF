@@ -160,8 +160,13 @@ def plot_sr_panel(ax, payload: dict) -> None:
     threshold = float(payload["composite_threshold"])
     retain_fraction = float(payload["composite_retain_fraction"])
     sr_payload = payload["sr_sweep"]
-    pcts = np.array(sr_payload["pcts"], dtype=float)
-    sr = np.array(sr_payload["sr"], dtype=float)
+    if "pcts" in sr_payload:
+        pcts = np.array(sr_payload["pcts"], dtype=float)
+        sr = np.array(sr_payload["sr"], dtype=float)
+    else:
+        ordered = sorted((int(k), v) for k, v in sr_payload.items())
+        pcts = np.array([item[0] for item in ordered], dtype=float)
+        sr = np.array([item[1]["sr"] for item in ordered], dtype=float)
 
     ax.plot(
         pcts,
