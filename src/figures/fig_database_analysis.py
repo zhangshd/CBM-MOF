@@ -16,6 +16,7 @@ from src.figures.style import (  # noqa: E402
     NATURE_COLORS,
     compute_panel_grid_layout,
     save_figure,
+    set_emphasized_title,
     set_publication_style,
 )
 
@@ -77,6 +78,40 @@ FEATURE_LABELS = {
     "GPONAV": "Gravimetric Non-Accessible Pore Volume",
     "POAV": "Pore Accessible Volume",
     "PONAV": "Pore Non-Accessible Volume",
+}
+
+FEATURE_TITLES = {
+    "rho": "Density",
+    "POAV_vol_frac": "VF",
+    "VPOV": "VPOV",
+    "GSA": "GSA",
+    "VSA": "VSA",
+    "GPOAV": "GPOAV",
+    "GPOV": "GPOV",
+    "Di": "LISD",
+    "Df": "PLD",
+    "Dif": "LCD",
+}
+
+FEATURE_UNITS = {
+    "rho": r"g/cm$^3$",
+    "POAV_vol_frac": "",
+    "VPOV": r"cm$^3$/cm$^3$",
+    "GSA": r"m$^2$/g",
+    "VSA": r"m$^2$/cm$^3$",
+    "GPOAV": r"cm$^3$/g",
+    "GPOV": r"cm$^3$/g",
+    "Di": r"$\AA$",
+    "Df": r"$\AA$",
+    "Dif": r"$\AA$",
+}
+
+FIGURE7_FEATURES = ["rho", "POAV_vol_frac", "GSA", "VSA", "Dif", "Df"]
+FIGURE7_CLIP_FEATURES = {"Dif", "Df"}
+FIGURE6_API_UNIT = r"mol$^2$ kg$^{-1}$ kJ$^{-1}$"
+FIGURE6_PANEL_TITLES = {
+    "PSA_API_CH4": f"Predicted PSA API ({FIGURE6_API_UNIT})",
+    "VSA_API_CH4": f"Predicted VSA API ({FIGURE6_API_UNIT})",
 }
 
 GROUP_LABELS = ["All samples", f"Top {TOP_N} PSA", f"Top {TOP_N} VSA"]
@@ -219,20 +254,81 @@ def compute_feature_shift_summary(
 
 def select_shift_features(
     summary_df: pd.DataFrame,
+    feature_df: pd.DataFrame,
     *,
     min_features: int = 4,
     max_features: int = 6,
     threshold: float = 0.35,
+    redundancy_corr_threshold: float = 0.98,
 ) -> list[str]:
-    """Select 4-6 most shifted features with a threshold-based cutoff."""
+    """Select 4-6 shifted features while skipping near-redundant descriptors."""
     ordered = summary_df.sort_values("shift_score", ascending=False)["feature"].tolist()
-    strong = summary_df.loc[summary_df["shift_score"] >= threshold, "feature"].tolist()
+    strong = set(summary_df.loc[summary_df["shift_score"] >= threshold, "feature"].tolist())
 
-    if len(strong) < min_features:
-        return ordered[: min(min_features, len(ordered))]
-    if len(strong) > max_features:
-        return strong[:max_features]
-    return strong
+    def _redundant(candidate: str, chosen: list[str]) -> bool:
+        for existing in chosen:
+            corr = feature_df[[candidate, existing]].corr().iloc[0, 1]
+            if np.isfinite(corr) and abs(float(corr)) >= redundancy_corr_threshold:
+                return True
+        return False
+
+    selected: list[str] = []
+    for feature in ordered:
+        if feature not in strong and len(selected) >= min_features:
+            break
+        if _redundant(feature, selected):
+            continue
+        selected.append(feature)
+        if len(selected) >= max_features:
+            break
+
+    if len(selected) < min_features:
+        for feature in ordered:
+            if feature in selected or _redundant(feature, selected):
+                continue
+            selected.append(feature)
+            if len(selected) >= min_features:
+                break
+
+    return selected
+
+
+def format_range_value(value: float) -> str:
+    """Format percentile-range numbers with scale-aware precision."""
+    abs_value = abs(float(value))
+    if abs_value >= 1000:
+        return f"{value:.0f}"
+    if abs_value >= 100:
+        return f"{value:.1f}"
+    if abs_value >= 10:
+        return f"{value:.1f}"
+    if abs_value >= 1:
+        return f"{value:.2f}"
+    return f"{value:.3f}"
+
+
+def clip_feature_for_kde(
+    feature: str,
+    all_data: pd.Series,
+    psa_data: pd.Series,
+    vsa_data: pd.Series,
+) -> tuple[pd.Series, pd.Series, pd.Series]:
+    """Clip long-tailed pore-size panels for cleaner KDE visualization."""
+    if feature not in FIGURE7_CLIP_FEATURES:
+        return all_data, psa_data, vsa_data
+
+    upper_bound = float(all_data.quantile(0.99))
+    return (
+        all_data[all_data <= upper_bound],
+        psa_data[psa_data <= upper_bound],
+        vsa_data[vsa_data <= upper_bound],
+    )
+
+
+def compose_panel_title(panel_label: str, title: str, unit: str = "") -> str:
+    """Compose a panel title while keeping units in compact LaTeX form."""
+    body = title if not unit else f"{title} ({unit})"
+    return f"{panel_label} {body}".strip()
 
 
 def plot_cluster_api_landscape(
@@ -259,8 +355,8 @@ def plot_cluster_api_landscape(
     benchmark_vsa = float(benchmark["VSA_API_CH4"].iloc[0]) if not benchmark.empty else None
 
     for ax, api_col, panel_label, color, benchmark_value in [
-        (axes[0], "PSA_API_CH4", "(a) PSA", NATURE_COLORS["blue"], benchmark_psa),
-        (axes[1], "VSA_API_CH4", "(b) VSA", NATURE_COLORS["orange"], benchmark_vsa),
+        (axes[0], "PSA_API_CH4", "(a)", NATURE_COLORS["blue"], benchmark_psa),
+        (axes[1], "VSA_API_CH4", "(b)", NATURE_COLORS["orange"], benchmark_vsa),
     ]:
         plot_df = df[["Cluster", api_col]].dropna().copy()
         plot_df["Cluster"] = plot_df["Cluster"].astype(int)
@@ -287,9 +383,13 @@ def plot_cluster_api_landscape(
                 linewidth=1.0,
             )
 
-        ax.set_title(panel_label, loc="left")
+        set_emphasized_title(
+            ax,
+            compose_panel_title(panel_label, FIGURE6_PANEL_TITLES[api_col]),
+            loc="left",
+        )
         ax.set_xlabel("Cluster")
-        ax.set_ylabel("Predicted API")
+        ax.set_ylabel("")
         ax.grid(axis="y", linestyle="--", alpha=0.25, linewidth=0.4)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
@@ -298,13 +398,15 @@ def plot_cluster_api_landscape(
     plt.close(fig)
 
 
-def plot_feature_shift_intervals(
+def plot_feature_shift_kde(
+    df: pd.DataFrame,
     summary_df: pd.DataFrame,
     selected_features: list[str],
     output_dir: str | Path,
 ) -> None:
-    """Plot median + 10th–90th percentile shifts for selected Zeo++ features."""
+    """Plot KDE comparisons for selected Zeo++ features with percentile annotations."""
     import matplotlib.pyplot as plt
+    import seaborn as sns
 
     n_features = len(selected_features)
     ncols = 2 if n_features > 3 else 1
@@ -329,31 +431,107 @@ def plot_feature_shift_intervals(
     )
     axes = np.atleast_1d(axes).reshape(nrows, ncols).flatten()
 
-    y_positions = [2, 1, 0]
+    top_psa = df.nlargest(TOP_N, "PSA_API_CH4")
+    top_vsa = df.nlargest(TOP_N, "VSA_API_CH4")
 
     for i, feature in enumerate(selected_features):
         ax = axes[i]
         row = summary_df.loc[summary_df["feature"] == feature].iloc[0]
-        display_name = row["display_name"]
+        title = FEATURE_TITLES.get(feature, row["display_name"])
+        unit = FEATURE_UNITS.get(feature, "")
+        title_with_unit = f"{title} ({unit})" if unit else title
 
-        triplets = [
-            ("All samples", row["all_q10"], row["all_median"], row["all_q90"]),
-            (f"Top {TOP_N} PSA", row["psa_q10"], row["psa_median"], row["psa_q90"]),
-            (f"Top {TOP_N} VSA", row["vsa_q10"], row["vsa_median"], row["vsa_q90"]),
-        ]
+        all_data = df[feature].dropna()
+        psa_data = top_psa[feature].dropna()
+        vsa_data = top_vsa[feature].dropna()
+        all_data, psa_data, vsa_data = clip_feature_for_kde(
+            feature,
+            all_data,
+            psa_data,
+            vsa_data,
+        )
 
-        for ypos, (label, q10, median, q90) in zip(y_positions, triplets):
-            color = GROUP_COLORS[label]
-            ax.hlines(y=ypos, xmin=q10, xmax=q90, color=color, linewidth=2.0, alpha=0.85)
-            ax.scatter(median, ypos, color=color, s=18, zorder=3)
+        if len(all_data) > 1:
+            sns.kdeplot(
+                all_data,
+                ax=ax,
+                color=GROUP_COLORS["All samples"],
+                linewidth=1.2,
+                fill=True,
+                alpha=0.18,
+                label="All samples",
+            )
+        if len(vsa_data) > 1:
+            sns.kdeplot(
+                vsa_data,
+                ax=ax,
+                color=GROUP_COLORS[f"Top {TOP_N} VSA"],
+                linewidth=1.4,
+                fill=True,
+                alpha=0.22,
+                label=f"Top {TOP_N} VSA",
+            )
+        if len(psa_data) > 1:
+            sns.kdeplot(
+                psa_data,
+                ax=ax,
+                color=GROUP_COLORS[f"Top {TOP_N} PSA"],
+                linewidth=1.4,
+                fill=True,
+                alpha=0.22,
+                label=f"Top {TOP_N} PSA",
+            )
 
-        ax.set_title(f"({chr(97 + i)}) {display_name}", loc="left")
-        ax.set_yticks(y_positions)
-        ax.set_yticklabels(GROUP_LABELS)
-        ax.grid(axis="x", linestyle="--", alpha=0.25, linewidth=0.4)
+        annotation_text = (
+            "10th-90th percentile\n"
+            f"All: [{format_range_value(row['all_q10'])}, "
+            f"{format_range_value(row['all_q90'])}]\n"
+            f"PSA: [{format_range_value(row['psa_q10'])}, "
+            f"{format_range_value(row['psa_q90'])}]\n"
+            f"VSA: [{format_range_value(row['vsa_q10'])}, "
+            f"{format_range_value(row['vsa_q90'])}]"
+        )
+        ax.text(
+            0.98,
+            0.98,
+            annotation_text,
+            transform=ax.transAxes,
+            ha="right",
+            va="top",
+            fontsize=layout.annotation_font,
+            bbox=dict(
+                boxstyle="round,pad=0.25",
+                facecolor="white",
+                edgecolor="#BBBBBB",
+                linewidth=0.4,
+                alpha=0.90,
+            ),
+        )
+
+        set_emphasized_title(
+            ax,
+            compose_panel_title(f"({chr(97 + i)})", title, unit),
+            loc="left",
+        )
+        ax.set_xlabel("")
+        ax.set_ylabel("Density" if i % ncols == 0 else "")
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
-        ax.tick_params(axis="y", length=0)
+        ax.grid(axis="y", linestyle="--", alpha=0.25, linewidth=0.4)
+
+        if i == 0:
+            ax.legend(
+                loc="upper left",
+                frameon=True,
+                fancybox=False,
+                edgecolor="#999999",
+                framealpha=0.9,
+                fontsize=layout.tick_font,
+            )
+        else:
+            legend = ax.get_legend()
+            if legend is not None:
+                legend.set_visible(False)
 
     for j in range(n_features, len(axes)):
         axes[j].set_visible(False)
@@ -438,8 +616,9 @@ def plot_cluster_property_intervals(
         ax.invert_yaxis()
         ax.set_xlabel("")
         ax.set_ylabel("Cluster", fontsize=layout.body_font)
-        ax.set_title(
-            f"{panel_label} {CLUSTER_PROPERTY_TITLES[metric]}",
+        set_emphasized_title(
+            ax,
+            compose_panel_title(panel_label, CLUSTER_PROPERTY_TITLES[metric]),
             loc="left",
             fontsize=layout.title_font,
         )
@@ -484,10 +663,10 @@ def generate_assets(
     )
     summary_df = compute_feature_shift_summary(df, top_n=top_n)
     cluster_summary_df = compute_cluster_property_summary(df)
-    selected = select_shift_features(summary_df)
+    selected = FIGURE7_FEATURES
 
     plot_cluster_api_landscape(df, output_dir)
-    plot_feature_shift_intervals(summary_df, selected, output_dir)
+    plot_feature_shift_kde(df, summary_df, selected, output_dir)
     plot_cluster_property_intervals(cluster_summary_df, output_dir)
 
     if summary_csv is None:

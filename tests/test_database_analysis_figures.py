@@ -11,13 +11,22 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
 from src.figures.fig_database_analysis import (  # noqa: E402
+    FIGURE6_API_UNIT,
+    FIGURE6_PANEL_TITLES,
+    FIGURE7_FEATURES,
+    FIGURE7_CLIP_FEATURES,
     FEATURE_LABELS,
+    FEATURE_TITLES,
+    FEATURE_UNITS,
     ZEO_FEATURE_COLUMNS,
     build_database_analysis_frame,
+    clip_feature_for_kde,
     compute_cluster_property_summary,
     compute_feature_shift_summary,
+    format_range_value,
     select_shift_features,
 )
+from src.figures.style import TITLE_EMPHASIS_LINEWIDTH  # noqa: E402
 
 
 def test_build_database_analysis_frame_merges_api_cluster_and_features(
@@ -97,24 +106,40 @@ def test_compute_feature_shift_summary_scores_larger_psa_shift_higher() -> None:
 
 
 def test_select_shift_features_returns_between_four_and_six_when_possible() -> None:
-    """Automatic selection should keep 4-6 strongest features when available."""
+    """Automatic selection should keep 4-6 strongest non-redundant features."""
     summary = pd.DataFrame(
         {
             "feature": ["a", "b", "c", "d", "e", "f", "g"],
             "shift_score": [1.10, 0.95, 0.82, 0.71, 0.54, 0.41, 0.18],
         }
     )
+    feature_df = pd.DataFrame(
+        {
+            "a": [1, 2, 3, 4, 5],
+            "b": [1.0, 2.0, 3.0, 4.0, 5.0],
+            "c": [5, 4, 3, 2, 1],
+            "d": [2, 2, 3, 3, 4],
+            "e": [10, 9, 8, 7, 6],
+            "f": [0, 1, 0, 1, 0],
+            "g": [3, 1, 4, 1, 5],
+        }
+    )
 
     selected = select_shift_features(
         summary,
+        feature_df,
         min_features=4,
         max_features=6,
         threshold=0.40,
+        redundancy_corr_threshold=0.98,
     )
 
     assert 4 <= len(selected) <= 6
-    assert selected[:4] == ["a", "b", "c", "d"]
-    assert "g" not in selected
+    assert selected[0] == "a"
+    assert "b" not in selected
+    assert "c" not in selected
+    assert "e" not in selected
+    assert selected[:4] == ["a", "d", "f", "g"]
 
 
 def test_feature_labels_include_human_readable_zeopp_mappings() -> None:
@@ -124,6 +149,65 @@ def test_feature_labels_include_human_readable_zeopp_mappings() -> None:
     assert FEATURE_LABELS["rho"] == "Density"
     assert FEATURE_LABELS["POAV_vol_frac"] == "Void Fraction"
     assert FEATURE_LABELS["VSA"] == "Volumetric Surface Area"
+
+
+def test_feature_titles_include_units_for_kde_panels() -> None:
+    """Figure 7 should use short titles while units are tracked separately."""
+    assert FEATURE_TITLES["rho"] == "Density"
+    assert FEATURE_TITLES["POAV_vol_frac"] == "VF"
+    assert FEATURE_TITLES["Df"] == "PLD"
+    assert FEATURE_UNITS["rho"] == r"g/cm$^3$"
+    assert FEATURE_UNITS["GSA"] == r"m$^2$/g"
+    assert FEATURE_UNITS["Df"] == r"$\AA$"
+
+
+def test_figure7_feature_list_uses_manual_common_geometry_selection() -> None:
+    """Figure 7 should show the user-approved common Zeo++ properties."""
+    assert FIGURE7_FEATURES == ["rho", "POAV_vol_frac", "GSA", "VSA", "Dif", "Df"]
+    assert FIGURE7_CLIP_FEATURES == {"Dif", "Df"}
+
+
+def test_figure6_panel_titles_embed_api_units() -> None:
+    """Figure 6 should move API units into the panel titles."""
+    assert FIGURE6_API_UNIT == r"mol$^2$ kg$^{-1}$ kJ$^{-1}$"
+    assert FIGURE6_PANEL_TITLES["PSA_API_CH4"] == r"Predicted PSA API (mol$^2$ kg$^{-1}$ kJ$^{-1}$)"
+    assert FIGURE6_PANEL_TITLES["VSA_API_CH4"] == r"Predicted VSA API (mol$^2$ kg$^{-1}$ kJ$^{-1}$)"
+
+
+def test_format_range_value_uses_scale_aware_precision() -> None:
+    """Percentile annotations should use stable precision across scales."""
+    assert format_range_value(1234.56) == "1235"
+    assert format_range_value(87.654) == "87.7"
+    assert format_range_value(5.4321) == "5.43"
+    assert format_range_value(0.07891) == "0.079"
+
+
+def test_clip_feature_for_kde_trims_pld_lcd_by_all_sample_q99() -> None:
+    """PLD/LCD panels should trim only the extreme upper tail for visualization."""
+    all_data = pd.Series([1, 2, 3, 4, 100])
+    psa_data = pd.Series([2, 3, 150])
+    vsa_data = pd.Series([1, 4, 120])
+
+    clipped_all, clipped_psa, clipped_vsa = clip_feature_for_kde(
+        "Df",
+        all_data,
+        psa_data,
+        vsa_data,
+    )
+
+    assert clipped_all.max() < 100
+    assert clipped_psa.max() < 150
+    assert clipped_vsa.max() < 120
+
+    same_all, same_psa, same_vsa = clip_feature_for_kde(
+        "rho",
+        all_data,
+        psa_data,
+        vsa_data,
+    )
+    assert same_all.equals(all_data)
+    assert same_psa.equals(psa_data)
+    assert same_vsa.equals(vsa_data)
 
 
 def test_compute_cluster_property_summary_orders_cluster_medians() -> None:
@@ -149,10 +233,21 @@ def test_compute_cluster_property_summary_orders_cluster_medians() -> None:
     assert float(psa_alpha.iloc[-1]["median"]) == 1.475
 
 
+def test_title_emphasis_linewidth_is_centralized_in_style() -> None:
+    """Math-aware title emphasis should come from the shared style module."""
+    assert TITLE_EMPHASIS_LINEWIDTH == 0.6
+
+
 if __name__ == "__main__":
     test_build_database_analysis_frame_merges_api_cluster_and_features(Path("/tmp"))
     test_compute_feature_shift_summary_scores_larger_psa_shift_higher()
     test_select_shift_features_returns_between_four_and_six_when_possible()
     test_feature_labels_include_human_readable_zeopp_mappings()
+    test_feature_titles_include_units_for_kde_panels()
+    test_figure7_feature_list_uses_manual_common_geometry_selection()
+    test_figure6_panel_titles_embed_api_units()
+    test_format_range_value_uses_scale_aware_precision()
+    test_clip_feature_for_kde_trims_pld_lcd_by_all_sample_q99()
     test_compute_cluster_property_summary_orders_cluster_medians()
-    print("5 tests passed")
+    test_title_emphasis_linewidth_is_centralized_in_style()
+    print("11 tests passed")

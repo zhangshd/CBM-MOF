@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+import matplotlib.patheffects as pe
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -54,6 +55,7 @@ TITLE_FONT_SIZE, BODY_FONT_SIZE = derive_word_equivalent_fonts(DOUBLE_COL_INCH)
 LABEL_FONT_SIZE = BODY_FONT_SIZE
 TICK_FONT_SIZE = max(7.5, _round_to_half_point(BODY_FONT_SIZE - 0.5))
 LEGEND_FONT_SIZE = TICK_FONT_SIZE
+TITLE_EMPHASIS_LINEWIDTH = 0.6
 
 
 @dataclass(frozen=True)
@@ -224,6 +226,48 @@ def set_publication_style():
         # Mathtext
         "mathtext.default": "regular",
     })
+
+
+def apply_uniform_text_emphasis(
+    text_obj,
+    *,
+    linewidth: float = TITLE_EMPHASIS_LINEWIDTH,
+    foreground: str = "black",
+) -> None:
+    """Apply a math-safe emphasis treatment to mixed text/math labels."""
+    text_obj.set_path_effects(
+        [
+            pe.Stroke(linewidth=linewidth, foreground=foreground),
+            pe.Normal(),
+        ]
+    )
+
+
+def set_emphasized_title(
+    ax,
+    text: str,
+    *,
+    loc: str = "center",
+    fontsize: float | None = None,
+    color: str = "black",
+    linewidth: float = TITLE_EMPHASIS_LINEWIDTH,
+    **kwargs,
+):
+    """Set a title and apply uniform emphasis to both text and math fragments."""
+    title_obj = ax.set_title(
+        text,
+        loc=loc,
+        fontsize=fontsize,
+        color=color,
+        fontweight="normal",
+        **kwargs,
+    )
+    apply_uniform_text_emphasis(
+        title_obj,
+        linewidth=linewidth,
+        foreground=color,
+    )
+    return title_obj
 
 
 def save_figure(fig, name: str, output_dir: str | Path,
