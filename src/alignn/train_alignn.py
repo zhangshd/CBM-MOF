@@ -308,10 +308,10 @@ def parse_args():
     parser.add_argument("--dry-run",      action="store_true",
                         help="Use 100 samples × 5 epochs for pipeline verification")
     parser.add_argument("--dry-run-size", type=int, default=100)
-    parser.add_argument("--max-atoms",    type=int, default=0,
+    parser.add_argument("--max-atoms",    type=int, default=500,
                         help="Filter out structures with more than N atoms (0 = disabled)")
-    parser.add_argument("--epochs",       type=int, default=500)
-    parser.add_argument("--batch-size",   type=int, default=64)
+    parser.add_argument("--epochs",       type=int, default=300)
+    parser.add_argument("--batch-size",   type=int, default=4)
     parser.add_argument("--lr",           type=float, default=1e-3)
     parser.add_argument("--data-dir",     type=str, default=None,
                         help="Path to data directory (default: data/alignn/)")

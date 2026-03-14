@@ -131,7 +131,7 @@ def plot_figure4(output_dir: Path, metrics_long: pd.DataFrame) -> None:
         for j in range(r2_matrix.shape[1]):
             value = r2_matrix[i, j]
             fontweight = "bold" if j == r2_matrix.shape[1] - 1 else "normal"
-            text_color = "white" if value < 0.85 else "black"
+            text_color = "black"
             ax.text(
                 j,
                 i,
