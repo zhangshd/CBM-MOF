@@ -12,7 +12,7 @@ Algorithm:
   2. Stream over all batch_*_features.npz files (avoids loading all at once)
   3. Compute LSV_norm per target: LSV_t / baseline_lsv_mean[t]
   4. Compute composite: mean(LSV_norm) across all 8 targets
-  5. Flag high-UQ: lsv_norm_composite > 2.2773 (absolute p90 threshold)
+  5. Flag high-UQ: lsv_norm_composite > composite_threshold from lsv_thresholds.json
 
 Output:
   results/alignn/full_library_inference/full_library_uq.csv
@@ -22,21 +22,21 @@ Usage:
     cd /home/zhangsd/repos/CBM-MOF
     conda activate mofmthnn
     python src/alignn/apply_uq_to_library.py \\
-        --uq-pkl     results/alignn/ep100_deployment/uncertainty_trees.pkl \\
-        --input-dir  results/alignn/full_library_inference \\
-        --output-dir results/alignn/full_library_inference
+        --uq-pkl     results/alignn/model_ep150/uq/uncertainty_trees.pkl \\
+        --input-dir  results/alignn/model_ep150/full_library_inference \\
+        --output-dir results/alignn/model_ep150/full_library_inference
 
     # Dry-run on first 3 batches only:
     python src/alignn/apply_uq_to_library.py --max-batches 3
 """
 
 import argparse
+import json
 import pickle
 import time
 import warnings
 from pathlib import Path
 
-import faiss
 import numpy as np
 import pandas as pd
 
@@ -49,9 +49,6 @@ UPTAKE_COLS = ["AdsCH4_10kPa", "AdsCH4_100kPa", "AdsCH4_1000kPa",
                "AdsN2_10kPa",  "AdsN2_100kPa",  "AdsN2_1000kPa"]
 QST_COLS    = ["QstCH4", "QstN2"]
 TARGET_COLS = UPTAKE_COLS + QST_COLS
-
-# Absolute p90 threshold confirmed in Task 1.1b (DO NOT recompute from full library)
-P90_THRESHOLD = 2.2773
 
 LOG_INTERVAL = 10    # print progress every N batches
 
@@ -88,9 +85,25 @@ def compute_lsv_norm(
     return lsv_norm.astype(np.float32)
 
 
+def load_composite_threshold(threshold_json: Path) -> float:
+    """Load the calibrated composite LSV threshold from a JSON sidecar."""
+    if not threshold_json.exists():
+        raise FileNotFoundError(f"Threshold JSON not found: {threshold_json}")
+
+    with open(threshold_json) as f:
+        payload = json.load(f)
+    if "composite_threshold" not in payload:
+        raise KeyError(
+            f"'composite_threshold' missing from threshold JSON: {threshold_json}"
+        )
+    return float(payload["composite_threshold"])
+
+
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def main():
+    import faiss
+
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -98,25 +111,25 @@ def main():
     parser.add_argument(
         "--uq-pkl",
         type=str,
-        default=str(REPO_ROOT / "results/alignn/ep100_deployment/uncertainty_trees.pkl"),
+        default=str(REPO_ROOT / "results/alignn/model_ep150/uq/uncertainty_trees.pkl"),
         help="Path to uncertainty_trees.pkl (from Task 1.1b)",
     )
     parser.add_argument(
         "--input-dir",
         type=str,
-        default=str(REPO_ROOT / "results/alignn/full_library_inference"),
+        default=str(REPO_ROOT / "results/alignn/model_ep150/full_library_inference"),
         help="Directory containing batches/batch_*_features.npz",
     )
     parser.add_argument(
         "--output-dir",
         type=str,
-        default=str(REPO_ROOT / "results/alignn/full_library_inference"),
+        default=str(REPO_ROOT / "results/alignn/model_ep150/full_library_inference"),
     )
     parser.add_argument(
         "--threshold",
         type=float,
-        default=P90_THRESHOLD,
-        help=f"Absolute UQ threshold for flag_high_uq (default: {P90_THRESHOLD})",
+        default=None,
+        help="Optional override for composite LSV_norm threshold. Defaults to the value stored in lsv_thresholds.json next to --uq-pkl.",
     )
     parser.add_argument(
         "--max-batches",
@@ -127,17 +140,24 @@ def main():
     args = parser.parse_args()
 
     uq_pkl_path = Path(args.uq_pkl)
+    threshold_json = uq_pkl_path.with_name("lsv_thresholds.json")
     input_dir   = Path(args.input_dir)
     batches_dir = input_dir / "batches"
     output_dir  = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    threshold = (
+        float(args.threshold)
+        if args.threshold is not None
+        else load_composite_threshold(threshold_json)
+    )
 
     print("=" * 65)
     print("apply_uq_to_library.py  —  Task 1.1d")
     print(f"  UQ pkl        : {uq_pkl_path}")
     print(f"  Input dir     : {batches_dir}")
     print(f"  Output dir    : {output_dir}")
-    print(f"  UQ threshold  : {args.threshold}")
+    print(f"  UQ threshold  : {threshold}")
     print(f"  Start time    : {time.strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 65)
 
@@ -210,7 +230,7 @@ def main():
         )
         batch_df.insert(0, "mof_id", mol_ids)
         batch_df["lsv_norm_composite"] = composite
-        batch_df["flag_high_uq"] = (composite > args.threshold).astype(np.int8)
+        batch_df["flag_high_uq"] = (composite > threshold).astype(np.int8)
 
         all_rows.append(batch_df)
         total_mofs += len(mol_ids)
@@ -232,7 +252,7 @@ def main():
     print(f"\n  Composite LSV_norm statistics:")
     print(f"    mean   : {comp_vals.mean():.4f}")
     print(f"    median : {comp_vals.median():.4f}")
-    print(f"    p90    : {comp_vals.quantile(0.90):.4f}  (reference threshold: {args.threshold})")
+    print(f"    p90    : {comp_vals.quantile(0.90):.4f}  (reference threshold: {threshold})")
     print(f"    max    : {comp_vals.max():.4f}")
     print(f"  High-UQ flagged: {n_flagged:,} / {len(result_df):,} ({frac_flagged:.1%})")
 

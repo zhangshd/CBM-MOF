@@ -9,8 +9,8 @@ cutoff. A higher SR means the UQ score is better at separating uncertain samples
 
 Usage:
     conda run -n mofmthnn python src/alignn/lsv_sr_analysis.py \\
-        --deployment-dir results/alignn/ep100_deployment \\
-        --output-dir results/alignn/ep100_deployment
+        --deployment-dir results/alignn/model_ep150/deployment \\
+        --output-dir results/alignn/model_ep150/uq
 """
 
 import argparse
@@ -34,7 +34,13 @@ sys.path.insert(0, str(REPO_ROOT / "src" / "alignn"))
 sys.path.insert(0, str(REPO_ROOT / "src" / "figures"))
 
 from compute_uq import TARGET_COLS, compute_lsv
-from style import set_publication_style, SINGLE_COL_INCH, DPI, MODEL_COLORS
+from style import (
+    DPI,
+    MODEL_COLORS,
+    SINGLE_COL_INCH,
+    set_emphasized_title,
+    set_publication_style,
+)
 
 import faiss
 
@@ -82,6 +88,8 @@ def run_sr_sweep(
 def plot_sr_panel(
     pcts: np.ndarray,
     sr: np.ndarray,
+    retain: np.ndarray,
+    threshold_value: float,
     recommended_pct: int,
     out_path: Path,
 ) -> None:
@@ -98,8 +106,15 @@ def plot_sr_panel(
 
     fig, ax = plt.subplots(figsize=(SINGLE_COL_INCH * 1.15, SINGLE_COL_INCH * 0.85))
 
-    ax.plot(x_sr, y_sr, color=GREEN, lw=1.3, marker="D", ms=3.0,
-            label="SR = MAE$_{\\rm out}$ / MAE$_{\\rm in}$")
+    ax.plot(
+        x_sr,
+        y_sr,
+        color=GREEN,
+        lw=1.3,
+        marker="D",
+        ms=3.0,
+        label="SR = MAE$_{\\rm out}$ / MAE$_{\\rm in}$",
+    )
     ax.axvline(recommended_pct, color=ORANGE, lw=1.0, ls="--", alpha=0.9,
                label=f"Recommended (p{recommended_pct})")
     ax.axhline(1.0, color=GREY, lw=0.5, ls=":", alpha=0.6)
@@ -120,14 +135,35 @@ def plot_sr_panel(
 
     ax.set_xlabel("LSV$_{\\rm norm}$ percentile cutoff")
     ax.set_ylabel("Separation Ratio (SR)")
-    ax.set_title(
-        "LSV$_{\\rm norm}$ SR Analysis — ALIGNN ep100\n"
+    set_emphasized_title(
+        ax,
+        "LSV$_{\\rm norm}$ SR Analysis for ALIGNN ep150\n"
         "(k=10, val+test, n=1955)",
         fontsize=7,
         pad=4,
     )
     ax.set_xlim(-2, 102)
     ax.set_ylim(bottom=0.0)
+
+    retain_at_rec = retain[pcts == recommended_pct]
+    retain_text = (
+        f"{retain_at_rec[0] * 100:.1f}%"
+        if len(retain_at_rec) > 0 and np.isfinite(retain_at_rec[0])
+        else "NA"
+    )
+    ax.text(
+        0.98,
+        0.02,
+        (
+            f"p{recommended_pct} threshold = {threshold_value:.3f}\n"
+            f"Retention = {retain_text}"
+        ),
+        transform=ax.transAxes,
+        ha="right",
+        va="bottom",
+        fontsize=6,
+        bbox=dict(boxstyle="round,pad=0.25", fc="white", ec="none", alpha=0.85),
+    )
 
     leg = ax.legend(fontsize=6, loc="upper left", frameon=True)
     leg.get_frame().set_linewidth(0.3)
@@ -143,21 +179,21 @@ def plot_sr_panel(
 def main() -> None:
     parser = argparse.ArgumentParser(description="LSV_norm SR sweep analysis")
     parser.add_argument("--deployment-dir", type=Path,
-                        default=REPO_ROOT / "results/alignn/ep100_deployment",
-                        help="Directory with uncertainty_trees.pkl and prediction CSVs")
+                        default=REPO_ROOT / "results/alignn/model_ep150/deployment",
+                        help="Directory with val/test embeddings and prediction CSVs")
     parser.add_argument("--output-dir", type=Path, default=None,
-                        help="Output directory (defaults to deployment-dir)")
-    parser.add_argument("--recommended-pct", type=int, default=90,
-                        help="Recommended percentile cutoff to annotate (default: 90)")
+                        help="Output directory for SR artifacts and lsv_thresholds.json")
+    parser.add_argument("--recommended-pct", type=int, default=80,
+                        help="Recommended percentile cutoff to annotate (default: 80)")
     args = parser.parse_args()
 
     d = args.deployment_dir
-    out_dir = args.output_dir or d
+    out_dir = args.output_dir or (REPO_ROOT / "results/alignn/model_ep150/uq")
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # ── Load UQ trees ─────────────────────────────────────────────────────────
-    print(f"Loading uncertainty_trees.pkl from {d} ...")
-    with open(d / "uncertainty_trees.pkl", "rb") as f:
+    print(f"Loading uncertainty_trees.pkl from {out_dir} ...")
+    with open(out_dir / "uncertainty_trees.pkl", "rb") as f:
         payload = pickle.load(f)
 
     index             = faiss.deserialize_index(payload["index_bytes"])
@@ -217,7 +253,7 @@ def main() -> None:
     print(f"  SR max: {np.nanmax(y_sr):.3f} at pct={x_sr[np.nanargmax(y_sr)]:.0f}")
 
     # ── Update lsv_thresholds.json ────────────────────────────────────────────
-    thresh_file = d / "lsv_thresholds.json"
+    thresh_file = out_dir / "lsv_thresholds.json"
     if thresh_file.exists():
         with open(thresh_file) as f:
             thresholds = json.load(f)
@@ -232,12 +268,13 @@ def main() -> None:
     thresh_rec = float(np.percentile(lsv_score, args.recommended_pct))
     retain_rec = float((lsv_score <= thresh_rec).mean())
 
-    thresholds["percentile"]                = args.recommended_pct
-    thresholds["composite_threshold"]       = thresh_rec
+    thresholds["percentile"] = args.recommended_pct
+    thresholds["composite_threshold"] = thresh_rec
     thresholds["composite_retain_fraction"] = retain_rec
     thresholds[f"per_target_p{args.recommended_pct}_lsv_norm"] = per_target_thresh
-    thresholds["elbow_analysis"]["recommended_pct"]  = args.recommended_pct
-    thresholds["elbow_analysis"][f"sr_at_p{args.recommended_pct}"] = float(sr_at_rec_val)
+    elbow_analysis = thresholds.setdefault("elbow_analysis", {})
+    elbow_analysis["recommended_pct"] = args.recommended_pct
+    elbow_analysis[f"sr_at_p{args.recommended_pct}"] = float(sr_at_rec_val)
     thresholds["note"] = (
         f"Primary filter for Task 1.1d: flag MOFs where "
         f"mean(LSV_norm_8targets) > composite_threshold (= p{args.recommended_pct} of val+test)."
@@ -255,8 +292,8 @@ def main() -> None:
     print(f"\n  lsv_thresholds.json updated.")
 
     # ── Generate single-panel SR figure ───────────────────────────────────────
-    out_fig = out_dir / "ALN-s1e3-ep100_LSV_elbow_analysis.png"
-    plot_sr_panel(pcts, sr, args.recommended_pct, out_fig)
+    out_fig = out_dir / "ALIGNN_ep150_LSV_sr_analysis.png"
+    plot_sr_panel(pcts, sr, ret, thresh_rec, args.recommended_pct, out_fig)
 
     print("\nDone.")
 

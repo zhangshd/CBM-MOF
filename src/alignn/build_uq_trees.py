@@ -12,8 +12,8 @@ Usage:
     conda activate mofmthnn
     cd /home/zhangsd/repos/CBM-MOF
     python src/alignn/build_uq_trees.py \\
-        --input-dir  results/alignn/ep100_deployment \\
-        --output-dir results/alignn/ep100_deployment \\
+        --input-dir  results/alignn/model_ep150/deployment \\
+        --output-dir results/alignn/model_ep150/uq \\
         --k 10
 """
 
@@ -193,13 +193,15 @@ def plot_pca_by_targets(
 
         unit  = TASK_UNITS.get(col, "")
         label = TASK_LABELS.get(col, col)
-        suffix = " (log₁₀)" if use_log else f" ({unit})" if unit else ""
+        suffix = r" (log$_{10}$)" if use_log else f" ({unit})" if unit else ""
         ax.set_title(f"{label}{suffix}", fontsize=7)
         ax.set_xlabel(f"PC1 ({var_exp[0]:.1f}%)", fontsize=6.5)
         ax.set_ylabel(f"PC2 ({var_exp[1]:.1f}%)", fontsize=6.5)
 
-    fig.suptitle("Latent Space PCA — ALIGNN ep100 (train + val + test, coloured by target)",
-                 fontsize=8)
+    fig.suptitle(
+        "Latent Space PCA for ALIGNN ep150 (train + val + test, colored by target)",
+        fontsize=8,
+    )
     plt.tight_layout(rect=[0, 0, 1, 0.97])
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=DPI, bbox_inches="tight", pad_inches=0.02)
@@ -316,8 +318,10 @@ def plot_lsv_cutoff_scan(
     leg.get_frame().set_linewidth(0.4)
 
     title_map = {"MAE": "MAE", "R2": "R²", "MAPE": "MAPE (%)"}
-    ax1.set_title(f"LSV Cutoff Scan — {title_map[metric]} vs Retention  "
-                  f"(ALIGNN ep100, k=current)", fontsize=7)
+    ax1.set_title(
+        f"LSV Cutoff Scan: {title_map[metric]} vs Retention (ALIGNN ep150, k=current)",
+        fontsize=7,
+    )
 
     fig.tight_layout()
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -396,7 +400,7 @@ def run_k_sweep(
         leg = ax.legend(fontsize=5.5, loc="lower right", handlelength=1.2)
         leg.get_frame().set_linewidth(0.3)
 
-    fig.suptitle("k-NN Sensitivity Sweep — Spearman ρ per Target  (ALIGNN ep100)", fontsize=8)
+    fig.suptitle("k-NN Sensitivity Sweep: Spearman ρ per Target (ALIGNN ep150)", fontsize=8)
     fig.tight_layout(rect=[0, 0, 1, 0.97])
     fig.savefig(out_png, dpi=DPI, bbox_inches="tight", pad_inches=0.02)
     plt.close(fig)
@@ -587,7 +591,7 @@ def main():
 
     # 6c: LSV cutoff scan — 3 metric variants
     for metric in ("MAE", "R2", "MAPE"):
-        stem = f"ALN-s1e3-ep100_LSV_calc_{metric}"
+        stem = f"ALIGNN_ep150_LSV_cutoff_{metric}"
         plot_lsv_cutoff_scan(
             comb_lsv, comb_preds, comb_truths,
             metric=metric,
@@ -628,9 +632,9 @@ def main():
     print(f"  uq_calibration.png")
     if not args.skip_pca:
         print(f"  latent_space_pca_by_targets.png")
-    print(f"  ALN-s1e3-ep100_LSV_calc_MAE.png")
-    print(f"  ALN-s1e3-ep100_LSV_calc_R2.png")
-    print(f"  ALN-s1e3-ep100_LSV_calc_MAPE.png")
+    print(f"  ALIGNN_ep150_LSV_cutoff_MAE.png")
+    print(f"  ALIGNN_ep150_LSV_cutoff_R2.png")
+    print(f"  ALIGNN_ep150_LSV_cutoff_MAPE.png")
     print(f"  k_sensitivity_sweep.json")
     print(f"  k_sensitivity_sweep.png")
 
