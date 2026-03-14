@@ -1,8 +1,8 @@
 """
 extract_split_embeddings.py
 ============================
-Extract latent embeddings and run inference on a single train/val/test split
-for ALIGNN ep100 model deployment (UQ pipeline prerequisite).
+Extract latent embeddings and run inference on one train/val/test split
+for an ALIGNN deployment directory (UQ pipeline prerequisite).
 
 Outputs per split:
   {split}_latent_features.npz   — shape (N, 256), includes mol_ids array
@@ -24,12 +24,12 @@ Usage (single split, interactive):
         --checkpoint  results/alignn/500ep_symlog_1e-3_ddp2g/checkpoint_epoch0100.pt \\
         --meta-checkpoint results/alignn/500ep_symlog_1e-3_ddp2g/best_model.pt \\
         --data-dir    data/alignn_symlog_1e-3 \\
-        --output-dir  results/alignn/ep100_deployment \\
+        --output-dir  results/alignn/model_ep150/deployment \\
         --split       train \\
         --batch-size  32 \\
         --max-atoms   500
 
-SLURM (submitted via run_extract_embeddings.sh --array=0-2):
+SLURM (submitted via src/alignn/scripts/run_extract_embeddings.sh --array=0-2):
     split index: 0=train  1=val  2=test
 """
 

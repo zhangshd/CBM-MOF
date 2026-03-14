@@ -11,7 +11,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 
-from src.alignn.plot_bkt_paper_figures import load_bkt_summaries  # noqa: E402
+from src.figures.fig_process_validation import load_bkt_summaries  # noqa: E402
 
 
 class TestBktOutputLayout(unittest.TestCase):

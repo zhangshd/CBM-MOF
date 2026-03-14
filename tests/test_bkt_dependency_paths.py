@@ -8,7 +8,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 
-from src.alignn.run_bkt_top_candidates import ATC_CU_CIF  # noqa: E402
+from src.alignn.run_breakthrough import ATC_CU_CIF  # noqa: E402
 
 
 class TestBktDependencyPaths(unittest.TestCase):

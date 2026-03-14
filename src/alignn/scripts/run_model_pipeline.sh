@@ -7,23 +7,24 @@
 #
 # Steps:
 #   1.1a  Extract train/val/test embeddings (GPU, SLURM array)
-#   1.1b  Build UQ trees (CPU, ~5 min)
+#   1.1b  Calibrate UQ (CPU, ~5 min)
 #   1.1c  Full library inference (GPU, SLURM array × 24)
 #   1.1d  Apply UQ to full library (CPU, ~2 min)
-#   2.1+2.2  Compute API + UQ pre-screening (CPU, ~5 min)
+#   2.1  Compute API metrics (CPU, ~5 min)
+#   2.2  Apply UQ + uptake pre-screening (CPU, ~1 min)
 #   2.3a  Stability screening (CPU, ~10 min)
 #   2.3b  Top-100 selection + CIF collection (CPU, ~1 min)
 #   2.4a  Submit GCMC + Widom SLURM jobs
 #
 # Usage:
 #   # Step 1: Submit GPU jobs (1.1a + 1.1c in parallel)
-#   bash src/alignn/run_model_pipeline.sh 220 gpu
+#   bash src/alignn/scripts/run_model_pipeline.sh 220 gpu
 #
 #   # Step 2: After GPU jobs complete, run CPU steps + submit GCMC
-#   bash src/alignn/run_model_pipeline.sh 220 cpu
+#   bash src/alignn/scripts/run_model_pipeline.sh 220 cpu
 #
 #   # Or run everything (submits GPU, waits, then CPU):
-#   bash src/alignn/run_model_pipeline.sh 220 all
+#   bash src/alignn/scripts/run_model_pipeline.sh 220 all
 #
 # Prerequisites:
 #   - Graph cache from ep100 run at results/alignn/full_library_inference/graph_cache/
@@ -136,7 +137,7 @@ submit_gpu_jobs() {
 
     echo ""
     echo "  GPU jobs submitted. Monitor with: squeue -u \$USER"
-    echo "  After completion, run:  bash src/alignn/run_model_pipeline.sh $EPOCH cpu"
+    echo "  After completion, run:  bash src/alignn/scripts/run_model_pipeline.sh $EPOCH cpu"
 
     # Save job IDs for dependency tracking
     echo "$JOB_EMB" > "$MODEL_DIR/.job_emb"
@@ -148,27 +149,31 @@ run_cpu_steps() {
     echo ""
     echo "=== Running CPU steps ==="
 
-    # Task 1.1b: Build UQ trees (needs embeddings from 1.1a)
+    # Task 1.1b: Calibrate UQ (needs embeddings from 1.1a)
     echo ""
-    echo "--- Task 1.1b: Build UQ trees ---"
-    python -u src/alignn/build_uq_trees.py \
-        --input-dir "$DEPLOY_DIR" \
-        --output-dir "$UQ_DIR" \
+    echo "--- Task 1.1b: Calibrate UQ ---"
+    python -u src/alignn/calibrate_uq.py \
+        --model-dir "$MODEL_DIR" \
         --k 10 \
+        --recommended-pct 85 \
         --skip-pca
 
     # Task 1.1d: Apply UQ to full library (needs inference from 1.1c + trees from 1.1b)
     echo ""
     echo "--- Task 1.1d: Apply UQ ---"
     python -u src/alignn/apply_uq_to_library.py \
-        --uq-pkl "$UQ_DIR/uncertainty_trees.pkl" \
-        --input-dir "$INFER_DIR" \
-        --output-dir "$INFER_DIR"
+        --model-dir "$MODEL_DIR"
 
-    # Task 2.1+2.2: Compute API + UQ pre-screening
+    # Task 2.1: Compute API metrics
     echo ""
-    echo "--- Tasks 2.1+2.2: API metrics + UQ pre-screening ---"
+    echo "--- Task 2.1: API metrics ---"
     python -u src/alignn/compute_api_metrics.py \
+        --model-dir "$MODEL_DIR"
+
+    # Task 2.2: UQ + uptake pre-screening
+    echo ""
+    echo "--- Task 2.2: Library pre-screening ---"
+    python -u src/alignn/screen_library.py \
         --model-dir "$MODEL_DIR"
 
     # Task 2.3a: Stability screening
@@ -193,7 +198,7 @@ run_cpu_steps() {
     echo "============================================================"
     echo "CPU steps complete for ep${EPOCH}."
     echo "  GCMC jobs submitted. After completion, parse with:"
-    echo "    python src/alignn/parse_gcmc_results.py --model-dir $MODEL_DIR"
+    echo "    python src/alignn/parse_validation_results.py --model-dir $MODEL_DIR"
     echo "============================================================"
 }
 

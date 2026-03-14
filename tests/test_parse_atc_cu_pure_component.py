@@ -10,10 +10,10 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 
-from src.alignn.parse_atc_cu_pure_component import (  # noqa: E402
+from src.alignn.parse_pure_component_results import (  # noqa: E402
     BENCHMARK_MOF,
     STANDARD_COLUMNS,
-    filter_atc_cu_pure_component,
+    filter_pure_component,
 )
 
 
@@ -94,7 +94,7 @@ class TestParseAtcCuPureComponent(unittest.TestCase):
             ]
         )
 
-        result = filter_atc_cu_pure_component(df)
+        result = filter_pure_component(df, benchmark_only=True)
 
         self.assertEqual(list(result.columns), STANDARD_COLUMNS)
         self.assertEqual(len(result), 2)
