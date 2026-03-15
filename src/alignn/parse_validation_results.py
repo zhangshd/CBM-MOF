@@ -53,6 +53,7 @@ from src.alignn.screening.metrics import calculate_separation_metrics
 
 def calculate_validation_metrics(df: pd.DataFrame) -> pd.DataFrame:
     """Recompute PSA/VSA metrics on GCMC columns using the canonical formula."""
+    result_df = df.copy()
     gcmc_input = pd.DataFrame(
         {
             "AdsCH4_10kPa": df["gcmc_AdsCH4_10kPa"],
@@ -75,7 +76,10 @@ def calculate_validation_metrics(df: pd.DataFrame) -> pd.DataFrame:
         "VSA_alpha_CH4_N2": "gcmc_VSA_alpha_CH4_N2",
         "VSA_API_CH4": "gcmc_VSA_API_CH4",
     }
-    return calculated.rename(columns=rename_back)
+    calculated = calculated.rename(columns=rename_back)
+    for src_col, dst_col in rename_back.items():
+        result_df[dst_col] = calculated[dst_col]
+    return result_df
 
 
 # ---------------------------------------------------------------------------
@@ -320,7 +324,7 @@ def main(test_mode: bool = False) -> None:
 
     with open(summary_path, "w") as f:
         f.write("# GCMC Validation Summary — Task 2.4b\n\n")
-        f.write(f"**Date**: 2026-03-06\n")
+        f.write(f"**Date**: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}\n")
         f.write(f"**Input**: {n_union} Top candidates (PSA ∪ VSA union)\n")
         f.write(f"**GCMC coverage**: {n_gcmc_found}/{n_union} ({100-failure_rate:.1f}%)\n\n")
         f.write("---\n\n")

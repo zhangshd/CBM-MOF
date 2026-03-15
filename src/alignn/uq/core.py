@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import pickle
 from pathlib import Path
 
@@ -12,7 +13,7 @@ from src.alignn.common.constants import DEFAULT_K_NEIGHBORS, MIN_SPEARMAN_RHO, T
 
 
 def build_faiss_index(train_emb: np.ndarray):
-    """Build a faiss IndexFlatL2, preferring GPU when available."""
+    """Build a faiss IndexFlatL2, using GPU only when explicitly enabled."""
     try:
         import faiss
     except ImportError as exc:
@@ -21,6 +22,9 @@ def build_faiss_index(train_emb: np.ndarray):
     dim = train_emb.shape[1]
     index_cpu = faiss.IndexFlatL2(dim)
     index_cpu.add(train_emb)
+
+    if os.environ.get("ALIGNN_ENABLE_FAISS_GPU", "").strip() not in {"1", "true", "TRUE", "yes", "YES"}:
+        return index_cpu
 
     try:
         res = faiss.StandardGpuResources()

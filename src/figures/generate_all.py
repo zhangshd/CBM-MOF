@@ -36,14 +36,10 @@ def main():
     from src.figures.fig_model_comparison import generate_assets
     generate_assets(output_dir, table_csv)
 
-    # ── Figure 8a ──
-    print("[2/3] Top-100 PSA parity plots (Fig 8a)...")
-    from src.figures.fig8_top100_parity import plot_top100_psa, plot_top100_vsa
-    plot_top100_psa(output_dir)
-
-    # ── Figure 8b ──
-    print("[3/3] Top-100 VSA parity plots (Fig 8b)...")
-    plot_top100_vsa(output_dir)
+    # ── Figure 9 ──
+    print("[2/2] Combined Top-100 GCMC validation figure (Fig 9)...")
+    from src.figures.fig_top100_validation import plot_figure9
+    plot_figure9(output_dir)
 
     print(f"\nAll figures saved to: {output_dir.resolve()}")
 

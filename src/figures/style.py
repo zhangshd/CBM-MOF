@@ -170,8 +170,8 @@ TASK_LABELS = {
     "AdsN2_10kPa":    r"N$_2$@10 kPa",
     "AdsN2_100kPa":   r"N$_2$@100 kPa",
     "AdsN2_1000kPa":  r"N$_2$@1000 kPa",
-    "QstCH4":         r"$Q_{\mathrm{st}}$(CH$_4$)",
-    "QstN2":          r"$Q_{\mathrm{st}}$(N$_2$)",
+    "QstCH4":         r"$Q_{\mathrm{st,CH}_4}$",
+    "QstN2":          r"$Q_{\mathrm{st,N}_2}$",
 }
 
 TASK_UNITS = {
@@ -271,11 +271,12 @@ def set_emphasized_title(
 
 
 def save_figure(fig, name: str, output_dir: str | Path,
-                formats=("png",)):
+                formats=("png",), tight_layout: bool = True):
     """Save figure in multiple formats with tight layout."""
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    fig.tight_layout()
+    if tight_layout:
+        fig.tight_layout()
     for fmt in formats:
         path = output_dir / f"{name}.{fmt}"
         fig.savefig(path, format=fmt, dpi=DPI, bbox_inches="tight",

@@ -52,8 +52,8 @@ PRESSURES_GCMC   = [1e4, 1e5, 1e6]             # Pa → 0.1, 1, 10 bar
 PRESSURES_WIDOM  = [0.0]                        # Pa (Widom insertion dummy)
 ADSORBATE_GCMC   = [{"molecules": ["methane", "N2"], "mol_fractions": [0.2, 0.8]}]
 WIDOM_MOLECULES  = ["methane", "N2"]
-N_CPUS_GCMC      = 64
-N_CPUS_WIDOM     = 64
+N_CPUS_GCMC      = 190
+N_CPUS_WIDOM     = 190
 PARTITION        = "C9654"
 
 
