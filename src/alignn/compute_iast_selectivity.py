@@ -19,7 +19,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pygaps
-from pygaps.iast import iast_point_fraction
+try:
+    from pygaps.prediction import iast_point_fraction
+except ImportError:  # pragma: no cover - backward compatibility
+    from pygaps.iast import iast_point_fraction
 
 warnings.filterwarnings("ignore", category=UserWarning)
 

@@ -32,6 +32,14 @@ CLUSTER_CSV = (
     REPO_ROOT / "results" / "cbm_screening" / "inference"
     / "umap_coordinates_descriptor_with_metrics_ml.csv"
 )
+TRAINING_ADS_R1_CSV = (
+    REPO_ROOT / "results" / "cbm_screening"
+    / "gcmc_round1_DreidingTraPPEJson" / "raspa3_parsed_results_0911.csv"
+)
+TRAINING_WIDOM_R1_CSV = (
+    REPO_ROOT / "results" / "cbm_screening"
+    / "widom_round1_DREIDING" / "widom_results_0911.csv"
+)
 OUTPUT_DIR_DEFAULT = (
     REPO_ROOT / "results" / "alignn" / "model_ep150" / "bkt_candidates"
 )
@@ -91,21 +99,54 @@ def allocate_slots(cluster_counts: dict, total_slots: int = 10) -> dict:
     return allocation
 
 
+def load_benchmark_api_thresholds() -> dict[str, float]:
+    """Recompute ATC-Cu API thresholds from the Round-1 benchmark data."""
+    ads_df = pd.read_csv(TRAINING_ADS_R1_CSV)
+    widom_df = pd.read_csv(TRAINING_WIDOM_R1_CSV)
+
+    ads_piv = ads_df.pivot_table(
+        index="MofName", columns=["GasName", "Pressure[bar]"], values="AbsLoading", aggfunc="first"
+    )
+    ads_piv.columns = [f"Ads{gas}_{int(pressure * 100)}kPa" for gas, pressure in ads_piv.columns]
+    ads_piv = ads_piv.reset_index().rename(columns={"MofName": "mof_id"})
+    ads_piv.rename(columns={c: c.replace("methane", "CH4") for c in ads_piv.columns if "methane" in c}, inplace=True)
+
+    widom_piv = widom_df.pivot_table(index="MofName", columns="GasName", values="AdsorptionHeat", aggfunc="first")
+    widom_piv.columns = [f"Qst{gas}" for gas in widom_piv.columns]
+    widom_piv = widom_piv.reset_index().rename(columns={"MofName": "mof_id", "Qstmethane": "QstCH4"})
+
+    merged = ads_piv.merge(widom_piv, on="mof_id", how="outer")
+    for process, ads_label, des_label in [("PSA", "1000kPa", "100kPa"), ("VSA", "100kPa", "10kPa")]:
+        merged[f"{process}_WC_CH4"] = merged[f"AdsCH4_{ads_label}"] - merged[f"AdsCH4_{des_label}"]
+        alpha = (merged[f"AdsCH4_{ads_label}"] / merged[f"AdsN2_{ads_label}"]) * 4.0
+        merged[f"{process}_alpha_CH4_N2"] = alpha
+        merged[f"{process}_API_CH4"] = ((alpha - 1.0) * merged[f"{process}_WC_CH4"]) / merged["QstCH4"].abs()
+
+    row = merged.loc[merged["mof_id"] == "CoRE-2020[Cu][pts]3[ASR]1"]
+    if row.empty:
+        raise ValueError("ATC-Cu benchmark not found in Round-1 training data.")
+    row = row.iloc[0]
+    return {"PSA": float(row["PSA_API_CH4"]), "VSA": float(row["VSA_API_CH4"])}
+
+
 def select_top_n(
     df: pd.DataFrame,
     rank_col: str,
     api_col: str,
+    benchmark_threshold: float,
     cluster_col: str = "cluster",
     n: int = 10,
     label: str = "PSA",
 ) -> pd.DataFrame:
     """
-    Select top-N MOFs from the subset where *rank_col* is non-null,
-    using cluster-proportional allocation and ranking by *api_col*.
+    Select top-N MOFs from the validated benchmark-beating subset where
+    *rank_col* is non-null and *api_col* exceeds the ATC-Cu benchmark.
+    Within each cluster, rank by *api_col*.
     """
     subset = df[df[rank_col].notna()].copy()
+    subset = subset[subset[api_col] > benchmark_threshold].copy()
     print(f"\n{'='*60}")
-    print(f"[{label}] Selecting Top-{n} from {len(subset)} candidates")
+    print(f"[{label}] Selecting Top-{n} from {len(subset)} benchmark-beating candidates")
     print(f"{'='*60}")
 
     # Cluster distribution
@@ -120,7 +161,7 @@ def select_top_n(
     selected = []
     for cid, n_slots in sorted(allocation.items()):
         cluster_df = subset[subset[cluster_col] == cid].sort_values(
-            api_col, ascending=False
+            [api_col, rank_col, "mof_id"], ascending=[False, True, True]
         )
         picked = cluster_df.head(n_slots)
         selected.append(picked)
@@ -129,7 +170,7 @@ def select_top_n(
             f"(best {api_col}={picked[api_col].iloc[0]:.4f})"
         )
 
-    result = pd.concat(selected).sort_values(api_col, ascending=False)
+    result = pd.concat(selected).sort_values([api_col, rank_col, "mof_id"], ascending=[False, True, True])
     result[f"{label.lower()}_top10_rank"] = range(1, len(result) + 1)
 
     print(f"\n  Selected {len(result)} MOFs for {label} Top-{n}")
@@ -172,6 +213,7 @@ def main() -> None:
     print(f"Loading cluster data: {CLUSTER_CSV}")
     gcmc = pd.read_csv(gcmc_csv)
     cluster = pd.read_csv(CLUSTER_CSV, usecols=["CifId", "cluster"])
+    benchmark_thresholds = load_benchmark_api_thresholds()
 
     # Merge cluster labels
     merged = gcmc.merge(cluster, left_on="mof_id", right_on="CifId", how="left")
@@ -184,12 +226,14 @@ def main() -> None:
     # Select Top-10 PSA
     psa_top = select_top_n(
         merged, rank_col="psa_rank", api_col="gcmc_PSA_API_CH4",
+        benchmark_threshold=benchmark_thresholds["PSA"],
         n=args.n, label="PSA"
     )
 
     # Select Top-10 VSA
     vsa_top = select_top_n(
         merged, rank_col="vsa_rank", api_col="gcmc_VSA_API_CH4",
+        benchmark_threshold=benchmark_thresholds["VSA"],
         n=args.n, label="VSA"
     )
 
@@ -233,15 +277,20 @@ def main() -> None:
     cif_dst_dir = output_dir / "cifs"
     if cif_src_dir.exists():
         cif_dst_dir.mkdir(parents=True, exist_ok=True)
+        for existing in cif_dst_dir.glob("*.cif"):
+            existing.unlink()
         n_linked = 0
-        for mof_id in combined_ids:
+        missing_cifs = []
+        for mof_id in sorted(combined_ids):
             src = cif_src_dir / f"{mof_id}.cif"
             dst = cif_dst_dir / f"{mof_id}.cif"
-            if src.exists() and not dst.exists():
+            if src.exists():
                 dst.symlink_to(src.resolve())
                 n_linked += 1
-            elif not src.exists():
-                print(f"  WARNING: CIF not found: {src}")
+            else:
+                missing_cifs.append(str(src))
+        for missing in missing_cifs:
+            print(f"  WARNING: CIF not found: {missing}")
         print(f"  Symlinked {n_linked} CIFs → {cif_dst_dir}")
     else:
         print(f"  WARNING: CIF source dir not found: {cif_src_dir}")

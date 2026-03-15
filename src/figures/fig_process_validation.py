@@ -1,17 +1,18 @@
 """
 fig_process_validation.py
 =========================
-Task 3.3: Generate process-validation paper figures and tables.
+Generate process-validation figures and tables from the refreshed Top-20 set.
 
 Generates:
-  Step 1: 2-panel breakthrough curve overlay (PSA + VSA, with ATC-Cu baseline)
+  Step 1: Figure 12 breakthrough overlays (PSA + VSA, with ATC-Cu baseline)
   Step 2: Performance comparison table (Top-10 vs ATC-Cu, Markdown + CSV)
-  Step 3: 2-panel selectivity comparison (GCMC thermodynamic vs BKT dynamic)
+  Step 3: Figure 13 selectivity comparison (GCMC / IAST / BKT)
   Step 4: Multi-panel isotherm fit figure (SI)
 
 Usage:
     python src/figures/fig_process_validation.py [--step 1|2|3|4|all]
     python src/figures/fig_process_validation.py --model-dir results/alignn/model_ep150
+    python src/figures/fig_process_validation.py --fig-dir /path/to/manuscript/figures
 """
 
 import argparse
@@ -30,14 +31,19 @@ import pandas as pd
 # ---------------------------------------------------------------------------
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "src"))
+sys.path.insert(0, str(REPO_ROOT / "src" / "alignn"))
 
 # Publication style
 sys.path.insert(0, str(REPO_ROOT / "src" / "figures"))
 from style import (
+    NATURE_COLORS,
     set_publication_style, save_figure,
     SINGLE_COL_INCH, DOUBLE_COL_INCH, MAX_HEIGHT_INCH, DPI,
 )
-from alignn.process.curve_cache import CURVE_CACHE_COLUMNS
+try:
+    from alignn.process.curve_cache import CURVE_CACHE_COLUMNS
+except ImportError:  # pragma: no cover - direct script fallback
+    from process.curve_cache import CURVE_CACHE_COLUMNS
 
 # Force unbuffered output
 import functools
@@ -266,7 +272,7 @@ def step1_breakthrough_overlay(bkt_dir: Path, fig_dir: Path):
                   handletextpad=0.3, columnspacing=0.5)
 
     fig.tight_layout(w_pad=0.5, h_pad=0.2)
-    save_figure(fig, "FigX_breakthrough_overlay", fig_dir, formats=("png",))
+    save_figure(fig, "Figure12", fig_dir, formats=("png",))
     plt.close(fig)
     print(f"\nStep 1 complete: breakthrough overlay figure saved.")
 
@@ -302,6 +308,8 @@ def step2_performance_table(bkt_dir: Path, fig_dir: Path):
     print("=" * 70)
 
     bkt_df = load_bkt_summaries(bkt_dir)
+    curve_df = load_breakthrough_curve_cache(bkt_dir)
+    t50_df = _compute_t50_table(curve_df)
     psa_top10 = pd.read_csv(bkt_dir / "top10_psa.csv")
     vsa_top10 = pd.read_csv(bkt_dir / "top10_vsa.csv")
 
@@ -334,6 +342,7 @@ def step2_performance_table(bkt_dir: Path, fig_dir: Path):
 
     # Build tables for each process
     md_lines = ["# BKT Performance Comparison: Top-10 vs ATC-Cu\n"]
+    combined_rows = []
 
     for process, top10_df, rank_col in [
         ("PSA", psa_top10, "psa_top10_rank"),
@@ -353,6 +362,11 @@ def step2_performance_table(bkt_dir: Path, fig_dir: Path):
             left_on="mof", right_on="mof_id", how="left",
         )
         merged = merged.sort_values(rank_col)
+        merged = merged.merge(
+            t50_df[t50_df["process"] == process][["mof", "t50_min"]],
+            on="mof",
+            how="left",
+        )
 
         # Compute dynamic selectivity
         merged["alpha_dyn"] = (merged["q_CH4_mol_per_kg"] / merged["q_N2_mol_per_kg"]) * 4
@@ -398,6 +412,9 @@ def step2_performance_table(bkt_dir: Path, fig_dir: Path):
             atc_q_ch4, atc_q_n2, atc_alpha_dyn = np.nan, np.nan, np.nan
             atc_alpha_th, atc_ratio_dt = np.nan, np.nan
             atc_alpha_iast, atc_ratio_it = np.nan, np.nan
+
+        atc_t50_row = t50_df[(t50_df["process"] == process) & (t50_df["mof"] == ATC_CU_NAME)]
+        atc_t50 = float(atc_t50_row["t50_min"].iloc[0]) if not atc_t50_row.empty else np.nan
 
         merged["vs_ATC_Cu"] = merged["q_CH4_mol_per_kg"] / atc_q_ch4
 
@@ -463,16 +480,41 @@ def step2_performance_table(bkt_dir: Path, fig_dir: Path):
         # Save per-process CSV
         out_cols = ["mof", "cluster", "rho_s", "q_CH4_mol_per_kg",
                     "q_N2_mol_per_kg", "alpha_thermo", "alpha_IAST", "alpha_dyn",
-                    "ratio_dyn_thermo", "ratio_iast_thermo", "vs_ATC_Cu"]
+                    "ratio_dyn_thermo", "ratio_iast_thermo", "t50_min", "vs_ATC_Cu"]
         csv_path = bkt_dir / f"performance_table_{process.lower()}.csv"
         merged[out_cols].to_csv(csv_path, index=False)
         print(f"  Saved: {csv_path}")
+
+        export_df = merged[out_cols].copy()
+        export_df.insert(0, "process", process)
+        export_df["is_benchmark"] = False
+        combined_rows.append(export_df)
+        combined_rows.append(pd.DataFrame([{
+            "process": process,
+            "mof": ATC_CU_NAME,
+            "cluster": atc_cluster,
+            "rho_s": atc["rho_s"] if not atc_row.empty else np.nan,
+            "q_CH4_mol_per_kg": atc_q_ch4,
+            "q_N2_mol_per_kg": atc_q_n2,
+            "alpha_thermo": atc_alpha_th,
+            "alpha_IAST": atc_alpha_iast,
+            "alpha_dyn": atc_alpha_dyn,
+            "ratio_dyn_thermo": atc_ratio_dt,
+            "ratio_iast_thermo": atc_ratio_it,
+            "t50_min": atc_t50,
+            "vs_ATC_Cu": 1.0,
+            "is_benchmark": True,
+        }]))
 
     # Save combined Markdown
     md_path = bkt_dir / "performance_table_combined.md"
     with open(md_path, "w") as f:
         f.write("\n".join(md_lines))
     print(f"  Saved: {md_path}")
+
+    metrics_csv = bkt_dir / "Figure13_process_metrics.csv"
+    pd.concat(combined_rows, ignore_index=True).to_csv(metrics_csv, index=False)
+    print(f"  Saved: {metrics_csv}")
     print(f"\nStep 2 complete: performance tables generated.")
 
 
@@ -527,6 +569,28 @@ def _prepare_selectivity_process_df(
     merged["ypos"] = np.arange(len(merged))[::-1]
     return merged
 
+
+def _compute_t50_table(curve_df: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+    for (mof, process), group in curve_df.groupby(["mof", "process"]):
+        g = group.sort_values("time_min")
+        g = g[g["time_min"] > 0].copy()
+        x = g["time_min"].to_numpy()
+        y = g["CC0_CH4"].to_numpy()
+        t50 = np.nan
+        if len(x) > 1:
+            above = np.where(y >= 0.5)[0]
+            if len(above) > 0:
+                idx = int(above[0])
+                if idx == 0:
+                    t50 = float(x[0])
+                else:
+                    x0, x1 = x[idx - 1], x[idx]
+                    y0, y1 = y[idx - 1], y[idx]
+                    t50 = float(x0 + (0.5 - y0) * (x1 - x0) / (y1 - y0)) if y1 != y0 else float(x1)
+        rows.append({"mof": mof, "process": process, "t50_min": t50})
+    return pd.DataFrame(rows)
+
 def step3_selectivity_comparison(bkt_dir: Path, fig_dir: Path):
     """Generate 2-panel dumbbell plot comparing GCMC, IAST, and BKT selectivities."""
     print("\n" + "=" * 70)
@@ -534,6 +598,8 @@ def step3_selectivity_comparison(bkt_dir: Path, fig_dir: Path):
     print("=" * 70)
 
     bkt_df = load_bkt_summaries(bkt_dir)
+    curve_df = load_breakthrough_curve_cache(bkt_dir)
+    t50_df = _compute_t50_table(curve_df)
     psa_top10 = pd.read_csv(bkt_dir / "top10_psa.csv")
     vsa_top10 = pd.read_csv(bkt_dir / "top10_vsa.csv")
 
@@ -620,7 +686,7 @@ def step3_selectivity_comparison(bkt_dir: Path, fig_dir: Path):
 
     axes[0].legend(frameon=False, fontsize=8.5, loc="lower right")
     fig.subplots_adjust(left=0.20, right=0.985, bottom=0.13, top=0.92, wspace=0.12)
-    save_figure(fig, "FigX_selectivity_comparison", fig_dir, formats=("png",))
+    save_figure(fig, "Figure13", fig_dir, formats=("png",))
     plt.close(fig)
     print(f"\nStep 3 complete: dumbbell selectivity comparison figure saved.")
 
@@ -749,7 +815,7 @@ def main():
     )
     parser.add_argument(
         "--fig-dir", type=str, default=None,
-        help="Output directory for figures (default: manuscript/figures/).",
+        help="Output directory for figures (default: <model-dir>/figures).",
     )
     args = parser.parse_args()
 

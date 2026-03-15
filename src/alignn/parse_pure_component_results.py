@@ -82,15 +82,19 @@ def filter_pure_component(df: pd.DataFrame, benchmark_only: bool = False) -> pd.
 
 
 def parse_candidate_mode(model_dir: Path, output_csv: Path) -> None:
-    """Parse Top-20 candidate pure-component results."""
+    """Parse Top-20 candidate pure-component results across all batch directories."""
     model_paths = resolve_model_paths(model_dir)
     gcmc_base = model_paths.bkt_candidates_dir / "gcmc_pure_component"
     frames = []
     for gas_dir in ["methane", "N2"]:
-        result_dir = gcmc_base / gas_dir / "batch_000"
-        if not result_dir.exists():
+        gas_base = gcmc_base / gas_dir
+        if not gas_base.exists():
             continue
-        frames.append(filter_pure_component(load_with_raspa3_parser(result_dir)))
+        batch_dirs = sorted(
+            path for path in gas_base.glob("batch_*") if path.is_dir()
+        )
+        for result_dir in batch_dirs:
+            frames.append(filter_pure_component(load_with_raspa3_parser(result_dir)))
     if not frames:
         raise FileNotFoundError(f"No candidate pure-component results found under {gcmc_base}")
     combined = pd.concat(frames, ignore_index=True)

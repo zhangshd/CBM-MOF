@@ -37,9 +37,15 @@ def main():
     generate_assets(output_dir, table_csv)
 
     # ── Figure 9 ──
-    print("[2/2] Combined Top-100 GCMC validation figure (Fig 9)...")
+    print("[2/3] Combined Top-100 GCMC validation figure (Fig 9)...")
     from src.figures.fig_top100_validation import plot_figure9
     plot_figure9(output_dir)
+
+    # ── Figure 10 / Figure 11 ──
+    print("[3/3] Validated screening-result figures (Fig 10 and Fig 11)...")
+    from src.figures.fig_screening_results import plot_figure10, plot_figure11
+    plot_figure10(output_dir)
+    plot_figure11(output_dir)
 
     print(f"\nAll figures saved to: {output_dir.resolve()}")
 

@@ -38,7 +38,10 @@ BKT_ROOT = REPO_ROOT / "src" / "bkt"
 
 # Add BKT to path
 sys.path.insert(0, str(REPO_ROOT / "src"))
-from alignn.process.curve_cache import build_curve_dataframe, rebuild_curve_cache
+try:
+    from alignn.process.curve_cache import build_curve_dataframe, rebuild_curve_cache
+except ImportError:  # pragma: no cover - direct script fallback
+    from process.curve_cache import build_curve_dataframe, rebuild_curve_cache
 
 
 def solve_breakthrough_robust(localparam, min_points=10):

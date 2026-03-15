@@ -41,7 +41,7 @@ FORCE_FIELD_PARAMS_FILE = str(REPO_ROOT / "configs" / "custom_force_field.json")
 # ---------------------------------------------------------------------------
 # GCMC parameters
 # ---------------------------------------------------------------------------
-BATCH_SIZE = 50
+DEFAULT_BATCH_SIZE = 50
 TEMPERATURES = [298.0]  # K
 
 # 10 log-spaced pressures from 0.01 to 10 bar, in Pa
@@ -53,8 +53,8 @@ PRESSURES_PA = [round(p * 1e5) for p in PRESSURES_BAR]
 ADSORBATE_CH4 = [{"molecules": ["methane"], "mol_fractions": [1.0]}]
 ADSORBATE_N2 = [{"molecules": ["N2"], "mol_fractions": [1.0]}]
 
-N_CPUS = 200  # 20 MOFs × 10 pressures = 200 sims, all parallel in one round
-PARTITION = "C9654"
+DEFAULT_N_CPUS = 200
+DEFAULT_PARTITION = "C9654"
 
 
 # ---------------------------------------------------------------------------
@@ -66,6 +66,9 @@ def submit_pure_component(
     cif_dir: str,
     output_base: str,
     dry_run: bool,
+    batch_size: int,
+    n_cpus: int,
+    partition: str,
 ) -> None:
     """Submit pure-component GCMC jobs for a single gas."""
     sys.path.insert(0, str(GCMC_SRC))
@@ -93,14 +96,15 @@ def submit_pure_component(
     print(f"  Pressures   : {len(PRESSURES_PA)} points, "
           f"{PRESSURES_PA[0]}–{PRESSURES_PA[-1]} Pa")
     print(f"  Pressures (bar): {[f'{p:.4f}' for p in PRESSURES_BAR]}")
-    print(f"  CPUs/job    : {N_CPUS}")
+    print(f"  CPUs/job    : {n_cpus}")
+    print(f"  Batch size  : {batch_size}")
     print(f"  Dry run     : {dry_run}")
 
     raspa3_batch_slurm_submitter(
-        cif_dir, output_dir, BATCH_SIZE,
+        cif_dir, output_dir, batch_size,
         TEMPERATURES, PRESSURES_PA, adsorbate,
         FORCE_FIELD_DIR, SIMULATION_PARAMS_FILE, FORCE_FIELD_PARAMS_FILE,
-        N_CPUS, PARTITION, dry_run,
+        n_cpus, partition, dry_run,
     )
 
 
@@ -123,6 +127,18 @@ def main() -> None:
     parser.add_argument(
         "--gas", type=str, default=None, choices=["methane", "N2"],
         help="Submit only this gas (default: both)."
+    )
+    parser.add_argument(
+        "--batch-size", type=int, default=DEFAULT_BATCH_SIZE,
+        help="Number of CIFs per batch (default: 50)."
+    )
+    parser.add_argument(
+        "--n-cpus", type=int, default=DEFAULT_N_CPUS,
+        help="Maximum parallel workers per submitted job (default: 200)."
+    )
+    parser.add_argument(
+        "--partition", type=str, default=DEFAULT_PARTITION,
+        help="SLURM partition name (default: C9654)."
     )
     args = parser.parse_args()
     dry_run = args.test
@@ -150,7 +166,15 @@ def main() -> None:
     # Submit
     gases = [args.gas] if args.gas else ["methane", "N2"]
     for gas in gases:
-        submit_pure_component(gas, cif_dir, output_base, dry_run)
+        submit_pure_component(
+            gas,
+            cif_dir,
+            output_base,
+            dry_run,
+            batch_size=args.batch_size,
+            n_cpus=args.n_cpus,
+            partition=args.partition,
+        )
 
     if not dry_run:
         print(f"\n{'='*60}")
