@@ -1,9 +1,12 @@
 """
-compute_iast_selectivity.py — Task 3.4: IAST selectivity from pure-component Langmuir fits.
+compute_iast_selectivity.py — IAST selectivity from pure-component DSLF fits.
 
-Reads Langmuir parameters (K, n_m) from best_isotherm_fits.csv, constructs
-pyGAPS ModelIsotherms for each MOF's CH4 and N2, then calls IAST to compute
-mixed-component selectivity at CBM conditions (CH4:N2 = 20:80).
+Reads DSLF parameters (qs1, b1, n1, qs2, b2, n2) from best_isotherm_fits.csv,
+constructs loading and spreading pressure functions, then solves binary IAST
+via spreading pressure equality (brentq) to compute mixed-component selectivity
+at CBM conditions (CH4:N2 = 20:80).
+
+No pyGAPS dependency — uses custom IAST solver.
 
 Output: bkt_candidates/iast_selectivity.csv
 
@@ -18,13 +21,9 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import pygaps
-try:
-    from pygaps.prediction import iast_point_fraction
-except ImportError:  # pragma: no cover - backward compatibility
-    from pygaps.iast import iast_point_fraction
+from scipy.optimize import brentq
 
-warnings.filterwarnings("ignore", category=UserWarning)
+warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -39,37 +38,109 @@ PROCESS_CONDITIONS = {
 }
 
 
-def langmuir_points(K, n_m, p_max=15.0, n_points=100):
-    """Generate Langmuir isotherm data points for pyGAPS fitting."""
-    P = np.linspace(0.001, p_max, n_points)
-    q = n_m * K * P / (1 + K * P)
-    return P, q
+# ---------------------------------------------------------------------------
+# DSLF isotherm functions
+# ---------------------------------------------------------------------------
+
+def dslf_loading(P, qs1, b1, n1, qs2, b2, n2):
+    """DSLF loading at pressure P [bar]. Returns q [mol/kg]."""
+    Pn1 = np.power(np.maximum(P, 1e-30), n1)
+    Pn2 = np.power(np.maximum(P, 1e-30), n2)
+    return qs1 * b1 * Pn1 / (1.0 + b1 * Pn1) + qs2 * b2 * Pn2 / (1.0 + b2 * Pn2)
 
 
-def build_model_isotherm(K, n_m, material, adsorbate, temperature=298):
-    """Create a pyGAPS ModelIsotherm from Langmuir parameters."""
-    P, q = langmuir_points(K, n_m)
-    iso = pygaps.ModelIsotherm(
-        pressure=P.tolist(),
-        loading=q.tolist(),
-        model="Langmuir",
-        material=material,
-        adsorbate=adsorbate,
-        temperature=temperature,
-        pressure_unit="bar",
-        loading_basis="molar",
-        loading_unit="mmol",
-        material_basis="mass",
-        material_unit="g",
-    )
-    return iso
+def dslf_spreading_pressure(P, qs1, b1, n1, qs2, b2, n2):
+    """DSLF spreading pressure integral: (qs1/n1)*ln(1+b1*P^n1) + (qs2/n2)*ln(1+b2*P^n2)."""
+    Pn1 = np.power(np.maximum(P, 1e-30), n1)
+    Pn2 = np.power(np.maximum(P, 1e-30), n2)
+    return (qs1 / n1) * np.log(1.0 + b1 * Pn1) + (qs2 / n2) * np.log(1.0 + b2 * Pn2)
 
+
+# ---------------------------------------------------------------------------
+# Custom IAST solver
+# ---------------------------------------------------------------------------
+
+def iast_binary(
+    params_1: dict,
+    params_2: dict,
+    y: tuple,
+    P_total: float,
+) -> tuple:
+    """
+    Solve binary IAST for two components with DSLF isotherms.
+
+    params_1, params_2: dicts with keys {qs1, b1, n1, qs2, b2, n2}
+    y: (y1, y2) gas-phase mole fractions
+    P_total: total pressure [bar]
+
+    Returns (alpha, q1, q2) where alpha = (q1/q2)*(y2/y1).
+    """
+    y1, y2 = y
+
+    def sp1(P):
+        return dslf_spreading_pressure(P, **params_1)
+
+    def sp2(P):
+        return dslf_spreading_pressure(P, **params_2)
+
+    def q1_fn(P):
+        return dslf_loading(P, **params_1)
+
+    def q2_fn(P):
+        return dslf_loading(P, **params_2)
+
+    def objective(x1):
+        if x1 <= 0 or x1 >= 1:
+            return 1e10
+        P1_0 = P_total * y1 / x1
+        P2_0 = P_total * y2 / (1.0 - x1)
+        return sp1(P1_0) - sp2(P2_0)
+
+    eps = 1e-10
+    try:
+        f_lo = objective(eps)
+        f_hi = objective(1.0 - eps)
+        if f_lo * f_hi > 0:
+            # Sweep to find bracket
+            xx = np.linspace(eps, 1.0 - eps, 200)
+            ff = np.array([objective(x) for x in xx])
+            sign_changes = np.where(np.diff(np.sign(ff)))[0]
+            if len(sign_changes) == 0:
+                return np.nan, np.nan, np.nan
+            idx = sign_changes[0]
+            x1_sol = brentq(objective, xx[idx], xx[idx + 1], xtol=1e-12)
+        else:
+            x1_sol = brentq(objective, eps, 1.0 - eps, xtol=1e-12)
+    except Exception:
+        return np.nan, np.nan, np.nan
+
+    x2_sol = 1.0 - x1_sol
+    P1_0 = P_total * y1 / x1_sol
+    P2_0 = P_total * y2 / x2_sol
+
+    q1_pure = q1_fn(P1_0)
+    q2_pure = q2_fn(P2_0)
+
+    if q1_pure <= 0 or q2_pure <= 0:
+        return np.nan, np.nan, np.nan
+
+    q_total = 1.0 / (x1_sol / q1_pure + x2_sol / q2_pure)
+    q1 = x1_sol * q_total
+    q2 = x2_sol * q_total
+
+    alpha = (q1 / q2) * (y2 / y1) if q2 > 0 else np.nan
+
+    return alpha, q1, q2
+
+
+# ---------------------------------------------------------------------------
+# Main pipeline
+# ---------------------------------------------------------------------------
 
 def compute_iast_selectivity(fits_csv: Path, output_csv: Path):
     """Compute IAST selectivity for all MOFs in best_isotherm_fits.csv."""
     df = pd.read_csv(fits_csv)
 
-    # Group by MOF — need CH4 and N2 rows
     mof_names = df["MofName"].unique()
     print(f"Found {len(mof_names)} MOFs in {fits_csv.name}")
 
@@ -78,7 +149,6 @@ def compute_iast_selectivity(fits_csv: Path, output_csv: Path):
     for mof in mof_names:
         mof_data = df[df["MofName"] == mof]
 
-        # Extract Langmuir params for CH4 and N2
         ch4_row = mof_data[mof_data["gas_key"].str.contains("methane")]
         n2_row = mof_data[mof_data["gas_key"].str.contains("N2")]
 
@@ -89,43 +159,35 @@ def compute_iast_selectivity(fits_csv: Path, output_csv: Path):
         ch4_row = ch4_row.iloc[0]
         n2_row = n2_row.iloc[0]
 
-        # Only use Langmuir model fits
-        if ch4_row["selected_model"] != "Langmuir" or n2_row["selected_model"] != "Langmuir":
-            print(f"  WARNING: {mof} not using Langmuir model, skipping")
-            continue
-
-        K_ch4, nm_ch4 = ch4_row["K"], ch4_row["n_m"]
-        K_n2, nm_n2 = n2_row["K"], n2_row["n_m"]
-
-        # Build pyGAPS isotherms
-        iso_ch4 = build_model_isotherm(K_ch4, nm_ch4, mof, "methane")
-        iso_n2 = build_model_isotherm(K_n2, nm_n2, mof, "nitrogen")
+        # Extract DSLF parameters
+        params_ch4 = {
+            "qs1": ch4_row["qs1"], "b1": ch4_row["b1"], "n1": ch4_row["n1"],
+            "qs2": ch4_row["qs2"], "b2": ch4_row["b2"], "n2": ch4_row["n2"],
+        }
+        params_n2 = {
+            "qs1": n2_row["qs1"], "b1": n2_row["b1"], "n1": n2_row["n1"],
+            "qs2": n2_row["qs2"], "b2": n2_row["b2"], "n2": n2_row["n2"],
+        }
 
         row_result = {"MofName": mof}
 
         for process, cond in PROCESS_CONDITIONS.items():
             total_p = cond["total_pressure"]
-            try:
-                loadings = iast_point_fraction(
-                    [iso_ch4, iso_n2],
-                    gas_mole_fraction=[Y_CH4, Y_N2],
-                    total_pressure=total_p,
-                    warningoff=True,
-                )
-                q_ch4 = loadings[0]  # mmol/g
-                q_n2 = loadings[1]   # mmol/g
-                alpha_iast = (q_ch4 / q_n2) * (Y_N2 / Y_CH4) if q_n2 > 0 else np.nan
-            except Exception as e:
-                print(f"  WARNING: IAST failed for {mof} {process}: {e}")
-                q_ch4, q_n2, alpha_iast = np.nan, np.nan, np.nan
+            alpha, q_ch4, q_n2 = iast_binary(
+                params_ch4, params_n2, (Y_CH4, Y_N2), total_p,
+            )
 
-            row_result[f"alpha_IAST_{process}"] = alpha_iast
+            row_result[f"alpha_IAST_{process}"] = alpha
             row_result[f"q_CH4_IAST_{process}"] = q_ch4
             row_result[f"q_N2_IAST_{process}"] = q_n2
 
         results.append(row_result)
-        print(f"  {mof}: PSA α_IAST={row_result.get('alpha_IAST_PSA', 'N/A'):.4f}, "
-              f"VSA α_IAST={row_result.get('alpha_IAST_VSA', 'N/A'):.4f}")
+
+        psa_a = row_result.get('alpha_IAST_PSA', float('nan'))
+        vsa_a = row_result.get('alpha_IAST_VSA', float('nan'))
+        psa_str = f"{psa_a:.4f}" if not np.isnan(psa_a) else "N/A"
+        vsa_str = f"{vsa_a:.4f}" if not np.isnan(vsa_a) else "N/A"
+        print(f"  {mof}: PSA α_IAST={psa_str}, VSA α_IAST={vsa_str}")
 
     result_df = pd.DataFrame(results)
     result_df.to_csv(output_csv, index=False)
@@ -137,7 +199,7 @@ def compute_iast_selectivity(fits_csv: Path, output_csv: Path):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Compute IAST selectivity from pure-component Langmuir fits."
+        description="Compute IAST selectivity from pure-component DSLF fits."
     )
     parser.add_argument(
         "--model-dir", type=str, default=None,
@@ -161,7 +223,7 @@ def main():
         sys.exit(1)
 
     print("=" * 60)
-    print("IAST Selectivity Computation")
+    print("IAST Selectivity Computation (DSLF)")
     print("=" * 60)
     print(f"Input:  {fits_csv}")
     print(f"Output: {output_csv}")
