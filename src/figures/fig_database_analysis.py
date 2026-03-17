@@ -521,7 +521,7 @@ def plot_feature_shift_kde(
 
         if i == 0:
             ax.legend(
-                loc="upper left",
+                loc="lower right",
                 frameon=True,
                 fancybox=False,
                 edgecolor="#999999",

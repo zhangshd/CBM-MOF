@@ -136,12 +136,12 @@ def plot_figure10(output_dir: Path) -> dict[str, float]:
     fig, axes = plt.subplots(2, 2, figsize=(DOUBLE_COL_INCH, 0.92 * DOUBLE_COL_INCH))
 
     scatter_specs = [
-        (axes[0, 0], psa, "PSA", NATURE_COLORS["blue"], "(a) PSA selectivity vs working capacity"),
-        (axes[0, 1], vsa, "VSA", NATURE_COLORS["orange"], "(b) VSA selectivity vs working capacity"),
+        (axes[0, 0], psa, "PSA", NATURE_COLORS["blue"], "(a) PSA Elites (n=100)"),
+        (axes[0, 1], vsa, "VSA", NATURE_COLORS["orange"], "(b) VSA Elites (n=100)"),
     ]
     enrichment_specs = [
-        (axes[1, 0], train["PSA_API_CH4"].dropna(), psa["gcmc_PSA_API_CH4"].dropna(), benchmark["PSA_API_CH4"], NATURE_COLORS["blue"], "(c) PSA API enrichment"),
-        (axes[1, 1], train["VSA_API_CH4"].dropna(), vsa["gcmc_VSA_API_CH4"].dropna(), benchmark["VSA_API_CH4"], NATURE_COLORS["orange"], "(d) VSA API enrichment"),
+        (axes[1, 0], "PSA", train["PSA_API_CH4"].dropna(), psa["gcmc_PSA_API_CH4"].dropna(), benchmark["PSA_API_CH4"], NATURE_COLORS["blue"], "(c) PSA API enrichment"),
+        (axes[1, 1], "VSA", train["VSA_API_CH4"].dropna(), vsa["gcmc_VSA_API_CH4"].dropna(), benchmark["VSA_API_CH4"], NATURE_COLORS["orange"], "(d) VSA API enrichment"),
     ]
 
     summary = {}
@@ -167,9 +167,9 @@ def plot_figure10(output_dir: Path) -> dict[str, float]:
         summary[f"{process.lower()}_benchmark_api"] = float(benchmark[f"{process}_API_CH4"])
         summary[f"{process.lower()}_validated_mean_api"] = float(df_sub[c_col].mean())
 
-    for ax, training_api, validated_api, benchmark_api, color, title in enrichment_specs:
+    for ax, process, training_api, validated_api, benchmark_api, color, title in enrichment_specs:
         sns.kdeplot(training_api, ax=ax, color=NATURE_COLORS["purple"], fill=True, alpha=0.25, linewidth=1.0, label=f"Training set (n={len(training_api):,})")
-        sns.kdeplot(validated_api, ax=ax, color=color, fill=True, alpha=0.35, linewidth=1.0, label=f"Validated Top-100 (n={len(validated_api)})")
+        sns.kdeplot(validated_api, ax=ax, color=color, fill=True, alpha=0.35, linewidth=1.0, label=f"{process} Elites(n={len(validated_api)})")
         ax.axvline(training_api.mean(), color=NATURE_COLORS["purple"], linestyle="--", linewidth=0.8)
         ax.axvline(validated_api.mean(), color=color, linestyle="--", linewidth=0.8)
         ax.axvline(benchmark_api, color="black", linestyle=":", linewidth=1.0, label=f"ATC-Cu = {benchmark_api:.3f}")
@@ -177,7 +177,7 @@ def plot_figure10(output_dir: Path) -> dict[str, float]:
         ax.set_ylabel("Density")
         set_emphasized_title(ax, title, loc="left")
         _apply_axis_style(ax)
-        ax.legend(loc="upper right", fontsize=6.5, frameon=False)
+        ax.legend(loc="best", fontsize=6.5, frameon=False)
 
     fig.tight_layout(w_pad=0.7, h_pad=0.9)
     save_figure(fig, "Figure10", output_dir, formats=("png",))
