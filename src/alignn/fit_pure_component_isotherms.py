@@ -1,24 +1,20 @@
 """
-fit_pure_component_isotherms.py — Fit pure-component isotherms using DSLF model.
+fit_pure_component_isotherms.py — Fit pure-component isotherms using DSL model.
 
-For each MOF × gas, fits a Dual-Site Langmuir-Freundlich (DSLF) isotherm:
-  q = qs1*b1*P^n1/(1+b1*P^n1) + qs2*b2*P^n2/(1+b2*P^n2)
+For each MOF × gas, fits a Dual-Site Langmuir (DSL) isotherm:
+  q = qs1*b1*P/(1+b1*P) + qs2*b2*P/(1+b2*P)
 
 Uses reparameterized L-BFGS-B optimization with physical constraints:
   - Site ordering: b1 >= b2 (site 1 = strong, site 2 = weak)
   - No phantom sites: each site >= 5% of total capacity
-  - Exponent bounds: n ∈ [0.5, 1.5]
-  - Light L2 regularization on (n-1) to discourage overfitting
+  - Reparameterization: theta = [q_total, alpha, log_b1, delta_log_b]
 
-Reparameterization:
-  theta = [q_total, alpha, log_b1, delta_log_b, n1, n2]
-  Physical:  qs1 = q_total * alpha,  qs2 = q_total * (1 - alpha)
-             b1 = exp(log_b1),       b2 = exp(log_b1 - delta)  [b1 >= b2]
+Competitive DSL is thermodynamically exact (= IAST when n=1), so the same
+parameters are used for both IAST selectivity and BKT breakthrough simulation.
 
-BKT mapping:
-  DSLF → isomodel="DSLF"
-    b1 → bi[i], qs1 → qsbi[i], n1 → n1i[i]  (site 1)
-    b2 → di[i], qs2 → qsdi[i], n2 → n2i[i]  (site 2)
+BKT mapping (isomodel="DSL"):
+  b1 → bi[i],  qs1 → qsbi[i]  (site 1)
+  b2 → di[i],  qs2 → qsdi[i]  (site 2)
 
 Usage:
     python src/alignn/fit_pure_component_isotherms.py
@@ -55,15 +51,20 @@ STANDARD_COLUMNS = [
 
 
 # ---------------------------------------------------------------------------
-# DSLF model
+# DSL model
 # ---------------------------------------------------------------------------
 
-def dslf(P, params):
-    """Dual-Site Langmuir-Freundlich. P [bar], params=[qs1,b1,n1,qs2,b2,n2]."""
-    qs1, b1, n1, qs2, b2, n2 = params
-    Pn1 = np.power(np.maximum(P, 1e-30), n1)
-    Pn2 = np.power(np.maximum(P, 1e-30), n2)
-    return qs1 * b1 * Pn1 / (1.0 + b1 * Pn1) + qs2 * b2 * Pn2 / (1.0 + b2 * Pn2)
+def dsl(P, params):
+    """Dual-Site Langmuir. P [bar], params=[qs1, b1, qs2, b2].
+    Returns q [mol/kg]."""
+    qs1, b1, qs2, b2 = params
+    return qs1 * b1 * P / (1.0 + b1 * P) + qs2 * b2 * P / (1.0 + b2 * P)
+
+
+def dsl_sp(P, params):
+    """DSL spreading pressure: qs1*ln(1+b1*P) + qs2*ln(1+b2*P)."""
+    qs1, b1, qs2, b2 = params
+    return qs1 * np.log(1.0 + b1 * P) + qs2 * np.log(1.0 + b2 * P)
 
 
 # ---------------------------------------------------------------------------
@@ -71,13 +72,13 @@ def dslf(P, params):
 # ---------------------------------------------------------------------------
 
 def _theta_to_params(theta):
-    """Convert reparameterized theta to physical DSLF params."""
-    q_total, alpha, log_b1, delta, n1, n2 = theta
+    """Convert reparameterized theta to physical DSL params [qs1, b1, qs2, b2]."""
+    q_total, alpha, log_b1, delta = theta
     qs1 = q_total * alpha
     qs2 = q_total * (1.0 - alpha)
     b1 = np.exp(log_b1)
     b2 = np.exp(log_b1 - delta)  # delta >= 0 → b1 >= b2
-    return np.array([qs1, b1, n1, qs2, b2, n2])
+    return np.array([qs1, b1, qs2, b2])
 
 
 # Bounds in theta space
@@ -86,28 +87,23 @@ THETA_BOUNDS = [
     (0.05, 0.95),    # alpha — each site >= 5% capacity (no phantom sites)
     (-18.0, 14.0),   # log_b1 (b1 ∈ [~1e-8, ~1e6])
     (0.0, 15.0),     # delta_log_b >= 0 → b1 >= b2
-    (0.5, 1.5),      # n1
-    (0.5, 1.5),      # n2
 ]
-
-# L2 regularization on (n - 1)
-REGULARIZATION_LAMBDA = 1e-4
 
 # Multi-start initial guesses in theta space
 THETA_P0_LIST = [
-    [5.0, 0.4, 0.0, 3.0, 1.0, 1.0],
-    [8.0, 0.3, -0.7, 2.0, 0.9, 0.9],
-    [3.0, 0.6, 1.6, 4.0, 1.0, 1.0],
-    [10.0, 0.2, 0.0, 2.0, 1.1, 0.8],
-    [6.0, 0.5, -2.3, 1.0, 1.0, 1.0],
-    [4.0, 0.3, 1.0, 5.0, 0.8, 1.2],
-    [15.0, 0.15, -1.0, 3.0, 1.0, 1.0],
-    [2.0, 0.7, 2.0, 2.0, 1.0, 1.0],
-    [5.0, 0.5, 0.0, 1.0, 1.0, 1.0],
-    [12.0, 0.1, -0.5, 4.0, 1.0, 1.0],
+    [5.0, 0.4, 0.0, 3.0],
+    [8.0, 0.3, -0.7, 2.0],
+    [3.0, 0.6, 1.6, 4.0],
+    [10.0, 0.2, 0.0, 2.0],
+    [6.0, 0.5, -2.3, 1.0],
+    [4.0, 0.3, 1.0, 5.0],
+    [15.0, 0.15, -1.0, 3.0],
+    [2.0, 0.7, 2.0, 2.0],
+    [5.0, 0.5, 0.0, 1.0],
+    [12.0, 0.1, -0.5, 4.0],
 ]
 
-DSLF_PARAM_NAMES = ["qs1", "b1", "n1", "qs2", "b2", "n2"]
+DSL_PARAM_NAMES = ["qs1", "b1", "qs2", "b2"]
 
 
 # ---------------------------------------------------------------------------
@@ -131,15 +127,14 @@ def _rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
 
 
 # ---------------------------------------------------------------------------
-# DSLF fitting
+# DSL fitting
 # ---------------------------------------------------------------------------
 
-def _fit_dslf(
+def _fit_dsl(
     pressures: np.ndarray,
     loadings: np.ndarray,
-    reg_lambda: float = REGULARIZATION_LAMBDA,
 ) -> Optional[Dict]:
-    """Fit DSLF with reparameterized L-BFGS-B + n regularization."""
+    """Fit DSL with reparameterized L-BFGS-B."""
     n_data = len(pressures)
     q_var = np.var(loadings)
     if q_var == 0:
@@ -147,11 +142,8 @@ def _fit_dslf(
 
     def objective(theta):
         params = _theta_to_params(theta)
-        pred = dslf(pressures, params)
-        sse_norm = np.sum((loadings - pred) ** 2) / (n_data * q_var)
-        n1, n2 = theta[4], theta[5]
-        reg = reg_lambda * ((n1 - 1.0) ** 2 + (n2 - 1.0) ** 2)
-        return sse_norm + reg
+        pred = dsl(pressures, params)
+        return np.sum((loadings - pred) ** 2) / (n_data * q_var)
 
     best_result = None
     best_obj = np.inf
@@ -172,19 +164,19 @@ def _fit_dslf(
         return None
 
     popt = _theta_to_params(best_result.x)
-    q_pred = dslf(pressures, popt)
+    q_pred = dsl(pressures, popt)
     r2 = _r_squared(loadings, q_pred)
     mae = _mae(loadings, q_pred)
     rmse = _rmse(loadings, q_pred)
 
-    params = dict(zip(DSLF_PARAM_NAMES, popt.tolist()))
+    params = dict(zip(DSL_PARAM_NAMES, popt.tolist()))
 
     return {
         "parameters": params,
         "R2": r2,
         "MAE": mae,
         "RMSE": rmse,
-        "n_params": 6,
+        "n_params": 4,
         "experimental_pressures": pressures.tolist(),
         "experimental_loadings": loadings.tolist(),
     }
@@ -207,17 +199,14 @@ def load_and_merge(csv_paths: List[Path]) -> pd.DataFrame:
     return pd.concat(frames, ignore_index=True)
 
 
-def fit_all(
-    merged: pd.DataFrame,
-    reg_lambda: float = REGULARIZATION_LAMBDA,
-) -> Tuple[pd.DataFrame, Dict]:
-    """Fit DSLF to all MOFs. Returns (fit_df, summary_dict)."""
+def fit_all(merged: pd.DataFrame) -> Tuple[pd.DataFrame, Dict]:
+    """Fit DSL to all MOFs. Returns (fit_df, summary_dict)."""
 
     rows = []
     summary = {}
 
     mof_names = sorted(merged["MofName"].unique())
-    print(f"\nFitting {len(mof_names)} MOFs × DSLF (reparam L-BFGS-B, λ_n={reg_lambda}) ...")
+    print(f"\nFitting {len(mof_names)} MOFs × DSL (reparam L-BFGS-B) ...")
 
     for mof in mof_names:
         mof_df = merged[merged["MofName"] == mof]
@@ -234,15 +223,16 @@ def fit_all(
             pressures = sub["Pressure[bar]"].values.astype(float)
             loadings = sub["AbsLoading"].values.astype(float)
 
-            result = _fit_dslf(pressures, loadings, reg_lambda=reg_lambda)
+            result = _fit_dsl(pressures, loadings)
             if result is None:
-                print(f"    {gas:>8s}  DSLF  FAILED")
+                print(f"    {gas:>8s}  DSL  FAILED")
                 continue
 
             p = result["parameters"]
             b1_b2 = p["b1"] / p["b2"] if p["b2"] > 0 else float("inf")
-            print(f"    {gas:>8s}  DSLF  R²={result['R2']:.6f}  "
-                  f"n1={p['n1']:.3f} n2={p['n2']:.3f}  "
+            print(f"    {gas:>8s}  DSL  R²={result['R2']:.6f}  "
+                  f"qs1={p['qs1']:.2f} b1={p['b1']:.3f}  "
+                  f"qs2={p['qs2']:.2f} b2={p['b2']:.3f}  "
                   f"b1/b2={b1_b2:.1f}")
             mof_r2s.append(result["R2"])
 
@@ -252,8 +242,8 @@ def fit_all(
                 "gas_key": gas_key,
                 "GasName": gas,
                 "Temperature[K]": temp,
-                "selected_model": "DSLF",
-                "bkt_isomodel": "DSLF",
+                "selected_model": "DSL",
+                "bkt_isomodel": "DSL",
                 "R2": result["R2"],
                 "MAE": result["MAE"],
                 "RMSE": result["RMSE"],
@@ -262,20 +252,18 @@ def fit_all(
                 "pressure_max_bar": max(result["experimental_pressures"]),
                 "qs1": p["qs1"],
                 "b1": p["b1"],
-                "n1": p["n1"],
                 "qs2": p["qs2"],
                 "b2": p["b2"],
-                "n2": p["n2"],
             }
             rows.append(row)
 
         if mof_r2s:
             summary[mof] = {
-                "selected_model": "DSLF",
+                "selected_model": "DSL",
                 "mean_r2": float(np.mean(mof_r2s)),
                 "n_gases_fit": len(mof_r2s),
             }
-            print(f"    → DSLF  mean R²={np.mean(mof_r2s):.6f}")
+            print(f"    → DSL  mean R²={np.mean(mof_r2s):.6f}")
 
     return pd.DataFrame(rows), summary
 
@@ -286,7 +274,7 @@ def fit_all(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Fit pure-component isotherms with reparameterized DSLF model."
+        description="Fit pure-component isotherms with reparameterized DSL model."
     )
     parser.add_argument(
         "--input-csv", dest="input_csvs", action="append", default=None,
@@ -295,10 +283,6 @@ def main() -> None:
     parser.add_argument(
         "--output-dir", type=str, default=str(DEFAULT_OUTPUT_DIR),
         help="Output directory for fit results.",
-    )
-    parser.add_argument(
-        "--reg-lambda", type=float, default=REGULARIZATION_LAMBDA,
-        help=f"L2 regularization strength on (n-1) (default: {REGULARIZATION_LAMBDA}).",
     )
     args = parser.parse_args()
 
@@ -317,7 +301,7 @@ def main() -> None:
     print(f"Merged input: {merged_csv}  ({len(merged)} rows)")
 
     # Fit
-    best_df, sel_summary = fit_all(merged, reg_lambda=args.reg_lambda)
+    best_df, sel_summary = fit_all(merged)
 
     # Save
     best_csv = output_dir / "best_isotherm_fits.csv"
@@ -336,12 +320,11 @@ def main() -> None:
     n_mofs = best_df["MofName"].nunique()
     mean_r2 = best_df["R2"].mean()
     min_r2 = best_df["R2"].min()
-    max_n = max(best_df["n1"].max(), best_df["n2"].max())
     max_b1 = best_df["b1"].max()
     min_qs = min(best_df["qs1"].min(), best_df["qs2"].min())
     print(f"  MOFs fitted : {n_mofs}")
+    print(f"  Model       : DSL (all)")
     print(f"  R² mean/min : {mean_r2:.6f} / {min_r2:.6f}")
-    print(f"  n range     : [{min(best_df['n1'].min(), best_df['n2'].min()):.3f}, {max_n:.3f}]")
     print(f"  max b1      : {max_b1:.3f}")
     print(f"  min qs      : {min_qs:.3f}")
 

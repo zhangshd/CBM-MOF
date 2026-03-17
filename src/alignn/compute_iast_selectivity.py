@@ -1,12 +1,11 @@
 """
-compute_iast_selectivity.py — IAST selectivity from pure-component DSLF fits.
+compute_iast_selectivity.py — IAST selectivity from pure-component DSL fits.
 
-Reads DSLF parameters (qs1, b1, n1, qs2, b2, n2) from best_isotherm_fits.csv,
-constructs loading and spreading pressure functions, then solves binary IAST
-via spreading pressure equality (brentq) to compute mixed-component selectivity
-at CBM conditions (CH4:N2 = 20:80).
+Reads DSL parameters (qs1, b1, qs2, b2) from best_isotherm_fits.csv,
+then solves binary IAST via spreading pressure equality (brentq).
 
-No pyGAPS dependency — uses custom IAST solver.
+Competitive DSL = IAST(DSL) when n=1, so these results are thermodynamically
+consistent with the BKT breakthrough simulation.
 
 Output: bkt_candidates/iast_selectivity.csv
 
@@ -39,25 +38,21 @@ PROCESS_CONDITIONS = {
 
 
 # ---------------------------------------------------------------------------
-# DSLF isotherm functions
+# DSL isotherm functions
 # ---------------------------------------------------------------------------
 
-def dslf_loading(P, qs1, b1, n1, qs2, b2, n2):
-    """DSLF loading at pressure P [bar]. Returns q [mol/kg]."""
-    Pn1 = np.power(np.maximum(P, 1e-30), n1)
-    Pn2 = np.power(np.maximum(P, 1e-30), n2)
-    return qs1 * b1 * Pn1 / (1.0 + b1 * Pn1) + qs2 * b2 * Pn2 / (1.0 + b2 * Pn2)
+def dsl_loading(P, qs1, b1, qs2, b2):
+    """DSL loading at pressure P [bar]. Returns q [mol/kg]."""
+    return qs1 * b1 * P / (1.0 + b1 * P) + qs2 * b2 * P / (1.0 + b2 * P)
 
 
-def dslf_spreading_pressure(P, qs1, b1, n1, qs2, b2, n2):
-    """DSLF spreading pressure integral: (qs1/n1)*ln(1+b1*P^n1) + (qs2/n2)*ln(1+b2*P^n2)."""
-    Pn1 = np.power(np.maximum(P, 1e-30), n1)
-    Pn2 = np.power(np.maximum(P, 1e-30), n2)
-    return (qs1 / n1) * np.log(1.0 + b1 * Pn1) + (qs2 / n2) * np.log(1.0 + b2 * Pn2)
+def dsl_spreading_pressure(P, qs1, b1, qs2, b2):
+    """DSL spreading pressure: qs1*ln(1+b1*P) + qs2*ln(1+b2*P)."""
+    return qs1 * np.log(1.0 + b1 * P) + qs2 * np.log(1.0 + b2 * P)
 
 
 # ---------------------------------------------------------------------------
-# Custom IAST solver
+# IAST solver
 # ---------------------------------------------------------------------------
 
 def iast_binary(
@@ -67,9 +62,9 @@ def iast_binary(
     P_total: float,
 ) -> tuple:
     """
-    Solve binary IAST for two components with DSLF isotherms.
+    Solve binary IAST for two components with DSL isotherms.
 
-    params_1, params_2: dicts with keys {qs1, b1, n1, qs2, b2, n2}
+    params_1, params_2: dicts with keys {qs1, b1, qs2, b2}
     y: (y1, y2) gas-phase mole fractions
     P_total: total pressure [bar]
 
@@ -78,16 +73,16 @@ def iast_binary(
     y1, y2 = y
 
     def sp1(P):
-        return dslf_spreading_pressure(P, **params_1)
+        return dsl_spreading_pressure(P, **params_1)
 
     def sp2(P):
-        return dslf_spreading_pressure(P, **params_2)
+        return dsl_spreading_pressure(P, **params_2)
 
     def q1_fn(P):
-        return dslf_loading(P, **params_1)
+        return dsl_loading(P, **params_1)
 
     def q2_fn(P):
-        return dslf_loading(P, **params_2)
+        return dsl_loading(P, **params_2)
 
     def objective(x1):
         if x1 <= 0 or x1 >= 1:
@@ -101,7 +96,6 @@ def iast_binary(
         f_lo = objective(eps)
         f_hi = objective(1.0 - eps)
         if f_lo * f_hi > 0:
-            # Sweep to find bracket
             xx = np.linspace(eps, 1.0 - eps, 200)
             ff = np.array([objective(x) for x in xx])
             sign_changes = np.where(np.diff(np.sign(ff)))[0]
@@ -159,14 +153,14 @@ def compute_iast_selectivity(fits_csv: Path, output_csv: Path):
         ch4_row = ch4_row.iloc[0]
         n2_row = n2_row.iloc[0]
 
-        # Extract DSLF parameters
+        # Extract DSL parameters
         params_ch4 = {
-            "qs1": ch4_row["qs1"], "b1": ch4_row["b1"], "n1": ch4_row["n1"],
-            "qs2": ch4_row["qs2"], "b2": ch4_row["b2"], "n2": ch4_row["n2"],
+            "qs1": ch4_row["qs1"], "b1": ch4_row["b1"],
+            "qs2": ch4_row["qs2"], "b2": ch4_row["b2"],
         }
         params_n2 = {
-            "qs1": n2_row["qs1"], "b1": n2_row["b1"], "n1": n2_row["n1"],
-            "qs2": n2_row["qs2"], "b2": n2_row["b2"], "n2": n2_row["n2"],
+            "qs1": n2_row["qs1"], "b1": n2_row["b1"],
+            "qs2": n2_row["qs2"], "b2": n2_row["b2"],
         }
 
         row_result = {"MofName": mof}
@@ -187,7 +181,7 @@ def compute_iast_selectivity(fits_csv: Path, output_csv: Path):
         vsa_a = row_result.get('alpha_IAST_VSA', float('nan'))
         psa_str = f"{psa_a:.4f}" if not np.isnan(psa_a) else "N/A"
         vsa_str = f"{vsa_a:.4f}" if not np.isnan(vsa_a) else "N/A"
-        print(f"  {mof}: PSA α_IAST={psa_str}, VSA α_IAST={vsa_str}")
+        print(f"  {mof}: PSA α={psa_str}, VSA α={vsa_str}")
 
     result_df = pd.DataFrame(results)
     result_df.to_csv(output_csv, index=False)
@@ -199,7 +193,7 @@ def compute_iast_selectivity(fits_csv: Path, output_csv: Path):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Compute IAST selectivity from pure-component DSLF fits."
+        description="Compute IAST selectivity from pure-component DSL fits."
     )
     parser.add_argument(
         "--model-dir", type=str, default=None,
@@ -223,7 +217,7 @@ def main():
         sys.exit(1)
 
     print("=" * 60)
-    print("IAST Selectivity Computation (DSLF)")
+    print("IAST Selectivity Computation (DSL)")
     print("=" * 60)
     print(f"Input:  {fits_csv}")
     print(f"Output: {output_csv}")

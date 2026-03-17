@@ -8,8 +8,8 @@ Runs 22 simulations total:
   - VSA Top-10: feed_pressure=1 bar,  CH4:N2=20:80
   - ATC-Cu:     both PSA (10 bar) and VSA (1 bar)
 
-Isotherm parameters from best_isotherm_fits.csv (DSLF model →
-BKT isomodel="DSLF" with per-component-per-site exponents).
+Isotherm parameters from best_isotherm_fits.csv (DSL model →
+BKT isomodel="DSL"). Competitive DSL = IAST(DSL), thermodynamically exact.
 
 Adsorbent density (rho_s) from pymatgen Structure.density (g/cm³ × 1000 → kg/m³).
 
@@ -161,16 +161,14 @@ def build_mods(
     mods["nocomponents"] = 2
     mods["feed_yi"] = [0.2, 0.8]  # CH4:N2 = 20:80
     mods["ini_yi"] = [1e-10, 1e-10]
-    mods["isomodel"] = "DSLF"
+    mods["isomodel"] = "DSL"
     mods["component_names"] = ["CH4", "N2"]
 
-    # DSLF params → BKT parameter mapping
+    # DSL params → BKT parameter mapping
     mods["bi"]   = [iso_params["b1_CH4"],  iso_params["b1_N2"]]    # site 1 affinity
     mods["qsbi"] = [iso_params["qs1_CH4"], iso_params["qs1_N2"]]   # site 1 saturation
     mods["di"]   = [iso_params["b2_CH4"],  iso_params["b2_N2"]]    # site 2 affinity
     mods["qsdi"] = [iso_params["qs2_CH4"], iso_params["qs2_N2"]]   # site 2 saturation
-    mods["n1i"]  = [iso_params["n1_CH4"],  iso_params["n1_N2"]]    # site 1 exponents
-    mods["n2i"]  = [iso_params["n2_CH4"],  iso_params["n2_N2"]]    # site 2 exponents
 
     # No heat effects (isothermal)
     mods["Hi"] = [0, 0]
@@ -470,17 +468,17 @@ def main() -> None:
     print(f"Loading isotherm fits: {fit_csv}")
     fits = pd.read_csv(fit_csv)
 
-    # Build per-MOF isotherm param lookup (DSLF: 6 params per gas)
+    # Build per-MOF isotherm param lookup (DSL: 4 params per gas)
     iso_lookup = {}
     for mof in fits["MofName"].unique():
         mof_fits = fits[fits["MofName"] == mof]
         ch4 = mof_fits[mof_fits["GasName"] == "methane"].iloc[0]
         n2 = mof_fits[mof_fits["GasName"] == "N2"].iloc[0]
         iso_lookup[mof] = {
-            "b1_CH4": ch4["b1"], "qs1_CH4": ch4["qs1"], "n1_CH4": ch4["n1"],
-            "b2_CH4": ch4["b2"], "qs2_CH4": ch4["qs2"], "n2_CH4": ch4["n2"],
-            "b1_N2": n2["b1"],   "qs1_N2": n2["qs1"],   "n1_N2": n2["n1"],
-            "b2_N2": n2["b2"],   "qs2_N2": n2["qs2"],   "n2_N2": n2["n2"],
+            "b1_CH4": ch4["b1"], "qs1_CH4": ch4["qs1"],
+            "b2_CH4": ch4["b2"], "qs2_CH4": ch4["qs2"],
+            "b1_N2": n2["b1"],   "qs1_N2": n2["qs1"],
+            "b2_N2": n2["b2"],   "qs2_N2": n2["qs2"],
             "model": ch4["selected_model"],
         }
 
