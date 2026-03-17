@@ -9,7 +9,9 @@ Runs 22 simulations total:
   - ATC-Cu:     both PSA (10 bar) and VSA (1 bar)
 
 Isotherm parameters from best_isotherm_fits.csv (DSL model →
-BKT isomodel="DSL"). Competitive DSL = IAST(DSL), thermodynamically exact.
+BKT isomodel="DSL"). Default eq_method="IAST" uses rigorous IAST for
+multicomponent equilibrium; use --eq-method competitive for legacy
+shared-denominator DSL.
 
 Adsorbent density (rho_s) from pymatgen Structure.density (g/cm³ × 1000 → kg/m³).
 
@@ -150,6 +152,7 @@ def build_mods(
     process: str,
     iso_params: dict,
     rho_s: float,
+    eq_method: str = "IAST",
 ) -> dict:
     """Build BKT parameter dict for one simulation."""
     from bkt.src.util import calculate_ki_Dax
@@ -162,6 +165,7 @@ def build_mods(
     mods["feed_yi"] = [0.2, 0.8]  # CH4:N2 = 20:80
     mods["ini_yi"] = [1e-10, 1e-10]
     mods["isomodel"] = "DSL"
+    mods["eq_method"] = eq_method
     mods["component_names"] = ["CH4", "N2"]
 
     # DSL params → BKT parameter mapping
@@ -229,7 +233,7 @@ def run_single_simulation(
     label = f"{mof_name} [{process}]"
     print(f"\n{'='*70}")
     print(f"  {label}")
-    print(f"  rho_s={mods['rho_s']:.1f} kg/m³  P_feed={mods['feed_pressure']} bar")
+    print(f"  rho_s={mods['rho_s']:.1f} kg/m³  P_feed={mods['feed_pressure']} bar  eq_method={mods.get('eq_method', 'competitive')}")
     print(f"  bi={mods['bi']}  qsbi={mods['qsbi']}  di={mods['di']}  qsdi={mods['qsdi']}")
     print(f"  vfeed={mods['vfeed']:.6f} m/s  ki={mods['ki']}")
     print(f"{'='*70}")
@@ -434,6 +438,11 @@ def main() -> None:
         help="SLURM array index: run only the i-th simulation from the queue.",
     )
     parser.add_argument(
+        "--eq-method", type=str, default="IAST",
+        choices=["IAST", "competitive"],
+        help="Multicomponent equilibrium method (default: IAST).",
+    )
+    parser.add_argument(
         "--rebuild-curve-cache", action="store_true",
         help="Rebuild breakthrough_curves_data.csv from per-run curve CSV files.",
     )
@@ -555,7 +564,8 @@ def main() -> None:
         print(f"  rho_s = {rho_s:.1f} kg/m³ (from CIF)")
 
         # Build params
-        mods = build_mods(mof_name, process, iso_lookup[mof_name], rho_s)
+        mods = build_mods(mof_name, process, iso_lookup[mof_name], rho_s,
+                          eq_method=args.eq_method)
 
         # Output directory
         safe_name = mof_name.replace("[", "_").replace("]", "_")
