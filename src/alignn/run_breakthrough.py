@@ -567,9 +567,10 @@ def main() -> None:
         mods = build_mods(mof_name, process, iso_lookup[mof_name], rho_s,
                           eq_method=args.eq_method)
 
-        # Output directory
+        # Output directory (IAST results go to bkt_iast_psa/ etc.)
         safe_name = mof_name.replace("[", "_").replace("]", "_")
-        out_dir = bkt_dir / f"bkt_{process.lower()}" / f"{safe_name}_{process}"
+        eq_tag = "iast_" if args.eq_method == "IAST" else ""
+        out_dir = bkt_dir / f"bkt_{eq_tag}{process.lower()}" / f"{safe_name}_{process}"
 
         # Run
         result = run_single_simulation(
@@ -592,7 +593,8 @@ def main() -> None:
         if len(failed) > 0:
             print(f"  Failed MOFs: {failed[['mof', 'process', 'status']].to_string()}")
 
-    summaries_dir = bkt_dir / "summaries"
+    eq_tag = "iast_" if args.eq_method == "IAST" else ""
+    summaries_dir = bkt_dir / f"summaries_{eq_tag.rstrip('_')}" if eq_tag else bkt_dir / "summaries"
     job_summaries_dir = summaries_dir / "jobs"
     job_summaries_dir.mkdir(parents=True, exist_ok=True)
 
