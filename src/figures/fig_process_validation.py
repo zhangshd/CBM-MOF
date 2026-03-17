@@ -300,7 +300,7 @@ def step2_performance_table(bkt_dir: Path, fig_dir: Path):
     """Generate Top-10 vs ATC-Cu performance comparison tables.
 
     Includes α_thermo (GCMC thermodynamic selectivity), α_IAST (IAST from
-    pure-component Langmuir fits), α_dyn (BKT dynamic selectivity), and
+    pure-component DSL fits), α_dyn (BKT dynamic selectivity), and
     derived ratios.
     """
     print("\n" + "=" * 70)
@@ -466,7 +466,7 @@ def step2_performance_table(bkt_dir: Path, fig_dir: Path):
         ratios_it = merged["ratio_iast_thermo"].dropna()
         md_lines.append(
             f"\nα_thermo: GCMC mixed-component thermodynamic selectivity. "
-            f"α_IAST: IAST from pure-component Langmuir. "
+            f"α_IAST: IAST from pure-component DSL."
             f"α_dyn: BKT dynamic selectivity."
         )
         if not ratios_dt.empty:
@@ -695,9 +695,9 @@ def step3_selectivity_comparison(bkt_dir: Path, fig_dir: Path):
 # STEP 4: Isotherm Fit Multi-panel Figure (SI)
 # ===================================================================
 
-def langmuir(P, K, n_m):
-    """Langmuir isotherm: q = n_m * K * P / (1 + K * P)."""
-    return n_m * K * P / (1 + K * P)
+def dsl(P, qs1, b1, qs2, b2):
+    """Dual-Site Langmuir: q = qs1*b1*P/(1+b1*P) + qs2*b2*P/(1+b2*P)."""
+    return qs1 * b1 * P / (1 + b1 * P) + qs2 * b2 * P / (1 + b2 * P)
 
 
 def step4_isotherm_multipanel(bkt_dir: Path, fig_dir: Path):
@@ -754,13 +754,12 @@ def step4_isotherm_multipanel(bkt_dir: Path, fig_dir: Path):
             gas_fit = mof_fits[mof_fits["GasName"] == gas_name]
             r2_str = ""
             if not gas_fit.empty:
-                K = gas_fit["K"].iloc[0]
-                n_m = gas_fit["n_m"].iloc[0]
-                r2 = gas_fit["R2"].iloc[0]
-                r2_str = f" ($R^2$={r2:.3f})"
+                gf = gas_fit.iloc[0]
+                r2 = gf["R2"]
+                r2_str = f" ($R^2$={r2:.4f})"
                 P_fit = np.logspace(np.log10(max(P_data.min(), 0.001)),
                                     np.log10(P_data.max()), 100)
-                q_fit = langmuir(P_fit, K, n_m)
+                q_fit = dsl(P_fit, gf["qs1"], gf["b1"], gf["qs2"], gf["b2"])
                 ax.plot(P_fit, q_fit, color=color, linewidth=0.8, zorder=2)
 
             ax.scatter(
