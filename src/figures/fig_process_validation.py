@@ -717,6 +717,14 @@ def dsl(P, qs1, b1, qs2, b2):
     return qs1 * b1 * P / (1 + b1 * P) + qs2 * b2 * P / (1 + b2 * P)
 
 
+def dslf(P, qs1, b1, n1, qs2, b2, n2):
+    """Dual-Site Langmuir-Freundlich."""
+    P_safe = np.maximum(P, 0.0)
+    Pn1 = np.power(P_safe, n1)
+    Pn2 = np.power(P_safe, n2)
+    return qs1 * b1 * Pn1 / (1 + b1 * Pn1) + qs2 * b2 * Pn2 / (1 + b2 * Pn2)
+
+
 def step4_isotherm_multipanel(bkt_dir: Path, fig_dir: Path):
     """Generate multi-panel isotherm fit figure for SI."""
     print("\n" + "=" * 70)
@@ -773,10 +781,15 @@ def step4_isotherm_multipanel(bkt_dir: Path, fig_dir: Path):
             if not gas_fit.empty:
                 gf = gas_fit.iloc[0]
                 r2 = gf["R2"]
+                model = gf.get("selected_model", "DSL")
                 r2_str = f" ($R^2$={r2:.4f})"
                 P_fit = np.logspace(np.log10(max(P_data.min(), 0.001)),
                                     np.log10(P_data.max()), 100)
-                q_fit = dsl(P_fit, gf["qs1"], gf["b1"], gf["qs2"], gf["b2"])
+                if model == "DSLF" and "n1" in gf.index:
+                    q_fit = dslf(P_fit, gf["qs1"], gf["b1"], gf["n1"],
+                                 gf["qs2"], gf["b2"], gf["n2"])
+                else:
+                    q_fit = dsl(P_fit, gf["qs1"], gf["b1"], gf["qs2"], gf["b2"])
                 ax.plot(P_fit, q_fit, color=color, linewidth=0.8, zorder=2)
 
             ax.scatter(

@@ -160,19 +160,26 @@ def build_mods(
     cfg = PROCESS_CONFIG[process]
     bed = STANDARD_BED
 
+    model = iso_params.get("model", "DSL")
+
     mods = collections.defaultdict()
     mods["nocomponents"] = 2
     mods["feed_yi"] = [0.2, 0.8]  # CH4:N2 = 20:80
     mods["ini_yi"] = [1e-10, 1e-10]
-    mods["isomodel"] = "DSL"
+    mods["isomodel"] = model
     mods["eq_method"] = eq_method
     mods["component_names"] = ["CH4", "N2"]
 
-    # DSL params → BKT parameter mapping
+    # DSL/DSLF params → BKT parameter mapping
     mods["bi"]   = [iso_params["b1_CH4"],  iso_params["b1_N2"]]    # site 1 affinity
     mods["qsbi"] = [iso_params["qs1_CH4"], iso_params["qs1_N2"]]   # site 1 saturation
     mods["di"]   = [iso_params["b2_CH4"],  iso_params["b2_N2"]]    # site 2 affinity
     mods["qsdi"] = [iso_params["qs2_CH4"], iso_params["qs2_N2"]]   # site 2 saturation
+
+    # DSLF exponents (default 1.0 = reduces to DSL)
+    if model == "DSLF":
+        mods["n1i"] = [iso_params.get("n1_CH4", 1.0), iso_params.get("n1_N2", 1.0)]
+        mods["n2i"] = [iso_params.get("n2_CH4", 1.0), iso_params.get("n2_N2", 1.0)]
 
     # No heat effects (isothermal)
     mods["Hi"] = [0, 0]
@@ -233,8 +240,10 @@ def run_single_simulation(
     label = f"{mof_name} [{process}]"
     print(f"\n{'='*70}")
     print(f"  {label}")
-    print(f"  rho_s={mods['rho_s']:.1f} kg/m³  P_feed={mods['feed_pressure']} bar  eq_method={mods.get('eq_method', 'competitive')}")
+    print(f"  rho_s={mods['rho_s']:.1f} kg/m³  P_feed={mods['feed_pressure']} bar  eq_method={mods.get('eq_method', 'competitive')}  isomodel={mods.get('isomodel', 'DSL')}")
     print(f"  bi={mods['bi']}  qsbi={mods['qsbi']}  di={mods['di']}  qsdi={mods['qsdi']}")
+    if mods.get('isomodel') == 'DSLF':
+        print(f"  n1i={mods.get('n1i')}  n2i={mods.get('n2i')}")
     print(f"  vfeed={mods['vfeed']:.6f} m/s  ki={mods['ki']}")
     print(f"{'='*70}")
 
@@ -443,6 +452,11 @@ def main() -> None:
         help="Multicomponent equilibrium method (default: IAST).",
     )
     parser.add_argument(
+        "--iso-model", type=str, default=None,
+        choices=["Langmuir", "Langmuir-Freundlich", "DSL", "DSLF"],
+        help="Override isotherm model (default: use selected_model from fits CSV).",
+    )
+    parser.add_argument(
         "--rebuild-curve-cache", action="store_true",
         help="Rebuild breakthrough_curves_data.csv from per-run curve CSV files.",
     )
@@ -477,19 +491,31 @@ def main() -> None:
     print(f"Loading isotherm fits: {fit_csv}")
     fits = pd.read_csv(fit_csv)
 
-    # Build per-MOF isotherm param lookup (DSL: 4 params per gas)
+    # Build per-MOF isotherm param lookup
     iso_lookup = {}
     for mof in fits["MofName"].unique():
         mof_fits = fits[fits["MofName"] == mof]
         ch4 = mof_fits[mof_fits["GasName"] == "methane"].iloc[0]
         n2 = mof_fits[mof_fits["GasName"] == "N2"].iloc[0]
-        iso_lookup[mof] = {
+
+        # Determine model: CLI override > CSV selected_model
+        csv_model = ch4.get("selected_model", "DSL")
+        model = args.iso_model if args.iso_model else csv_model
+
+        entry = {
             "b1_CH4": ch4["b1"], "qs1_CH4": ch4["qs1"],
             "b2_CH4": ch4["b2"], "qs2_CH4": ch4["qs2"],
             "b1_N2": n2["b1"],   "qs1_N2": n2["qs1"],
             "b2_N2": n2["b2"],   "qs2_N2": n2["qs2"],
-            "model": ch4["selected_model"],
+            "model": model,
         }
+        # DSLF exponents (n1, n2 columns; default 1.0 if missing)
+        if model == "DSLF":
+            entry["n1_CH4"] = ch4.get("n1", 1.0) if "n1" in ch4.index else 1.0
+            entry["n2_CH4"] = ch4.get("n2", 1.0) if "n2" in ch4.index else 1.0
+            entry["n1_N2"]  = n2.get("n1", 1.0) if "n1" in n2.index else 1.0
+            entry["n2_N2"]  = n2.get("n2", 1.0) if "n2" in n2.index else 1.0
+        iso_lookup[mof] = entry
 
     # Load Top-10 lists
     psa_mofs = pd.read_csv(psa_csv)["mof_id"].tolist()

@@ -1,16 +1,15 @@
 """
-compute_iast_selectivity.py — IAST selectivity from pure-component DSL fits.
+compute_iast_selectivity.py — IAST selectivity from pure-component isotherm fits.
 
-Reads DSL parameters (qs1, b1, qs2, b2) from best_isotherm_fits.csv,
-then solves binary IAST via spreading pressure equality (brentq).
-
-Competitive DSL = IAST(DSL) when n=1, so these results are thermodynamically
-consistent with the BKT breakthrough simulation.
+Reads isotherm parameters from best_isotherm_fits.csv (supports DSL, DSLF,
+Langmuir, and Langmuir-Freundlich models), then solves binary IAST via
+spreading pressure equality using the generic solver from bkt.src.isotherms.
 
 Output: bkt_candidates/iast_selectivity.csv
 
 Usage:
     conda run -n mofmthnn python src/alignn/compute_iast_selectivity.py
+    conda run -n mofmthnn python src/alignn/compute_iast_selectivity.py --model DSL
 """
 
 import argparse
@@ -20,11 +19,13 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from scipy.optimize import brentq
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO_ROOT / "src"))
+
+from bkt.src.isotherms import _IAST_MODELS, _iast_binary
 
 # CBM feed composition
 Y_CH4 = 0.2
@@ -38,21 +39,29 @@ PROCESS_CONDITIONS = {
 
 
 # ---------------------------------------------------------------------------
-# DSL isotherm functions
+# Parameter extraction from CSV row
 # ---------------------------------------------------------------------------
 
-def dsl_loading(P, qs1, b1, qs2, b2):
-    """DSL loading at pressure P [bar]. Returns q [mol/kg]."""
-    return qs1 * b1 * P / (1.0 + b1 * P) + qs2 * b2 * P / (1.0 + b2 * P)
-
-
-def dsl_spreading_pressure(P, qs1, b1, qs2, b2):
-    """DSL spreading pressure: qs1*ln(1+b1*P) + qs2*ln(1+b2*P)."""
-    return qs1 * np.log(1.0 + b1 * P) + qs2 * np.log(1.0 + b2 * P)
+def _row_to_params(row, model_type):
+    """Convert a CSV row to an IAST parameter dict for the given model."""
+    if model_type == 'Langmuir':
+        return {'qs': row['qs1'], 'b': row['b1']}
+    elif model_type == 'Langmuir-Freundlich':
+        return {'qs': row['qs1'], 'b': row['b1'], 'n': row.get('n1', 1.0)}
+    elif model_type == 'DSL':
+        return {'qs1': row['qs1'], 'b1': row['b1'],
+                'qs2': row['qs2'], 'b2': row['b2']}
+    elif model_type == 'DSLF':
+        return {'qs1': row['qs1'], 'b1': row['b1'],
+                'n1': row.get('n1', 1.0),
+                'qs2': row['qs2'], 'b2': row['b2'],
+                'n2': row.get('n2', 1.0)}
+    else:
+        raise ValueError(f"Unknown model type: {model_type}")
 
 
 # ---------------------------------------------------------------------------
-# IAST solver
+# IAST solver wrapper
 # ---------------------------------------------------------------------------
 
 def iast_binary(
@@ -60,70 +69,20 @@ def iast_binary(
     params_2: dict,
     y: tuple,
     P_total: float,
+    model_type: str = 'DSL',
 ) -> tuple:
-    """
-    Solve binary IAST for two components with DSL isotherms.
-
-    params_1, params_2: dicts with keys {qs1, b1, qs2, b2}
-    y: (y1, y2) gas-phase mole fractions
-    P_total: total pressure [bar]
+    """Solve binary IAST for two components.
 
     Returns (alpha, q1, q2) where alpha = (q1/q2)*(y2/y1).
     """
-    y1, y2 = y
+    yi = np.array([y[0], y[1]])
+    result = _iast_binary(yi, P_total, [params_1, params_2], model_type=model_type)
 
-    def sp1(P):
-        return dsl_spreading_pressure(P, **params_1)
-
-    def sp2(P):
-        return dsl_spreading_pressure(P, **params_2)
-
-    def q1_fn(P):
-        return dsl_loading(P, **params_1)
-
-    def q2_fn(P):
-        return dsl_loading(P, **params_2)
-
-    def objective(x1):
-        if x1 <= 0 or x1 >= 1:
-            return 1e10
-        P1_0 = P_total * y1 / x1
-        P2_0 = P_total * y2 / (1.0 - x1)
-        return sp1(P1_0) - sp2(P2_0)
-
-    eps = 1e-10
-    try:
-        f_lo = objective(eps)
-        f_hi = objective(1.0 - eps)
-        if f_lo * f_hi > 0:
-            xx = np.linspace(eps, 1.0 - eps, 200)
-            ff = np.array([objective(x) for x in xx])
-            sign_changes = np.where(np.diff(np.sign(ff)))[0]
-            if len(sign_changes) == 0:
-                return np.nan, np.nan, np.nan
-            idx = sign_changes[0]
-            x1_sol = brentq(objective, xx[idx], xx[idx + 1], xtol=1e-12)
-        else:
-            x1_sol = brentq(objective, eps, 1.0 - eps, xtol=1e-12)
-    except Exception:
+    if result is None:
         return np.nan, np.nan, np.nan
 
-    x2_sol = 1.0 - x1_sol
-    P1_0 = P_total * y1 / x1_sol
-    P2_0 = P_total * y2 / x2_sol
-
-    q1_pure = q1_fn(P1_0)
-    q2_pure = q2_fn(P2_0)
-
-    if q1_pure <= 0 or q2_pure <= 0:
-        return np.nan, np.nan, np.nan
-
-    q_total = 1.0 / (x1_sol / q1_pure + x2_sol / q2_pure)
-    q1 = x1_sol * q_total
-    q2 = x2_sol * q_total
-
-    alpha = (q1 / q2) * (y2 / y1) if q2 > 0 else np.nan
-
+    q1, q2 = result[0], result[1]
+    alpha = (q1 / q2) * (y[1] / y[0]) if q2 > 0 else np.nan
     return alpha, q1, q2
 
 
@@ -131,7 +90,8 @@ def iast_binary(
 # Main pipeline
 # ---------------------------------------------------------------------------
 
-def compute_iast_selectivity(fits_csv: Path, output_csv: Path):
+def compute_iast_selectivity(fits_csv: Path, output_csv: Path,
+                             model_override: str = None):
     """Compute IAST selectivity for all MOFs in best_isotherm_fits.csv."""
     df = pd.read_csv(fits_csv)
 
@@ -153,22 +113,20 @@ def compute_iast_selectivity(fits_csv: Path, output_csv: Path):
         ch4_row = ch4_row.iloc[0]
         n2_row = n2_row.iloc[0]
 
-        # Extract DSL parameters
-        params_ch4 = {
-            "qs1": ch4_row["qs1"], "b1": ch4_row["b1"],
-            "qs2": ch4_row["qs2"], "b2": ch4_row["b2"],
-        }
-        params_n2 = {
-            "qs1": n2_row["qs1"], "b1": n2_row["b1"],
-            "qs2": n2_row["qs2"], "b2": n2_row["b2"],
-        }
+        # Determine model: CLI override > CSV selected_model
+        model_type = model_override or ch4_row.get("selected_model", "DSL")
 
-        row_result = {"MofName": mof}
+        # Extract parameters based on model type
+        params_ch4 = _row_to_params(ch4_row, model_type)
+        params_n2 = _row_to_params(n2_row, model_type)
+
+        row_result = {"MofName": mof, "model": model_type}
 
         for process, cond in PROCESS_CONDITIONS.items():
             total_p = cond["total_pressure"]
             alpha, q_ch4, q_n2 = iast_binary(
                 params_ch4, params_n2, (Y_CH4, Y_N2), total_p,
+                model_type=model_type,
             )
 
             row_result[f"alpha_IAST_{process}"] = alpha
@@ -181,7 +139,7 @@ def compute_iast_selectivity(fits_csv: Path, output_csv: Path):
         vsa_a = row_result.get('alpha_IAST_VSA', float('nan'))
         psa_str = f"{psa_a:.4f}" if not np.isnan(psa_a) else "N/A"
         vsa_str = f"{vsa_a:.4f}" if not np.isnan(vsa_a) else "N/A"
-        print(f"  {mof}: PSA α={psa_str}, VSA α={vsa_str}")
+        print(f"  {mof} [{model_type}]: PSA α={psa_str}, VSA α={vsa_str}")
 
     result_df = pd.DataFrame(results)
     result_df.to_csv(output_csv, index=False)
@@ -193,11 +151,16 @@ def compute_iast_selectivity(fits_csv: Path, output_csv: Path):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Compute IAST selectivity from pure-component DSL fits."
+        description="Compute IAST selectivity from pure-component isotherm fits."
     )
     parser.add_argument(
         "--model-dir", type=str, default=None,
         help="Model results dir (default: results/alignn/model_ep150).",
+    )
+    parser.add_argument(
+        "--model", type=str, default=None,
+        choices=["Langmuir", "Langmuir-Freundlich", "DSL", "DSLF"],
+        help="Override isotherm model (default: use selected_model from CSV).",
     )
     args = parser.parse_args()
 
@@ -216,8 +179,9 @@ def main():
         print(f"ERROR: {fits_csv} not found")
         sys.exit(1)
 
+    model_label = args.model or "auto (from CSV)"
     print("=" * 60)
-    print("IAST Selectivity Computation (DSL)")
+    print(f"IAST Selectivity Computation ({model_label})")
     print("=" * 60)
     print(f"Input:  {fits_csv}")
     print(f"Output: {output_csv}")
@@ -226,7 +190,7 @@ def main():
     print(f"VSA:    {PROCESS_CONDITIONS['VSA']['total_pressure']} bar")
     print()
 
-    compute_iast_selectivity(fits_csv, output_csv)
+    compute_iast_selectivity(fits_csv, output_csv, model_override=args.model)
 
 
 if __name__ == "__main__":
