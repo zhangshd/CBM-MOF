@@ -19,7 +19,9 @@ cd "$REPO"
 
 # Activate conda
 source /opt/share/miniconda3/etc/profile.d/conda.sh
-conda activate mofmthnn
+conda activate alignn_env
+
+export PYTHONPATH="${REPO}/src:${PYTHONPATH}"
 
 echo "=== BKT DSLF+IAST Simulation: job index ${SLURM_ARRAY_TASK_ID} ==="
 echo "Node: $(hostname), Start: $(date)"
