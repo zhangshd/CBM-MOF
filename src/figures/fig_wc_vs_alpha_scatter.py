@@ -1,0 +1,177 @@
+"""Figure 8': Full-library Working Capacity vs Selectivity scatter (PSA/VSA).
+
+Two-panel scatter showing all ~122k stable MOFs in WC–alpha space,
+coloured by predicted API.  ATC-Cu is highlighted with a star marker;
+Exp-Top-50 and Hypo-Top-50 are shown with distinct edge-coloured markers.
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from src.figures.style import (
+    DOUBLE_COL_INCH,
+    NATURE_COLORS,
+    compute_panel_grid_layout,
+    save_figure,
+    set_emphasized_title,
+    set_publication_style,
+)
+
+# ── Paths ────────────────────────────────────────────────────────────────────
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+RESULTS_DIR = PROJECT_ROOT / "results" / "alignn" / "model_ep150" / "top_candidates"
+FULL_CSV = RESULTS_DIR / "full_library_stable_no_uq_filter.csv"
+EXP_CSV = RESULTS_DIR / "exp_union.csv"
+HYPO_CSV = RESULTS_DIR / "hypo_union.csv"
+OUTPUT_DIR = RESULTS_DIR
+ATC_CU_ID = "CoRE-2020[Cu][pts]3[ASR]1"
+
+
+def load_data():
+    """Load the full library and top candidate lists."""
+    df = pd.read_csv(FULL_CSV)
+    exp_ids = set(pd.read_csv(EXP_CSV)["mof_id"].tolist())
+    hypo_ids = set(pd.read_csv(HYPO_CSV)["mof_id"].tolist())
+    return df, exp_ids, hypo_ids
+
+
+def make_figure(df: pd.DataFrame, exp_ids: set, hypo_ids: set):
+    """Create the 2-panel WC vs alpha scatter figure."""
+    set_publication_style()
+
+    layout = compute_panel_grid_layout(
+        nrows=1, ncols=2,
+        figure_width_inch=DOUBLE_COL_INCH,
+        right_margin_inch=0.55,  # extra room for colorbar
+    )
+
+    fig, axes = plt.subplots(
+        1, 2,
+        figsize=(layout.figure_width, layout.figure_height),
+    )
+    fig.subplots_adjust(
+        left=layout.left, right=layout.right,
+        bottom=layout.bottom, top=layout.top,
+        wspace=layout.wspace,
+    )
+
+    # Panel config: (ax, wc_col, alpha_col, api_col, label)
+    panels = [
+        (axes[0], "PSA_WC_CH4", "PSA_alpha_CH4_N2", "PSA_API_CH4", "(a) PSA"),
+        (axes[1], "VSA_WC_CH4", "VSA_alpha_CH4_N2", "VSA_API_CH4", "(b) VSA"),
+    ]
+
+    # Masks
+    is_atccu = df["mof_id"] == ATC_CU_ID
+    is_exp_top = df["mof_id"].isin(exp_ids) & ~is_atccu
+    is_hypo_top = df["mof_id"].isin(hypo_ids)
+    is_background = ~is_atccu & ~is_exp_top & ~is_hypo_top
+
+    # Shared API range for consistent colourbar
+    api_all = pd.concat([df["PSA_API_CH4"], df["VSA_API_CH4"]])
+    vmin, vmax = 0.0, np.percentile(api_all.dropna(), 99)
+
+    norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
+    cmap = plt.cm.viridis
+
+    for ax, wc_col, alpha_col, api_col, label in panels:
+        bg = df[is_background]
+        # Sort by API so high-API dots are drawn on top
+        bg = bg.sort_values(api_col, ascending=True)
+        ax.scatter(
+            bg[wc_col], bg[alpha_col],
+            c=bg[api_col], cmap=cmap, norm=norm,
+            s=1.0, alpha=0.25, edgecolors="none", rasterized=True,
+            zorder=1,
+        )
+
+        # Exp Top candidates (blue triangles with edge)
+        exp = df[is_exp_top]
+        ax.scatter(
+            exp[wc_col], exp[alpha_col],
+            c=exp[api_col], cmap=cmap, norm=norm,
+            s=18, marker="^", edgecolors=NATURE_COLORS["blue"],
+            linewidths=0.5, alpha=0.9, zorder=3,
+            label=f"Exp Top-{len(exp_ids)}",
+        )
+
+        # Hypo Top candidates (orange circles with edge)
+        hypo = df[is_hypo_top]
+        ax.scatter(
+            hypo[wc_col], hypo[alpha_col],
+            c=hypo[api_col], cmap=cmap, norm=norm,
+            s=18, marker="o", edgecolors=NATURE_COLORS["orange"],
+            linewidths=0.5, alpha=0.9, zorder=3,
+            label=f"Hypo Top-{len(hypo_ids)}",
+        )
+
+        # ATC-Cu star
+        atccu = df[is_atccu]
+        if not atccu.empty:
+            ax.scatter(
+                atccu[wc_col].values, atccu[alpha_col].values,
+                s=100, marker="*", c="red", edgecolors="black",
+                linewidths=0.5, zorder=5, label="ATC-Cu",
+            )
+
+        # Axes
+        ax.set_xlabel(r"Working Capacity (mol/kg)", fontsize=layout.body_font)
+        ax.set_ylabel(r"Selectivity $\alpha$(CH$_4$/N$_2$)", fontsize=layout.body_font)
+        ax.tick_params(labelsize=layout.tick_font)
+        set_emphasized_title(ax, label, fontsize=layout.body_font)
+
+        # Reasonable axis limits (clip outliers)
+        wc_p99 = np.percentile(df[wc_col].dropna(), 99.5)
+        alpha_p99 = np.percentile(df[alpha_col].dropna(), 99.5)
+        ax.set_xlim(0, wc_p99 * 1.05)
+        ax.set_ylim(0, alpha_p99 * 1.05)
+
+    # Legend (only on first panel, de-duplicated)
+    handles, labels = axes[0].get_legend_handles_labels()
+    axes[0].legend(
+        handles, labels,
+        loc="upper left",
+        fontsize=layout.tick_font,
+        markerscale=1.0,
+        handletextpad=0.3,
+        borderpad=0.3,
+    )
+
+    # Shared colorbar
+    sm = mpl.cm.ScalarMappable(cmap=cmap, norm=norm)
+    sm.set_array([])
+    cbar_ax = fig.add_axes([
+        layout.right + 0.015,
+        layout.bottom,
+        0.015,
+        layout.top - layout.bottom,
+    ])
+    cbar = fig.colorbar(sm, cax=cbar_ax)
+    cbar.set_label("Predicted API", fontsize=layout.body_font)
+    cbar.ax.tick_params(labelsize=layout.tick_font)
+
+    return fig
+
+
+def main():
+    df, exp_ids, hypo_ids = load_data()
+    print(f"Loaded {len(df):,} MOFs, {len(exp_ids)} exp-top, {len(hypo_ids)} hypo-top")
+    print(f"ATC-Cu present: {ATC_CU_ID in df['mof_id'].values}")
+
+    fig = make_figure(df, exp_ids, hypo_ids)
+    save_figure(fig, "Figure8_wc_vs_alpha", OUTPUT_DIR, formats=("png",), tight_layout=False)
+    plt.close(fig)
+    print("Done.")
+
+
+if __name__ == "__main__":
+    main()

@@ -12,6 +12,7 @@ Precious/rare metal detection logic is replicated verbatim from
 Usage:
     python src/alignn/filter_stable_candidates.py          # full run
     python src/alignn/filter_stable_candidates.py --test   # first 500 rows only
+    python src/alignn/filter_stable_candidates.py --input path/to/input.csv  # custom input
 """
 
 import argparse
@@ -208,6 +209,11 @@ if __name__ == "__main__":
     parser.add_argument("--model-dir", type=str, default=None,
                         help="Model-specific results dir (e.g. results/alignn/model_ep220). "
                              "Overrides SCREENED_CSV and OUTPUT_DIR.")
+    parser.add_argument("--input", type=str, default=None,
+                        help="Custom input CSV (overrides default SCREENED_CSV). "
+                             "Use to bypass UQ pre-screening, e.g. full_library_with_api.csv.")
+    parser.add_argument("--output", type=str, default=None,
+                        help="Custom output CSV path (overrides default OUTPUT_CSV).")
     args = parser.parse_args()
 
     if args.model_dir:
@@ -217,5 +223,18 @@ if __name__ == "__main__":
         SCREENED_CSV = _md / "full_library_inference" / "full_library_screened.csv"
         OUTPUT_DIR   = _md / "top_candidates"
         OUTPUT_CSV   = OUTPUT_DIR / "full_library_stable.csv"
+
+    if args.input:
+        _ip = Path(args.input)
+        if not _ip.is_absolute():
+            _ip = REPO_ROOT / _ip
+        SCREENED_CSV = _ip
+
+    if args.output:
+        _op = Path(args.output)
+        if not _op.is_absolute():
+            _op = REPO_ROOT / _op
+        OUTPUT_CSV = _op
+        OUTPUT_DIR = _op.parent
 
     main(test_mode=args.test)
