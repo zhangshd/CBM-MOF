@@ -7,8 +7,6 @@ CH4:N2 feed compositions across ALL available MOFs.
 Data sources (all under results/alignn/model_ep150/):
   - gcmc_exp_top/       (86 exp MOFs: GCMC 20:80 + 50:50 + Widom)
   - gcmc_hypo_top/      (100 hypo MOFs: GCMC 20:80 + 50:50 + Widom)
-  - gcmc_top_candidates/(194 old MOFs: GCMC 20:80 + 50:50 + Widom)
-  - gcmc_atccu/         (1 MOF: 50:50 only, no 20:80 or Widom)
 
 Computes:
   1. API at both compositions for all MOFs with both 20:80 and 50:50 data
@@ -64,16 +62,7 @@ DATA_SOURCES = [
         MODEL_DIR / "gcmc_hypo_top" / "gcmc_DreidingTraPPEJson_5050",
         MODEL_DIR / "gcmc_hypo_top" / "widom_DREIDING",
     ),
-    (
-        "old_194",
-        MODEL_DIR / "gcmc_top_candidates" / "gcmc_DreidingTraPPEJson",
-        MODEL_DIR / "gcmc_top_candidates" / "gcmc_DreidingTraPPEJson_5050",
-        MODEL_DIR / "gcmc_top_candidates" / "widom_DREIDING",
-    ),
 ]
-
-# ATC-Cu has only 50:50 GCMC, no 20:80 or Widom — excluded from composition
-# sensitivity but noted in the summary.
 
 
 # ---------------------------------------------------------------------------

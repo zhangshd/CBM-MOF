@@ -1,9 +1,9 @@
 """
-Top-100 PSA/VSA validation parity figure based on the current GCMC results.
+Validated-MOF parity figure based on the 186-MOF dual-track GCMC validation.
 
 Layout: one combined 4 x 4 figure.
-Rows 1-2 = PSA Top-100
-Rows 3-4 = VSA Top-100
+Rows 1-2 = PSA candidates (top-50 exp + top-50 hypo = 100 MOFs)
+Rows 3-4 = VSA candidates (top-50 exp + top-50 hypo = 100 MOFs)
 Columns = three uptake tasks + one heat-of-adsorption task per gas.
 """
 
@@ -34,10 +34,18 @@ from src.figures.style import (
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MODEL_DIR = REPO_ROOT / "results" / "alignn" / "model_ep150"
-GCMC_COMPARE_CSV = MODEL_DIR / "gcmc_top_candidates" / "gcmc_vs_ml_comparison.csv"
+# New 186-MOF dual-track validation data
+GCMC_COMPARE_CSV = MODEL_DIR / "bkt_candidates_new" / "gcmc_vs_ml_comparison.csv"
+# PSA/VSA splits derived from top-50 exp + top-50 hypo per process
 TOP100_SPLIT_CSV = {
-    "top_100_psa": MODEL_DIR / "top_candidates" / "top100_psa.csv",
-    "top_100_vsa": MODEL_DIR / "top_candidates" / "top100_vsa.csv",
+    "top_100_psa": [
+        MODEL_DIR / "top_candidates" / "exp_top50_psa.csv",
+        MODEL_DIR / "top_candidates" / "hypo_top50_psa.csv",
+    ],
+    "top_100_vsa": [
+        MODEL_DIR / "top_candidates" / "exp_top50_vsa.csv",
+        MODEL_DIR / "top_candidates" / "hypo_top50_vsa.csv",
+    ],
 }
 
 PANEL_ORDER = [
@@ -58,12 +66,14 @@ TASK_COLUMN_MAP = {
 
 
 def load_top100_validation_predictions(split: str) -> pd.DataFrame:
-    """Load current top-100 ML-vs-GCMC validation data for a given split."""
+    """Load 186-MOF ML-vs-GCMC validation data for a given process split."""
     if split not in TOP100_SPLIT_CSV:
         raise ValueError(f"Unknown split: {split}")
 
     compare_df = pd.read_csv(GCMC_COMPARE_CSV)
-    top_df = pd.read_csv(TOP100_SPLIT_CSV[split], usecols=["mof_id"])
+    # Concatenate exp_top50 + hypo_top50 for this process
+    split_dfs = [pd.read_csv(p, usecols=["mof_id"]) for p in TOP100_SPLIT_CSV[split]]
+    top_df = pd.concat(split_dfs, ignore_index=True).drop_duplicates(subset="mof_id")
     compare_df["mof_id"] = compare_df["mof_id"].astype(str)
     top_df["mof_id"] = top_df["mof_id"].astype(str)
     merged = top_df.merge(compare_df, on="mof_id", how="left", validate="one_to_one")
@@ -186,7 +196,7 @@ def plot_figure9(output_dir: Path) -> None:
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
 
-    save_figure(fig, "Figure9_top100_validation", output_dir, tight_layout=False)
+    save_figure(fig, "Figure9_validated_186", output_dir, tight_layout=False)
     plt.close(fig)
 
 
@@ -196,7 +206,7 @@ def main() -> None:
     args = parser.parse_args()
     out = Path(args.output_dir)
     plot_figure9(out)
-    print("Done: combined Top-100 PSA/VSA validation figure (Figure 9).")
+    print("Done: combined 186-MOF PSA/VSA validation figure (Figure 9).")
 
 
 if __name__ == "__main__":

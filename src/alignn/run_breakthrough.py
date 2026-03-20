@@ -460,17 +460,25 @@ def main() -> None:
         "--rebuild-curve-cache", action="store_true",
         help="Rebuild breakthrough_curves_data.csv from per-run curve CSV files.",
     )
+    parser.add_argument(
+        "--bkt-dir", type=str, default=None,
+        help="Override bkt_candidates directory path.",
+    )
     args = parser.parse_args()
 
     # Resolve paths
-    if args.model_dir:
-        md = Path(args.model_dir)
-        if not md.is_absolute():
-            md = REPO_ROOT / md
+    if args.bkt_dir:
+        bkt_dir = Path(args.bkt_dir)
+        if not bkt_dir.is_absolute():
+            bkt_dir = REPO_ROOT / bkt_dir
     else:
-        md = REPO_ROOT / "results" / "alignn" / "model_ep150"
-
-    bkt_dir = md / "bkt_candidates"
+        if args.model_dir:
+            md = Path(args.model_dir)
+            if not md.is_absolute():
+                md = REPO_ROOT / md
+        else:
+            md = REPO_ROOT / "results" / "alignn" / "model_ep150"
+        bkt_dir = md / "bkt_candidates"
     cif_dir = bkt_dir / "cifs"
     fit_csv = bkt_dir / "isotherm_fits" / "best_isotherm_fits.csv"
     psa_csv = bkt_dir / "top10_psa.csv"
@@ -545,12 +553,16 @@ def main() -> None:
                 cif = cif_dir / f"{mof_id}.cif"
                 queue.append((mof_id, "VSA", cif))
 
-        # ATC-Cu benchmark (both processes)
+        # ATC-Cu benchmark (both processes) — deduplicate if already in list
+        existing_keys = {(m, p) for m, p, _ in queue}
         if not args.process:
-            queue.append((ATC_CU_NAME, "PSA", ATC_CU_CIF))
-            queue.append((ATC_CU_NAME, "VSA", ATC_CU_CIF))
+            if (ATC_CU_NAME, "PSA") not in existing_keys:
+                queue.append((ATC_CU_NAME, "PSA", ATC_CU_CIF))
+            if (ATC_CU_NAME, "VSA") not in existing_keys:
+                queue.append((ATC_CU_NAME, "VSA", ATC_CU_CIF))
         elif args.process:
-            queue.append((ATC_CU_NAME, args.process, ATC_CU_CIF))
+            if (ATC_CU_NAME, args.process) not in existing_keys:
+                queue.append((ATC_CU_NAME, args.process, ATC_CU_CIF))
 
     print(f"\nFull simulation queue: {len(queue)} runs")
     print(f"  PSA: {sum(1 for _, p, _ in queue if p == 'PSA')}")

@@ -140,6 +140,10 @@ def main() -> None:
         "--partition", type=str, default=DEFAULT_PARTITION,
         help="SLURM partition name (default: C9654)."
     )
+    parser.add_argument(
+        "--bkt-dir", type=str, default="bkt_candidates",
+        help="BKT candidates subdir name under model-dir (default: bkt_candidates)."
+    )
     args = parser.parse_args()
     dry_run = args.test
 
@@ -151,8 +155,8 @@ def main() -> None:
     else:
         md = REPO_ROOT / "results" / "alignn" / "model_ep150"
 
-    cif_dir = str(md / "bkt_candidates" / "cifs")
-    output_base = str(md / "bkt_candidates" / "gcmc_pure_component")
+    cif_dir = str(md / args.bkt_dir / "cifs")
+    output_base = str(md / args.bkt_dir / "gcmc_pure_component")
 
     # Verify CIFs
     cif_path = Path(cif_dir)

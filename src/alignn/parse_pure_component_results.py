@@ -81,10 +81,13 @@ def filter_pure_component(df: pd.DataFrame, benchmark_only: bool = False) -> pd.
     return filtered.sort_values(by=sort_cols, ascending=True, kind="stable").reset_index(drop=True)
 
 
-def parse_candidate_mode(model_dir: Path, output_csv: Path) -> None:
+def parse_candidate_mode(model_dir: Path, output_csv: Path, bkt_dir: Path | None = None) -> None:
     """Parse Top-20 candidate pure-component results across all batch directories."""
-    model_paths = resolve_model_paths(model_dir)
-    gcmc_base = model_paths.bkt_candidates_dir / "gcmc_pure_component"
+    if bkt_dir is not None:
+        gcmc_base = bkt_dir / "gcmc_pure_component"
+    else:
+        model_paths = resolve_model_paths(model_dir)
+        gcmc_base = model_paths.bkt_candidates_dir / "gcmc_pure_component"
     frames = []
     for gas_dir in ["methane", "N2"]:
         gas_base = gcmc_base / gas_dir
@@ -137,18 +140,26 @@ def main() -> None:
         default=None,
         help="Optional override for the canonical output CSV path.",
     )
+    parser.add_argument(
+        "--bkt-dir",
+        type=Path,
+        default=None,
+        help="Override bkt_candidates directory path (for candidate mode).",
+    )
     args = parser.parse_args()
 
+    bkt_dir_resolved = None
+    if args.bkt_dir:
+        bkt_dir_resolved = args.bkt_dir if args.bkt_dir.is_absolute() else REPO_ROOT / args.bkt_dir
+
     if args.mode == "benchmark":
-        output_csv = args.output_csv or (
-            resolve_model_paths(args.model_dir).bkt_candidates_dir / "isotherm_input" / "atc_cu_pure_component.csv"
-        )
+        default_bkt = bkt_dir_resolved or resolve_model_paths(args.model_dir).bkt_candidates_dir
+        output_csv = args.output_csv or (default_bkt / "isotherm_input" / "atc_cu_pure_component.csv")
         parse_benchmark_mode(args.result_dir, output_csv)
     else:
-        output_csv = args.output_csv or (
-            resolve_model_paths(args.model_dir).bkt_candidates_dir / "isotherm_input" / "top20_pure_component.csv"
-        )
-        parse_candidate_mode(args.model_dir, output_csv)
+        default_bkt = bkt_dir_resolved or resolve_model_paths(args.model_dir).bkt_candidates_dir
+        output_csv = args.output_csv or (default_bkt / "isotherm_input" / "top20_pure_component.csv")
+        parse_candidate_mode(args.model_dir, output_csv, bkt_dir=bkt_dir_resolved)
 
     print(f"Saved pure-component CSV: {output_csv}")
 

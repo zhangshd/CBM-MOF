@@ -851,17 +851,26 @@ def main():
         choices=["competitive", "IAST"],
         help="Which BKT equilibrium results to use (default: competitive).",
     )
+    parser.add_argument(
+        "--bkt-dir", type=str, default=None,
+        help="Override bkt_candidates directory path.",
+    )
     args = parser.parse_args()
 
     # Resolve paths
-    if args.model_dir:
-        md = Path(args.model_dir)
-        if not md.is_absolute():
-            md = REPO_ROOT / md
+    if args.bkt_dir:
+        bkt_dir = Path(args.bkt_dir)
+        if not bkt_dir.is_absolute():
+            bkt_dir = REPO_ROOT / bkt_dir
+        md = bkt_dir.parent  # for fig_dir default
     else:
-        md = REPO_ROOT / "results" / "alignn" / "model_ep150"
-
-    bkt_dir = md / "bkt_candidates"
+        if args.model_dir:
+            md = Path(args.model_dir)
+            if not md.is_absolute():
+                md = REPO_ROOT / md
+        else:
+            md = REPO_ROOT / "results" / "alignn" / "model_ep150"
+        bkt_dir = md / "bkt_candidates"
 
     if args.fig_dir:
         fig_dir = Path(args.fig_dir)

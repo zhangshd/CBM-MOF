@@ -41,8 +41,19 @@ from figures.style import (  # noqa: E402
 )
 
 BENCHMARK_MOF = "CoRE-2020[Cu][pts]3[ASR]1"
-GCMC_VALIDATION_CSV = REPO_ROOT / "results" / "alignn" / "model_ep150" / "gcmc_top_candidates" / "gcmc_vs_ml_comparison.csv"
+# New 186-MOF dual-track validation data
+GCMC_VALIDATION_CSV = REPO_ROOT / "results" / "alignn" / "model_ep150" / "bkt_candidates_new" / "gcmc_vs_ml_comparison.csv"
 CLUSTER_CSV = REPO_ROOT / "results" / "cbm_screening" / "inference" / "umap_coordinates_descriptor_with_metrics_ml.csv"
+# PSA/VSA splits from dual-track selection
+_MODEL_DIR = REPO_ROOT / "results" / "alignn" / "model_ep150"
+PSA_SPLIT_CSVS = [
+    _MODEL_DIR / "top_candidates" / "exp_top50_psa.csv",
+    _MODEL_DIR / "top_candidates" / "hypo_top50_psa.csv",
+]
+VSA_SPLIT_CSVS = [
+    _MODEL_DIR / "top_candidates" / "exp_top50_vsa.csv",
+    _MODEL_DIR / "top_candidates" / "hypo_top50_vsa.csv",
+]
 TRAINING_ADS_R1_CSV = REPO_ROOT / "results" / "cbm_screening" / "gcmc_round1_DreidingTraPPEJson" / "raspa3_parsed_results_0911.csv"
 TRAINING_WIDOM_R1_CSV = REPO_ROOT / "results" / "cbm_screening" / "widom_round1_DREIDING" / "widom_results_0911.csv"
 TRAINING_ADS_R2_CSV = REPO_ROOT / "results" / "cbm_screening" / "raspa3_parsed_results_round2_0917.csv"
@@ -95,6 +106,18 @@ def load_validated_top100() -> pd.DataFrame:
     validated = pd.read_csv(GCMC_VALIDATION_CSV)
     cluster = pd.read_csv(CLUSTER_CSV, usecols=["CifId", "cluster"])
     validated = validated.merge(cluster, left_on="mof_id", right_on="CifId", how="left")
+
+    # Add psa_rank / vsa_rank flags from dual-track selection files
+    psa_ids = set()
+    for p in PSA_SPLIT_CSVS:
+        psa_ids.update(pd.read_csv(p, usecols=["mof_id"])["mof_id"].astype(str))
+    vsa_ids = set()
+    for p in VSA_SPLIT_CSVS:
+        vsa_ids.update(pd.read_csv(p, usecols=["mof_id"])["mof_id"].astype(str))
+
+    validated["mof_id"] = validated["mof_id"].astype(str)
+    validated["psa_rank"] = validated["mof_id"].apply(lambda x: 1.0 if x in psa_ids else float("nan"))
+    validated["vsa_rank"] = validated["mof_id"].apply(lambda x: 1.0 if x in vsa_ids else float("nan"))
     return validated
 
 
@@ -198,15 +221,13 @@ def plot_figure11(output_dir: Path) -> pd.DataFrame:
     ]
 
     rows = []
-    token_rows = []
     set_publication_style()
-    fig, axes = plt.subplots(2, 2, figsize=(DOUBLE_COL_INCH, 0.90 * DOUBLE_COL_INCH))
+    fig, axes = plt.subplots(1, 2, figsize=(DOUBLE_COL_INCH, 0.45 * DOUBLE_COL_INCH))
 
     for col_idx, (process, api_col, rank_col, threshold, color, title) in enumerate(process_specs):
-        ax = axes[0, col_idx]
+        ax = axes[col_idx]
         top = validated[validated[rank_col].notna()].copy()
         top["beat"] = top[api_col] > threshold
-        beat = top[top["beat"]].copy()
         summary = (
             top.groupby("cluster")
                .agg(count=("beat", "sum"), total_top100=("beat", "size"))
@@ -248,51 +269,10 @@ def plot_figure11(output_dir: Path) -> pd.DataFrame:
         _apply_axis_style(ax)
         ax.text(0.98, 0.95, f"n = {int(summary['count'].sum())}\nAPI > {threshold:.3f}", transform=ax.transAxes, ha='right', va='top', fontsize=6.8, bbox=dict(boxstyle='round', facecolor='white', alpha=0.85, linewidth=0.4))
 
-        metal_tokens, organic_tokens = _extract_arc_block_tokens(beat["mof_id"])
-        token_summary = organic_tokens.value_counts().head(6).reset_index()
-        token_summary.columns = ["token", "count"]
-        token_summary["label"] = token_summary["token"].map(lambda x: f"o{x}")
-        dominant_metal = metal_tokens.value_counts().index[0] if not metal_tokens.empty else "—"
-        token_rows.extend(
-            {
-                "process": process,
-                "token": row.token,
-                "label": row.label,
-                "count": int(row.count),
-                "dominant_metal": f"m{dominant_metal}",
-            }
-            for row in token_summary.itertuples(index=False)
-        )
-
-        ax_tok = axes[1, col_idx]
-        token_color = color
-        y = np.arange(len(token_summary))
-        ax_tok.barh(y, token_summary["count"], color=token_color, edgecolor="black", linewidth=0.4, alpha=0.85)
-        ax_tok.set_yticks(y)
-        ax_tok.set_yticklabels(token_summary["label"])
-        ax_tok.invert_yaxis()
-        ax_tok.set_xlabel("Count among validated hits")
-        ax_tok.set_ylabel("ARC building block")
-        set_emphasized_title(ax_tok, f"({chr(ord('c') + col_idx)}) {process} recurring building blocks", loc="left")
-        _apply_axis_style(ax_tok)
-        ax_tok.grid(True, axis="x", linestyle="--", alpha=0.22, linewidth=0.4)
-        ax_tok.grid(False, axis="y")
-        ax_tok.text(
-            0.98,
-            0.95,
-            f"dominant metal = m{dominant_metal}",
-            transform=ax_tok.transAxes,
-            ha="right",
-            va="top",
-            fontsize=6.8,
-            bbox=dict(boxstyle="round", facecolor="white", alpha=0.85, linewidth=0.4),
-        )
-
-    fig.tight_layout(w_pad=1.0, h_pad=0.9)
+    fig.tight_layout(w_pad=1.0)
     save_figure(fig, "Figure11", output_dir, formats=("png",))
     summary_df = pd.DataFrame(rows).sort_values(["process", "count", "hit_rate"], ascending=[True, False, False])
     summary_df.to_csv(output_dir / "Figure11_cluster_summary.csv", index=False)
-    pd.DataFrame(token_rows).to_csv(output_dir / "Figure11_building_blocks.csv", index=False)
     return summary_df
 
 

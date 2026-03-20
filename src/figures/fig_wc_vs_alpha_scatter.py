@@ -51,7 +51,7 @@ def make_figure(df: pd.DataFrame, exp_ids: set, hypo_ids: set):
     layout = compute_panel_grid_layout(
         nrows=1, ncols=2,
         figure_width_inch=DOUBLE_COL_INCH,
-        right_margin_inch=0.55,  # extra room for colorbar
+        right_margin_inch=0.25,
     )
 
     fig, axes = plt.subplots(
@@ -76,18 +76,19 @@ def make_figure(df: pd.DataFrame, exp_ids: set, hypo_ids: set):
     is_hypo_top = df["mof_id"].isin(hypo_ids)
     is_background = ~is_atccu & ~is_exp_top & ~is_hypo_top
 
-    # Shared API range for consistent colourbar
-    api_all = pd.concat([df["PSA_API_CH4"], df["VSA_API_CH4"]])
-    vmin, vmax = 0.0, np.percentile(api_all.dropna(), 99)
-
-    norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
     cmap = plt.cm.viridis
+    scatter_mappables = []  # one per panel, for per-panel colorbars
 
     for ax, wc_col, alpha_col, api_col, label in panels:
+        # Per-panel API range for maximum color contrast
+        api_vals = df[api_col].dropna()
+        vmin, vmax = 0.0, np.percentile(api_vals, 99)
+        norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
+
         bg = df[is_background]
         # Sort by API so high-API dots are drawn on top
         bg = bg.sort_values(api_col, ascending=True)
-        ax.scatter(
+        sc = ax.scatter(
             bg[wc_col], bg[alpha_col],
             c=bg[api_col], cmap=cmap, norm=norm,
             s=1.0, alpha=0.25, edgecolors="none", rasterized=True,
@@ -129,11 +130,13 @@ def make_figure(df: pd.DataFrame, exp_ids: set, hypo_ids: set):
         ax.tick_params(labelsize=layout.tick_font)
         set_emphasized_title(ax, label, fontsize=layout.body_font)
 
-        # Reasonable axis limits (clip outliers)
-        wc_p99 = np.percentile(df[wc_col].dropna(), 99.5)
-        alpha_p99 = np.percentile(df[alpha_col].dropna(), 99.5)
-        ax.set_xlim(0, wc_p99 * 1.05)
-        ax.set_ylim(0, alpha_p99 * 1.05)
+        # Show ALL data: use data max + 5% padding instead of percentile clipping
+        wc_max = df[wc_col].dropna().max()
+        alpha_max = df[alpha_col].dropna().max()
+        ax.set_xlim(0, wc_max * 1.05)
+        ax.set_ylim(0, alpha_max * 1.05)
+
+        scatter_mappables.append((ax, norm))
 
     # Legend (only on first panel, de-duplicated)
     handles, labels = axes[0].get_legend_handles_labels()
@@ -146,18 +149,13 @@ def make_figure(df: pd.DataFrame, exp_ids: set, hypo_ids: set):
         borderpad=0.3,
     )
 
-    # Shared colorbar
-    sm = mpl.cm.ScalarMappable(cmap=cmap, norm=norm)
-    sm.set_array([])
-    cbar_ax = fig.add_axes([
-        layout.right + 0.015,
-        layout.bottom,
-        0.015,
-        layout.top - layout.bottom,
-    ])
-    cbar = fig.colorbar(sm, cax=cbar_ax)
-    cbar.set_label("Predicted API", fontsize=layout.body_font)
-    cbar.ax.tick_params(labelsize=layout.tick_font)
+    # Per-panel colorbars (one for each panel)
+    for ax, panel_norm in scatter_mappables:
+        sm = mpl.cm.ScalarMappable(cmap=cmap, norm=panel_norm)
+        sm.set_array([])
+        cbar = fig.colorbar(sm, ax=ax, fraction=0.046, pad=0.02)
+        cbar.set_label("Predicted API", fontsize=layout.body_font)
+        cbar.ax.tick_params(labelsize=layout.tick_font)
 
     return fig
 
