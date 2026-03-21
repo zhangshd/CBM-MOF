@@ -1,8 +1,9 @@
 """Figure 8': Full-library Working Capacity vs Selectivity scatter (PSA/VSA).
 
 Two-panel scatter showing all ~122k stable MOFs in WC–alpha space,
-coloured by predicted API.  ATC-Cu is highlighted with a star marker;
-Exp-Top-50 and Hypo-Top-50 are shown with distinct edge-coloured markers.
+coloured by predicted API.  ATC-Cu is highlighted with a star marker.
+Each panel highlights only the top-50 candidates for that specific process
+(PSA or VSA), using per-process exp/hypo top-50 files.
 """
 
 from __future__ import annotations
@@ -30,28 +31,36 @@ from src.figures.style import (
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 RESULTS_DIR = PROJECT_ROOT / "results" / "alignn" / "model_ep150" / "top_candidates"
 FULL_CSV = RESULTS_DIR / "full_library_stable_no_uq_filter.csv"
-EXP_CSV = RESULTS_DIR / "exp_union.csv"
-HYPO_CSV = RESULTS_DIR / "hypo_union.csv"
+EXP_PSA_CSV = RESULTS_DIR / "exp_top50_psa.csv"
+EXP_VSA_CSV = RESULTS_DIR / "exp_top50_vsa.csv"
+HYPO_PSA_CSV = RESULTS_DIR / "hypo_top50_psa.csv"
+HYPO_VSA_CSV = RESULTS_DIR / "hypo_top50_vsa.csv"
 OUTPUT_DIR = RESULTS_DIR
 ATC_CU_ID = "CoRE-2020[Cu][pts]3[ASR]1"
 
 
 def load_data():
-    """Load the full library and top candidate lists."""
+    """Load the full library and per-process top-50 candidate lists."""
     df = pd.read_csv(FULL_CSV)
-    exp_ids = set(pd.read_csv(EXP_CSV)["mof_id"].tolist())
-    hypo_ids = set(pd.read_csv(HYPO_CSV)["mof_id"].tolist())
-    return df, exp_ids, hypo_ids
+    exp_psa_ids = set(pd.read_csv(EXP_PSA_CSV)["mof_id"].tolist())
+    exp_vsa_ids = set(pd.read_csv(EXP_VSA_CSV)["mof_id"].tolist())
+    hypo_psa_ids = set(pd.read_csv(HYPO_PSA_CSV)["mof_id"].tolist())
+    hypo_vsa_ids = set(pd.read_csv(HYPO_VSA_CSV)["mof_id"].tolist())
+    return df, exp_psa_ids, exp_vsa_ids, hypo_psa_ids, hypo_vsa_ids
 
 
-def make_figure(df: pd.DataFrame, exp_ids: set, hypo_ids: set):
-    """Create the 2-panel WC vs alpha scatter figure."""
+def make_figure(
+    df: pd.DataFrame,
+    exp_psa_ids: set, exp_vsa_ids: set,
+    hypo_psa_ids: set, hypo_vsa_ids: set,
+):
+    """Create the 2-panel WC vs alpha scatter figure with per-panel highlights."""
     set_publication_style()
 
     layout = compute_panel_grid_layout(
         nrows=1, ncols=2,
         figure_width_inch=DOUBLE_COL_INCH,
-        right_margin_inch=0.25,
+        right_margin_inch=0.55,
     )
 
     fig, axes = plt.subplots(
@@ -61,25 +70,25 @@ def make_figure(df: pd.DataFrame, exp_ids: set, hypo_ids: set):
     fig.subplots_adjust(
         left=layout.left, right=layout.right,
         bottom=layout.bottom, top=layout.top,
-        wspace=layout.wspace,
+        wspace=layout.wspace + 0.15,
     )
 
-    # Panel config: (ax, wc_col, alpha_col, api_col, label)
+    # Panel config: (ax, wc_col, alpha_col, api_col, label, exp_ids, hypo_ids)
     panels = [
-        (axes[0], "PSA_WC_CH4", "PSA_alpha_CH4_N2", "PSA_API_CH4", "(a) PSA"),
-        (axes[1], "VSA_WC_CH4", "VSA_alpha_CH4_N2", "VSA_API_CH4", "(b) VSA"),
+        (axes[0], "PSA_WC_CH4", "PSA_alpha_CH4_N2", "PSA_API_CH4", "(a) PSA", exp_psa_ids, hypo_psa_ids),
+        (axes[1], "VSA_WC_CH4", "VSA_alpha_CH4_N2", "VSA_API_CH4", "(b) VSA", exp_vsa_ids, hypo_vsa_ids),
     ]
 
-    # Masks
     is_atccu = df["mof_id"] == ATC_CU_ID
-    is_exp_top = df["mof_id"].isin(exp_ids) & ~is_atccu
-    is_hypo_top = df["mof_id"].isin(hypo_ids)
-    is_background = ~is_atccu & ~is_exp_top & ~is_hypo_top
-
     cmap = plt.cm.viridis
     scatter_mappables = []  # one per panel, for per-panel colorbars
 
-    for ax, wc_col, alpha_col, api_col, label in panels:
+    for ax, wc_col, alpha_col, api_col, label, panel_exp_ids, panel_hypo_ids in panels:
+        # Per-panel masks
+        is_exp_top = df["mof_id"].isin(panel_exp_ids) & ~is_atccu
+        is_hypo_top = df["mof_id"].isin(panel_hypo_ids)
+        is_background = ~is_atccu & ~is_exp_top & ~is_hypo_top
+
         # Per-panel API range for maximum color contrast
         api_vals = df[api_col].dropna()
         vmin, vmax = 0.0, np.percentile(api_vals, 99)
@@ -88,7 +97,7 @@ def make_figure(df: pd.DataFrame, exp_ids: set, hypo_ids: set):
         bg = df[is_background]
         # Sort by API so high-API dots are drawn on top
         bg = bg.sort_values(api_col, ascending=True)
-        sc = ax.scatter(
+        ax.scatter(
             bg[wc_col], bg[alpha_col],
             c=bg[api_col], cmap=cmap, norm=norm,
             s=1.0, alpha=0.25, edgecolors="none", rasterized=True,
@@ -97,22 +106,24 @@ def make_figure(df: pd.DataFrame, exp_ids: set, hypo_ids: set):
 
         # Exp Top candidates (blue triangles with edge)
         exp = df[is_exp_top]
+        n_exp = exp.shape[0]
         ax.scatter(
             exp[wc_col], exp[alpha_col],
             c=exp[api_col], cmap=cmap, norm=norm,
             s=18, marker="^", edgecolors=NATURE_COLORS["blue"],
             linewidths=0.5, alpha=0.9, zorder=3,
-            label=f"Exp Top-{len(exp_ids)}",
+            label=f"Exp Top-{n_exp}",
         )
 
         # Hypo Top candidates (orange circles with edge)
         hypo = df[is_hypo_top]
+        n_hypo = hypo.shape[0]
         ax.scatter(
             hypo[wc_col], hypo[alpha_col],
             c=hypo[api_col], cmap=cmap, norm=norm,
             s=18, marker="o", edgecolors=NATURE_COLORS["orange"],
             linewidths=0.5, alpha=0.9, zorder=3,
-            label=f"Hypo Top-{len(hypo_ids)}",
+            label=f"Hypo Top-{n_hypo}",
         )
 
         # ATC-Cu star
@@ -136,36 +147,40 @@ def make_figure(df: pd.DataFrame, exp_ids: set, hypo_ids: set):
         ax.set_xlim(0, wc_max * 1.05)
         ax.set_ylim(0, alpha_max * 1.05)
 
+        # Per-panel legend
+        handles, labels_ = ax.get_legend_handles_labels()
+        ax.legend(
+            handles, labels_,
+            loc="upper left",
+            fontsize=layout.tick_font,
+            markerscale=1.0,
+            handletextpad=0.3,
+            borderpad=0.3,
+        )
+
         scatter_mappables.append((ax, norm))
 
-    # Legend (only on first panel, de-duplicated)
-    handles, labels = axes[0].get_legend_handles_labels()
-    axes[0].legend(
-        handles, labels,
-        loc="upper left",
-        fontsize=layout.tick_font,
-        markerscale=1.0,
-        handletextpad=0.3,
-        borderpad=0.3,
-    )
-
     # Per-panel colorbars (one for each panel)
-    for ax, panel_norm in scatter_mappables:
+    for i, (ax, panel_norm) in enumerate(scatter_mappables):
         sm = mpl.cm.ScalarMappable(cmap=cmap, norm=panel_norm)
         sm.set_array([])
         cbar = fig.colorbar(sm, ax=ax, fraction=0.046, pad=0.02)
-        cbar.set_label("Predicted API", fontsize=layout.body_font)
+        # Only show colorbar label on the last (rightmost) panel
+        if i == len(scatter_mappables) - 1:
+            cbar.set_label("Predicted API", fontsize=layout.body_font)
         cbar.ax.tick_params(labelsize=layout.tick_font)
 
     return fig
 
 
 def main():
-    df, exp_ids, hypo_ids = load_data()
-    print(f"Loaded {len(df):,} MOFs, {len(exp_ids)} exp-top, {len(hypo_ids)} hypo-top")
+    df, exp_psa_ids, exp_vsa_ids, hypo_psa_ids, hypo_vsa_ids = load_data()
+    print(f"Loaded {len(df):,} MOFs")
+    print(f"  PSA highlights: {len(exp_psa_ids)} exp + {len(hypo_psa_ids)} hypo")
+    print(f"  VSA highlights: {len(exp_vsa_ids)} exp + {len(hypo_vsa_ids)} hypo")
     print(f"ATC-Cu present: {ATC_CU_ID in df['mof_id'].values}")
 
-    fig = make_figure(df, exp_ids, hypo_ids)
+    fig = make_figure(df, exp_psa_ids, exp_vsa_ids, hypo_psa_ids, hypo_vsa_ids)
     save_figure(fig, "Figure8_wc_vs_alpha", OUTPUT_DIR, formats=("png",), tight_layout=False)
     plt.close(fig)
     print("Done.")

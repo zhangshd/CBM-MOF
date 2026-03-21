@@ -60,8 +60,8 @@ CLUSTER_CSV = (
 BENCHMARK_PSA = 0.457
 BENCHMARK_VSA = 0.173
 
-OUTPUT_DIR = MODEL_DIR / "bkt_candidates_new"
-CIF_SRC_DIR = MODEL_DIR / "top_candidates" / "cifs"
+OUTPUT_DIR = MODEL_DIR / "bkt_candidates"
+CIF_SRC_DIR = MODEL_DIR / "top_candidates" / "cifs_all_top"
 
 # ---------------------------------------------------------------------------
 # Step 1: Parse GCMC + Widom
@@ -196,7 +196,7 @@ def compute_ml_gcmc_metrics(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
-# Step 4: Cluster-aware Top-N selection (from select_final_top10.py)
+# Step 4: Cluster-aware Top-N selection
 # ---------------------------------------------------------------------------
 
 def allocate_slots(cluster_counts: dict, total_slots: int = 10) -> dict:
@@ -494,7 +494,7 @@ def main():
 
     print(f"\n[DONE] Next: submit pure-component GCMC for {len(combined_ids)} MOFs")
     print(f"  conda run -n mofmthnn python src/alignn/submit_pure_component_gcmc.py \\")
-    print(f"    --model-dir results/alignn/model_ep150 --bkt-dir bkt_candidates_new")
+    print(f"    --model-dir results/alignn/model_ep150 --bkt-dir bkt_candidates")
 
 
 if __name__ == "__main__":

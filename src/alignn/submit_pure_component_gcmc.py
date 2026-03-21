@@ -3,7 +3,7 @@ submit_pure_component_gcmc.py — Task 3.0: Submit pure-component GCMC SLURM job
 for BKT Top-10 candidates.
 
 Runs pure CH4 and pure N2 GCMC simulations at 10 log-spaced pressures
-(0.01–10 bar) for the 20 MOFs selected by select_final_top10.py.
+(0.01–10 bar) for the 20 MOFs selected by run_new_top10_pipeline.py.
 
 Uses the same MOF-HTS submitter interface as submit_gcmc_validation.py.
 
@@ -164,7 +164,7 @@ def main() -> None:
     print(f"CIF directory: {cif_dir}")
     print(f"CIF count    : {cif_count}")
     if cif_count == 0:
-        print("[ERROR] No CIF files found. Run select_final_top10.py first.")
+        print("[ERROR] No CIF files found. Run run_new_top10_pipeline.py first.")
         return
 
     # Submit

@@ -34,8 +34,8 @@ WIDOM_FORCE_FIELD_DIR = GCMC_SCRIPT_DIR / "DREIDING"
 
 # NOTE: cifs/ symlinks point to MOF-HTS/data/processed/integrated_cifs (with space group)
 # NOT to all_graphs_grids/ (which lacks _symmetry_space_group → RASPA2 fails)
-CIF_DIR     = str(REPO_ROOT / "results" / "alignn" / "top_candidates" / "cifs")
-OUT_DIR     = str(REPO_ROOT / "results" / "alignn" / "gcmc_top_candidates")
+CIF_DIR     = str(REPO_ROOT / "results" / "alignn" / "model_ep150" / "top_candidates" / "cifs_all_top")
+OUT_DIR     = str(REPO_ROOT / "results" / "alignn" / "model_ep150" / "bkt_candidates")
 
 # Custom simulation param files (same as used in exp03b full-library screening)
 SIMULATION_PARAMS_FILE  = str(REPO_ROOT / "configs" / "custom_simulation.json")
@@ -161,8 +161,8 @@ def main() -> None:
         _md = Path(args.model_dir)
         if not _md.is_absolute():
             _md = REPO_ROOT / _md
-        CIF_DIR = str(_md / "top_candidates" / "cifs")
-        OUT_DIR = str(_md / "gcmc_top_candidates")
+        CIF_DIR = str(_md / "top_candidates" / "cifs_all_top")
+        OUT_DIR = str(_md / "bkt_candidates")
 
     if args.cif_dir:
         _cd = Path(args.cif_dir)

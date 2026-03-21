@@ -42,7 +42,7 @@ from figures.style import (  # noqa: E402
 
 BENCHMARK_MOF = "CoRE-2020[Cu][pts]3[ASR]1"
 # New 186-MOF dual-track validation data
-GCMC_VALIDATION_CSV = REPO_ROOT / "results" / "alignn" / "model_ep150" / "bkt_candidates_new" / "gcmc_vs_ml_comparison.csv"
+GCMC_VALIDATION_CSV = REPO_ROOT / "results" / "alignn" / "model_ep150" / "bkt_candidates" / "gcmc_vs_ml_comparison.csv"
 CLUSTER_CSV = REPO_ROOT / "results" / "cbm_screening" / "inference" / "umap_coordinates_descriptor_with_metrics_ml.csv"
 # PSA/VSA splits from dual-track selection
 _MODEL_DIR = REPO_ROOT / "results" / "alignn" / "model_ep150"

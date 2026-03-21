@@ -4,8 +4,8 @@ compare_uq_vs_gcmc.py
 Post-GCMC analysis: Compare ML prediction accuracy for high-UQ vs low-UQ MOFs.
 
 Loads the 186 MOFs from all_top_union.csv (with flag_high_uq), then merges
-GCMC ground truth from multiple directories (exp_top + hypo_top + old_194)
-to maximize coverage. Reports per-group R^2, MAPE, MAE for all 8 targets.
+GCMC ground truth from exp_top + hypo_top directories.
+Reports per-group R^2, MAPE, MAE for all 8 targets.
 
 Usage:
     conda run -n mofmthnn --no-banner python src/alignn/compare_uq_vs_gcmc.py
@@ -26,7 +26,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from src.alignn.parse_validation_results import parse_gcmc
+from src.alignn.run_new_top10_pipeline import parse_gcmc
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -62,14 +62,12 @@ GCMC_COL_MAP = {
 GCMC_DIRS = [
     ("exp_top", MODEL_DIR / "gcmc_exp_top" / "gcmc_DreidingTraPPEJson"),
     ("hypo_top", MODEL_DIR / "gcmc_hypo_top" / "gcmc_DreidingTraPPEJson"),
-    ("old_194", MODEL_DIR / "gcmc_top_candidates" / "gcmc_DreidingTraPPEJson"),
 ]
 
 # Widom directories
 WIDOM_DIRS = [
     ("exp_top", MODEL_DIR / "gcmc_exp_top" / "widom_DREIDING"),
     ("hypo_top", MODEL_DIR / "gcmc_hypo_top" / "widom_DREIDING"),
-    ("old_194", MODEL_DIR / "gcmc_top_candidates" / "widom_DREIDING"),
 ]
 
 

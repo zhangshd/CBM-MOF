@@ -182,11 +182,10 @@ run_cpu_steps() {
     python -u src/alignn/filter_stable_candidates.py \
         --model-dir "$MODEL_DIR"
 
-    # Task 2.3b: Top-100 selection + CIF collection
+    # Task 2.3b: Dual-track Top-50 selection + CIF collection
     echo ""
-    echo "--- Task 2.3b: Top-100 selection ---"
-    python -u src/alignn/select_top_candidates.py \
-        --model-dir "$MODEL_DIR"
+    echo "--- Task 2.3b: Exp/Hypo Top-50 selection ---"
+    python -u src/alignn/select_exp_top_candidates.py
 
     # Task 2.4a: Submit GCMC + Widom jobs
     echo ""
@@ -198,7 +197,7 @@ run_cpu_steps() {
     echo "============================================================"
     echo "CPU steps complete for ep${EPOCH}."
     echo "  GCMC jobs submitted. After completion, parse with:"
-    echo "    python src/alignn/parse_validation_results.py --model-dir $MODEL_DIR"
+    echo "    python src/alignn/run_new_top10_pipeline.py"
     echo "============================================================"
 }
 
