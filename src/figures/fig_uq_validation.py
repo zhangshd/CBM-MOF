@@ -197,6 +197,7 @@ def plot_sr_panel(ax, payload: dict, lsv_composite: np.ndarray) -> None:
     ax.set_xlabel(r"LSV$_{norm}$ cutoff", fontsize=LABEL_FONT_SIZE)
     ax.set_ylabel("Separation ratio", fontsize=LABEL_FONT_SIZE)
     ax.tick_params(labelsize=TICK_FONT_SIZE)
+    ax.set_ylim(ax.get_ylim()[0]*0.9, ax.get_ylim()[1]*1.05)
 
     # Retention curve (right y-axis)
     ax2 = ax.twinx()
