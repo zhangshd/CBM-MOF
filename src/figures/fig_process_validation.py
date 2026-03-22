@@ -289,7 +289,7 @@ def step1_breakthrough_overlay(bkt_dir: Path, fig_dir: Path, eq_method: str = "c
                   handletextpad=0.3, columnspacing=0.5)
 
     fig.tight_layout(w_pad=0.5, h_pad=0.2)
-    save_figure(fig, "Figure12", fig_dir, formats=("png",))
+    save_figure(fig, "Figure12_breakthrough_curves", fig_dir, formats=("png",))
     plt.close(fig)
     print(f"\nStep 1 complete: breakthrough overlay figure saved.")
 
@@ -529,7 +529,7 @@ def step2_performance_table(bkt_dir: Path, fig_dir: Path, eq_method: str = "comp
         f.write("\n".join(md_lines))
     print(f"  Saved: {md_path}")
 
-    metrics_csv = bkt_dir / "Figure13_process_metrics.csv"
+    metrics_csv = bkt_dir / "Figure13_selectivity_dumbbell_metrics.csv"
     pd.concat(combined_rows, ignore_index=True).to_csv(metrics_csv, index=False)
     print(f"  Saved: {metrics_csv}")
     print(f"\nStep 2 complete: performance tables generated.")
@@ -703,7 +703,7 @@ def step3_selectivity_comparison(bkt_dir: Path, fig_dir: Path, eq_method: str = 
 
     axes[0].legend(frameon=False, fontsize=8.5, loc="lower right")
     fig.subplots_adjust(left=0.20, right=0.985, bottom=0.13, top=0.92, wspace=0.12)
-    save_figure(fig, "Figure13", fig_dir, formats=("png",))
+    save_figure(fig, "Figure13_selectivity_dumbbell", fig_dir, formats=("png",))
     plt.close(fig)
     print(f"\nStep 3 complete: dumbbell selectivity comparison figure saved.")
 

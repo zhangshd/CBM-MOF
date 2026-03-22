@@ -394,7 +394,7 @@ def plot_cluster_api_landscape(
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
 
-    save_figure(fig, "Figure6", output_dir)
+    save_figure(fig, "Figure06_database_distribution", output_dir)
     plt.close(fig)
 
 
@@ -536,7 +536,7 @@ def plot_feature_shift_kde(
     for j in range(n_features, len(axes)):
         axes[j].set_visible(False)
 
-    save_figure(fig, "Figure7", output_dir)
+    save_figure(fig, "Figure07_feature_shift", output_dir)
     plt.close(fig)
 
 
@@ -544,7 +544,7 @@ def plot_cluster_property_intervals(
     summary_df: pd.DataFrame,
     output_dir: str | Path,
     *,
-    file_name: str = "FigureS4_cluster_property_intervals",
+    file_name: str = "FigureS04_cluster_property_intervals",
 ) -> None:
     """Plot ranked interval summaries for key process metrics by cluster."""
     import matplotlib.pyplot as plt
@@ -670,10 +670,10 @@ def generate_assets(
     plot_cluster_property_intervals(cluster_summary_df, output_dir)
 
     if summary_csv is None:
-        summary_csv = output_dir / "Figure7_feature_shift_summary.csv"
+        summary_csv = output_dir / "Figure07_feature_shift_summary.csv"
     export_feature_shift_summary(summary_df, summary_csv)
     if cluster_summary_csv is None:
-        cluster_summary_csv = output_dir / "FigureS4_cluster_property_summary.csv"
+        cluster_summary_csv = output_dir / "FigureS04_cluster_property_summary.csv"
     Path(cluster_summary_csv).parent.mkdir(parents=True, exist_ok=True)
     cluster_summary_df.to_csv(cluster_summary_csv, index=False)
     print(f"  Saved: {cluster_summary_csv}")
@@ -683,7 +683,7 @@ def generate_assets(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate Figure 6/7 for database analysis.")
     parser.add_argument(
-        "--output_dir",
+        "--output-dir",
         type=str,
         default=str(PROJECT_ROOT / "results" / "alignn" / "model_ep150" / "figures"),
         help="Output directory for figure assets.",

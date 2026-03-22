@@ -17,7 +17,7 @@ from pathlib import Path
 BKT_DIR = Path("/home/zhangsd/repos/CBM-MOF/results/alignn/model_ep150/bkt_candidates")
 
 # ── Load data ──
-fig13 = pd.read_csv(BKT_DIR / "Figure13_process_metrics.csv")
+fig13 = pd.read_csv(BKT_DIR / "Figure13_selectivity_dumbbell_metrics.csv")
 top20 = pd.read_csv(BKT_DIR / "top20_combined.csv")
 iast  = pd.read_csv(BKT_DIR / "iast_selectivity.csv")
 

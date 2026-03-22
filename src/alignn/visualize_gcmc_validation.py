@@ -116,6 +116,12 @@ def load_candidates() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     df = df.merge(umap, left_on="mof_id", right_on="CifId", how="left")
     df["cluster"] = df["cluster"] + 1  # 0-indexed → 1-indexed
 
+    # Compute rank columns dynamically if absent (new CSV format)
+    if "psa_rank" not in df.columns:
+        df["psa_rank"] = df["PSA_API_CH4"].rank(ascending=False).astype(int)
+    if "vsa_rank" not in df.columns:
+        df["vsa_rank"] = df["VSA_API_CH4"].rank(ascending=False).astype(int)
+
     df_psa = df[df["psa_rank"].notna()].copy()
     df_vsa = df[df["vsa_rank"].notna()].copy()
     return df, df_psa, df_vsa

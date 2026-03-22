@@ -154,7 +154,7 @@ def plot_figure4(output_dir: Path, metrics_long: pd.DataFrame) -> None:
         pad=8,
     )
 
-    save_figure(fig, "Figure4", output_dir)
+    save_figure(fig, "Figure04_model_heatmap", output_dir)
     plt.close(fig)
 
 
@@ -264,7 +264,7 @@ def plot_figure5(output_dir: Path) -> None:
         hspace=layout.hspace,
         wspace=layout.wspace,
     )
-    save_figure(fig, "Figure5_alignn_parity", output_dir)
+    save_figure(fig, "Figure05_alignn_parity", output_dir)
     plt.close(fig)
 
 
@@ -280,15 +280,15 @@ def generate_assets(output_dir: Path, table_csv: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--output_dir",
+        "--output-dir",
         type=Path,
-        default=PROJECT_ROOT / "results" / "figures",
+        default=PROJECT_ROOT / "results" / "alignn" / "model_ep150" / "figures",
         help="Directory for Figure 4 and Figure 5 outputs.",
     )
     parser.add_argument(
         "--table_csv",
         type=Path,
-        default=PROJECT_ROOT / "results" / "summary" / "Table_S3_model_metrics.csv",
+        default=PROJECT_ROOT / "results" / "alignn" / "model_ep150" / "figures" / "Table_S3_model_metrics.csv",
         help="CSV path for Table S3.",
     )
     args = parser.parse_args()

@@ -229,7 +229,7 @@ def generate_assets(
     plot_sr_panel(axes[3], payload)
     fig.subplots_adjust(left=0.08, right=0.98, bottom=0.08, top=0.94, wspace=0.22, hspace=0.28)
 
-    save_figure(fig, "Figure6", output_dir)
+    save_figure(fig, "Figure06_uq_validation", output_dir)
     plt.close(fig)
     export_threshold_table(threshold_csv, payload)
 
@@ -251,13 +251,13 @@ def main() -> None:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=PROJECT_ROOT / "results" / "figures",
+        default=PROJECT_ROOT / "results" / "alignn" / "model_ep150" / "figures",
         help="Output directory for the main-text figure.",
     )
     parser.add_argument(
         "--threshold-csv",
         type=Path,
-        default=PROJECT_ROOT / "results" / "summary" / "LSV_thresholds_ep150.csv",
+        default=PROJECT_ROOT / "results" / "alignn" / "model_ep150" / "figures" / "LSV_thresholds_ep150.csv",
         help="CSV path for the per-target LSV threshold summary.",
     )
     args = parser.parse_args()

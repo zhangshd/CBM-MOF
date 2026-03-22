@@ -203,11 +203,11 @@ def plot_figure10(output_dir: Path) -> dict[str, float]:
         ax.legend(loc="best", fontsize=6.5, frameon=False)
 
     fig.tight_layout(w_pad=0.7, h_pad=0.9)
-    save_figure(fig, "Figure10", output_dir, formats=("png",))
+    save_figure(fig, "Figure10_screening_scatter", output_dir, formats=("png",))
 
     pd.DataFrame([
         {"metric": key, "value": value} for key, value in summary.items()
-    ]).to_csv(output_dir / "Figure10_summary.csv", index=False)
+    ]).to_csv(output_dir / "Figure10_screening_scatter_summary.csv", index=False)
     return summary
 
 
@@ -270,9 +270,9 @@ def plot_figure11(output_dir: Path) -> pd.DataFrame:
         ax.text(0.98, 0.95, f"n = {int(summary['count'].sum())}\nAPI > {threshold:.3f}", transform=ax.transAxes, ha='right', va='top', fontsize=6.8, bbox=dict(boxstyle='round', facecolor='white', alpha=0.85, linewidth=0.4))
 
     fig.tight_layout(w_pad=1.0)
-    save_figure(fig, "Figure11", output_dir, formats=("png",))
+    save_figure(fig, "Figure11_cluster_analysis", output_dir, formats=("png",))
     summary_df = pd.DataFrame(rows).sort_values(["process", "count", "hit_rate"], ascending=[True, False, False])
-    summary_df.to_csv(output_dir / "Figure11_cluster_summary.csv", index=False)
+    summary_df.to_csv(output_dir / "Figure11_cluster_analysis_summary.csv", index=False)
     return summary_df
 
 
@@ -281,7 +281,7 @@ def main() -> None:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=REPO_ROOT / "manuscript" / "figures",
+        default=REPO_ROOT / "results" / "alignn" / "model_ep150" / "figures",
         help="Directory for Figure10/Figure11 outputs.",
     )
     args = parser.parse_args()

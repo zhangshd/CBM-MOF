@@ -2,7 +2,7 @@
 One-click generation of the active publication figures.
 
 Usage:
-    python src/figures/generate_all.py [--output_dir DIR] [--table_csv PATH]
+    python src/figures/generate_all.py [--output-dir DIR] [--table-csv PATH]
 """
 
 from __future__ import annotations
@@ -13,16 +13,21 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
 
 def main():
+    default_output = REPO_ROOT / "results" / "alignn" / "model_ep150" / "figures"
+    default_table = default_output / "Table_S3_model_metrics.csv"
+
     parser = argparse.ArgumentParser(
         description="Generate all publication figures for CBM-MOF paper.")
     parser.add_argument(
-        "--output_dir", type=str, default="manuscript/figures",
-        help="Output directory for figures (default: manuscript/figures)")
+        "--output-dir", type=str, default=str(default_output),
+        help="Output directory for figures (default: %(default)s)")
     parser.add_argument(
-        "--table_csv", type=str, default="results/summary/Table_S3_model_metrics.csv",
-        help="CSV path for Table S3 metrics export.")
+        "--table-csv", type=str, default=str(default_table),
+        help="CSV path for Table S3 metrics export (default: %(default)s).")
     args = parser.parse_args()
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)

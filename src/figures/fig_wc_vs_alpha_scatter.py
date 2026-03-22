@@ -8,6 +8,7 @@ Each panel highlights only the top-50 candidates for that specific process
 
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -35,7 +36,7 @@ EXP_PSA_CSV = RESULTS_DIR / "exp_top50_psa.csv"
 EXP_VSA_CSV = RESULTS_DIR / "exp_top50_vsa.csv"
 HYPO_PSA_CSV = RESULTS_DIR / "hypo_top50_psa.csv"
 HYPO_VSA_CSV = RESULTS_DIR / "hypo_top50_vsa.csv"
-OUTPUT_DIR = RESULTS_DIR
+DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "results" / "alignn" / "model_ep150" / "figures"
 ATC_CU_ID = "CoRE-2020[Cu][pts]3[ASR]1"
 
 
@@ -174,6 +175,17 @@ def make_figure(
 
 
 def main():
+    parser = argparse.ArgumentParser(
+        description="Generate Figure 8: WC vs alpha scatter for PSA/VSA."
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=DEFAULT_OUTPUT_DIR,
+        help="Output directory for the figure (default: results/alignn/model_ep150/figures).",
+    )
+    args = parser.parse_args()
+
     df, exp_psa_ids, exp_vsa_ids, hypo_psa_ids, hypo_vsa_ids = load_data()
     print(f"Loaded {len(df):,} MOFs")
     print(f"  PSA highlights: {len(exp_psa_ids)} exp + {len(hypo_psa_ids)} hypo")
@@ -181,7 +193,7 @@ def main():
     print(f"ATC-Cu present: {ATC_CU_ID in df['mof_id'].values}")
 
     fig = make_figure(df, exp_psa_ids, exp_vsa_ids, hypo_psa_ids, hypo_vsa_ids)
-    save_figure(fig, "Figure8_wc_vs_alpha", OUTPUT_DIR, formats=("png",), tight_layout=False)
+    save_figure(fig, "Figure08_wc_vs_alpha", args.output_dir, formats=("png",), tight_layout=False)
     plt.close(fig)
     print("Done.")
 

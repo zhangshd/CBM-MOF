@@ -263,7 +263,7 @@ def plot_figure9_4x4(output_dir: Path) -> None:
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
 
-    save_figure(fig, "Figure9_validated_186", output_dir, tight_layout=False)
+    save_figure(fig, "Figure09_validated_186", output_dir, tight_layout=False)
     plt.close(fig)
 
 
@@ -373,7 +373,7 @@ def plot_figure9_2x4(output_dir: Path) -> None:
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
 
-    save_figure(fig, "Figure9_validated_186_exp_hypo", output_dir, tight_layout=False)
+    save_figure(fig, "Figure09_validated_186_exp_hypo", output_dir, tight_layout=False)
     plt.close(fig)
 
 
@@ -387,7 +387,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Generate GCMC-vs-ML parity plots for the 186 validated MOFs."
     )
-    parser.add_argument("--output_dir", type=str, default="manuscript/figures")
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default=str(REPO_ROOT / "results" / "alignn" / "model_ep150" / "figures"),
+    )
     parser.add_argument(
         "--layout",
         choices=["2x4", "4x4"],

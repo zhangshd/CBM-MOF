@@ -9,6 +9,7 @@ ATC-Cu is highlighted as a benchmark.
 
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -31,7 +32,7 @@ from style import (
 # ── Constants ─────────────────────────────────────────────────────────────────
 REPO = Path(__file__).resolve().parents[2]
 DATA_CSV = REPO / "results/alignn/model_ep150/composition_sensitivity/composition_sensitivity_results.csv"
-OUT_DIR = DATA_CSV.parent
+DEFAULT_OUTPUT_DIR = REPO / "results" / "alignn" / "model_ep150" / "figures"
 
 ATC_CU_ID = "CoRE-2020[Cu][pts]3[ASR]1"
 
@@ -115,6 +116,17 @@ def _plot_panel(
 
 
 def main():
+    parser = argparse.ArgumentParser(
+        description="Generate Figure 13: Composition sensitivity scatter (20:80 vs 50:50)."
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=DEFAULT_OUTPUT_DIR,
+        help="Output directory for the figure (default: results/alignn/model_ep150/figures).",
+    )
+    args = parser.parse_args()
+
     set_publication_style()
     df = load_data()
     print(f"Loaded {len(df)} MOFs  (exp={df['is_exp'].sum()}, hypo={(~df['is_exp']).sum()})")
@@ -145,9 +157,8 @@ def main():
         frameon=False,
     )
 
-    out_path = OUT_DIR / "Figure13_composition_sensitivity.png"
-    fig.savefig(out_path, dpi=DPI, bbox_inches="tight", pad_inches=0.02)
-    print(f"Saved: {out_path}")
+    save_figure(fig, "Figure13_composition_sensitivity", args.output_dir,
+                formats=("png",), tight_layout=False)
     plt.close(fig)
 
 
