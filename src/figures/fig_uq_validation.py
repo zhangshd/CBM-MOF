@@ -1,11 +1,8 @@
 """
-Generate the main-text UQ validation figure and threshold support table.
+Generate UQ validation figures and threshold support table.
 
-Figure layout:
-  (a) Latent-space PCA colored by CH4 uptake at 10 kPa
-  (b) Latent-space PCA colored by CH4 uptake at 1000 kPa
-  (c) Latent-space PCA colored by Qst(CH4)
-  (d) SR-based LSV cutoff selection using the calibrated ep150 threshold
+Main-text Figure 6: Single-panel SR sweep showing LSV calibration quality.
+SI Figure: 8-panel PCA colored by all 8 prediction targets.
 """
 
 from __future__ import annotations
@@ -18,6 +15,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
@@ -25,34 +23,24 @@ from src.figures.style import (  # noqa: E402
     DOUBLE_COL_INCH,
     DPI,
     LABEL_FONT_SIZE,
+    SINGLE_COL_INCH,
     TICK_FONT_SIZE,
     TITLE_FONT_SIZE,
     LEGEND_FONT_SIZE,
     MODEL_COLORS,
+    NATURE_COLORS,
+    PANEL_ORDER,
+    TASK_LABELS,
+    TASK_LIST,
+    TASK_UNITS,
+    compute_panel_grid_layout,
     save_figure,
-    set_emphasized_title,
     set_publication_style,
 )
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-TARGET_COLS = [
-    "AdsCH4_10kPa",
-    "AdsCH4_100kPa",
-    "AdsCH4_1000kPa",
-    "AdsN2_10kPa",
-    "AdsN2_100kPa",
-    "AdsN2_1000kPa",
-    "QstCH4",
-    "QstN2",
-]
-PCA_TARGETS = ["AdsCH4_10kPa", "AdsCH4_1000kPa", "QstCH4"]
-PANEL_TITLES = {
-    "AdsCH4_10kPa": r"(a) CH$_4$ uptake at 10 kPa (mol/kg)",
-    "AdsCH4_1000kPa": r"(b) CH$_4$ uptake at 1000 kPa (mol/kg)",
-    "QstCH4": r"(c) $Q_{\mathrm{st}}$(CH$_4$) (kJ/mol)",
-    "SR": r"(d) SR-based cutoff selection",
-}
+PANEL_LABELS = list("abcdefgh")
 
 
 def load_latent_space_projection(deployment_dir: Path) -> tuple[np.ndarray, pd.DataFrame, np.ndarray]:
@@ -102,7 +90,7 @@ def build_threshold_table(payload: dict) -> pd.DataFrame:
     baseline = payload["baseline_lsv_mean"]
 
     rows = []
-    for target in TARGET_COLS:
+    for target in TASK_LIST:
         rows.append(
             {
                 "Target": target,
@@ -122,10 +110,14 @@ def export_threshold_table(csv_path: Path, payload: dict) -> None:
 
 def plot_pca_panel(
     ax,
+    fig,
     coords: np.ndarray,
     values: np.ndarray,
     title: str,
     var_exp: np.ndarray,
+    *,
+    show_xlabel: bool = True,
+    show_ylabel: bool = True,
 ) -> None:
     """Plot one PCA panel with robust target coloring."""
     mask = np.isfinite(values)
@@ -144,63 +136,139 @@ def plot_pca_panel(
         vmax=vmax,
         rasterized=True,
     )
-    ax.set_xlabel(f"PC1 ({var_exp[0]:.1f}%)", fontsize=LABEL_FONT_SIZE)
-    ax.set_ylabel(f"PC2 ({var_exp[1]:.1f}%)", fontsize=LABEL_FONT_SIZE)
+    if show_xlabel:
+        ax.set_xlabel(f"PC1 ({var_exp[0]:.1f}%)", fontsize=LABEL_FONT_SIZE)
+    else:
+        ax.set_xlabel("")
+        ax.tick_params(axis="x", labelbottom=False)
+    if show_ylabel:
+        ax.set_ylabel(f"PC2 ({var_exp[1]:.1f}%)", fontsize=LABEL_FONT_SIZE)
+    else:
+        ax.set_ylabel("")
+        ax.tick_params(axis="y", labelleft=False)
     ax.tick_params(labelsize=TICK_FONT_SIZE)
-    ax.set_aspect("equal", adjustable="box")
-    set_emphasized_title(ax, title, fontsize=TITLE_FONT_SIZE)
+    ax.set_aspect("equal", adjustable="datalim")
+    ax.set_title(title, fontsize=TITLE_FONT_SIZE, fontweight="bold")
 
-    cbar = plt.colorbar(scatter, ax=ax, fraction=0.048, pad=0.03)
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes("right", size="3%", pad=0.03)
+    cbar = fig.colorbar(scatter, cax=cax)
+    cbar.locator = plt.MaxNLocator(nbins=3)
+    cbar.update_ticks()
     cbar.ax.tick_params(labelsize=TICK_FONT_SIZE)
 
 
-def plot_sr_panel(ax, payload: dict) -> None:
-    """Plot the SR sweep panel from the calibrated threshold JSON."""
-    percentile = int(payload["percentile"])
-    threshold = float(payload["composite_threshold"])
-    retain_fraction = float(payload["composite_retain_fraction"])
-    sr_payload = payload["sr_sweep"]
-    if "pcts" in sr_payload:
-        pcts = np.array(sr_payload["pcts"], dtype=float)
-        sr = np.array(sr_payload["sr"], dtype=float)
-    else:
-        ordered = sorted((int(k), v) for k, v in sr_payload.items())
-        pcts = np.array([item[0] for item in ordered], dtype=float)
-        sr = np.array([item[1]["sr"] for item in ordered], dtype=float)
+def _load_calibration_lsv_composite(uq_dir: Path) -> np.ndarray:
+    """Load pre-computed composite LSV_norm for the val+test calibration set."""
+    npy_path = uq_dir / "calibration_lsv_composite.npy"
+    return np.load(npy_path)
 
+
+def plot_sr_panel(ax, payload: dict, lsv_composite: np.ndarray) -> None:
+    """Plot the SR sweep with LSV_norm x-axis and retention twin y-axis."""
+    sr_payload = payload["sr_sweep"]
+    ordered = sorted((int(k), v) for k, v in sr_payload.items())
+    pcts = np.array([item[0] for item in ordered], dtype=float)
+    sr = np.array([item[1]["sr"] if item[1]["sr"] is not None else np.nan
+                   for item in ordered], dtype=float)
+    retention = np.array([item[1]["retention"] for item in ordered], dtype=float)
+
+    # Map percentiles to actual LSV_norm values
+    lsv_thresholds = np.array([np.percentile(lsv_composite, p) if 0 < p < 100
+                               else (lsv_composite.min() if p == 0 else lsv_composite.max())
+                               for p in pcts])
+
+    # Filter valid (non-nan SR)
+    mask = np.isfinite(sr)
+    lsv_x = lsv_thresholds[mask]
+    sr_valid = sr[mask]
+    ret_valid = retention[mask]
+
+    # SR curve (left y-axis)
     ax.plot(
-        pcts,
-        sr,
+        lsv_x,
+        sr_valid,
         color=MODEL_COLORS["ALIGNN"],
         lw=1.2,
         marker="D",
-        ms=3.0,
-        label=r"SR = MAE$_{\mathrm{out}}$/MAE$_{\mathrm{in}}$",
+        ms=2.5,
+        label=r"SR = MAE$_{out}$/MAE$_{in}$",
     )
-    ax.axvline(percentile, color="#CC4125", lw=0.9, ls="--", alpha=0.9)
-    ax.axhline(1.0, color="#888888", lw=0.5, ls=":", alpha=0.6)
-    ax.set_xlim(-2, 102)
-    ax.set_xlabel(r"LSV$_{\mathrm{norm}}$ percentile cutoff", fontsize=LABEL_FONT_SIZE)
+    ax.set_xlabel(r"LSV$_{norm}$ cutoff", fontsize=LABEL_FONT_SIZE)
     ax.set_ylabel("Separation ratio", fontsize=LABEL_FONT_SIZE)
     ax.tick_params(labelsize=TICK_FONT_SIZE)
-    set_emphasized_title(ax, PANEL_TITLES["SR"], fontsize=TITLE_FONT_SIZE)
 
-    sr_at_pct = sr[pcts == percentile]
-    sr_value = float(sr_at_pct[0]) if len(sr_at_pct) > 0 else float("nan")
-    ax.text(
-        0.97,
-        0.03,
-        (
-            f"p{percentile} threshold = {threshold:.3f}\n"
-            f"Retention = {retain_fraction * 100:.1f}%\n"
-            f"SR = {sr_value:.2f}"
-        ),
-        transform=ax.transAxes,
-        ha="right",
-        va="bottom",
-        fontsize=LEGEND_FONT_SIZE,
-        bbox=dict(boxstyle="round,pad=0.28", fc="white", ec="none", alpha=0.88),
+    # Retention curve (right y-axis)
+    ax2 = ax.twinx()
+    ax2.plot(
+        lsv_x,
+        ret_valid * 100,
+        color=NATURE_COLORS["orange"],
+        lw=1.0,
+        marker="o",
+        ms=2.5,
+        alpha=0.8,
+        label="Retention (%)",
     )
+    ax2.set_ylabel("Retention (%)", fontsize=LABEL_FONT_SIZE)
+    ax2.tick_params(labelsize=TICK_FONT_SIZE)
+    ax2.set_ylim(-5, 105)
+
+    # Combined legend
+    lines1, labels1 = ax.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax.legend(lines1 + lines2, labels1 + labels2,
+              fontsize=LEGEND_FONT_SIZE, loc="lower right")
+
+
+def plot_sr_figure(output_dir: Path, payload: dict,
+                   lsv_composite: np.ndarray) -> None:
+    """Generate the main-text Figure 6: single-panel SR sweep."""
+    fig, ax = plt.subplots(figsize=(SINGLE_COL_INCH, 2.8))
+    plot_sr_panel(ax, payload, lsv_composite)
+    save_figure(fig, "Figure06_uq_validation", output_dir)
+    plt.close(fig)
+
+
+def plot_si_pca_figure(
+    output_dir: Path,
+    deployment_dir: Path,
+) -> None:
+    """Generate the SI 8-panel PCA figure colored by all 8 targets."""
+    coords, truth_df, var_exp = load_latent_space_projection(deployment_dir)
+
+    fig, axes = plt.subplots(
+        2,
+        4,
+        figsize=(DOUBLE_COL_INCH, 3.8),
+    )
+
+    idx = 0
+    for row in range(2):
+        for col in range(4):
+            target = PANEL_ORDER[row][col]
+            ax = axes[row, col]
+            label_char = PANEL_LABELS[idx]
+            title = f"({label_char}) {TASK_LABELS[target]}"
+
+            plot_pca_panel(
+                ax=ax,
+                fig=fig,
+                coords=coords,
+                values=truth_df[target].to_numpy(),
+                title=title,
+                var_exp=var_exp,
+                show_xlabel=(row == 1),
+                show_ylabel=(col == 0),
+            )
+            idx += 1
+
+    fig.subplots_adjust(
+        left=0.07, right=0.95, bottom=0.10, top=0.93,
+        wspace=0.35, hspace=-0.05,
+    )
+    save_figure(fig, "FigureS_uq_pca_targets", output_dir, tight_layout=False)
+    plt.close(fig)
 
 
 def generate_assets(
@@ -209,33 +277,27 @@ def generate_assets(
     deployment_dir: Path,
     uq_dir: Path,
 ) -> None:
-    """Generate the manuscript UQ figure and threshold CSV."""
+    """Generate both the main-text SR figure and SI PCA figure, plus threshold CSV."""
     set_publication_style()
-    coords, truth_df, var_exp = load_latent_space_projection(deployment_dir)
     payload = load_threshold_payload(uq_dir)
 
-    fig, axes = plt.subplots(2, 2, figsize=(DOUBLE_COL_INCH, 5.55))
-    axes = axes.ravel()
+    # Compute calibration LSV composite for x-axis mapping
+    lsv_composite = _load_calibration_lsv_composite(uq_dir)
 
-    for ax, target in zip(axes[:3], PCA_TARGETS):
-        plot_pca_panel(
-            ax=ax,
-            coords=coords,
-            values=truth_df[target].to_numpy(),
-            title=PANEL_TITLES[target],
-            var_exp=var_exp,
-        )
+    # Main-text Figure 6: single-panel SR sweep
+    plot_sr_figure(output_dir, payload, lsv_composite)
 
-    plot_sr_panel(axes[3], payload)
-    fig.subplots_adjust(left=0.08, right=0.98, bottom=0.08, top=0.94, wspace=0.22, hspace=0.28)
+    # SI Figure: 8-panel PCA
+    plot_si_pca_figure(output_dir, deployment_dir)
 
-    save_figure(fig, "Figure06_uq_validation", output_dir)
-    plt.close(fig)
+    # Threshold CSV for SI Note S2
     export_threshold_table(threshold_csv, payload)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate the manuscript UQ validation figure.")
+    parser = argparse.ArgumentParser(
+        description="Generate Figure 6 (main-text SR sweep) and SI PCA figure (8-panel latent-space)."
+    )
     parser.add_argument(
         "--deployment-dir",
         type=Path,
@@ -252,7 +314,7 @@ def main() -> None:
         "--output-dir",
         type=Path,
         default=PROJECT_ROOT / "results" / "alignn" / "model_ep150" / "figures",
-        help="Output directory for the main-text figure.",
+        help="Output directory for all figures.",
     )
     parser.add_argument(
         "--threshold-csv",
@@ -268,7 +330,7 @@ def main() -> None:
         deployment_dir=args.deployment_dir,
         uq_dir=args.uq_dir,
     )
-    print("Done: Figure6 and threshold CSV.")
+    print("Done: Figure 6 (SR sweep) + SI PCA figure + threshold CSV.")
 
 
 if __name__ == "__main__":

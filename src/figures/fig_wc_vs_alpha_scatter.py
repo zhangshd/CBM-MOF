@@ -24,7 +24,6 @@ from src.figures.style import (
     NATURE_COLORS,
     compute_panel_grid_layout,
     save_figure,
-    set_emphasized_title,
     set_publication_style,
 )
 
@@ -140,7 +139,7 @@ def make_figure(
         ax.set_xlabel(r"Working Capacity (mol/kg)", fontsize=layout.body_font)
         ax.set_ylabel(r"Selectivity $\alpha$(CH$_4$/N$_2$)", fontsize=layout.body_font)
         ax.tick_params(labelsize=layout.tick_font)
-        set_emphasized_title(ax, label, fontsize=layout.body_font)
+        ax.set_title(label, fontsize=layout.body_font, fontweight="bold")
 
         # Show ALL data: use data max + 5% padding instead of percentile clipping
         wc_max = df[wc_col].dropna().max()

@@ -16,7 +16,6 @@ from src.figures.style import (  # noqa: E402
     NATURE_COLORS,
     compute_panel_grid_layout,
     save_figure,
-    set_emphasized_title,
     set_publication_style,
 )
 
@@ -130,11 +129,11 @@ CLUSTER_PROPERTY_COLUMNS = [
 ]
 
 CLUSTER_PROPERTY_LABELS = {
-    "PSA_WC_CH4": r"PSA $q_{\mathrm{WC,CH_4}}$",
-    "PSA_alpha_CH4_N2": r"PSA $\alpha_{\mathrm{CH_4/N_2}}$",
-    "VSA_WC_CH4": r"VSA $q_{\mathrm{WC,CH_4}}$",
-    "VSA_alpha_CH4_N2": r"VSA $\alpha_{\mathrm{CH_4/N_2}}$",
-    "QstCH4": r"$Q_{st,\mathrm{CH_4}}$",
+    "PSA_WC_CH4": r"PSA $q_{WC,CH_4}$",
+    "PSA_alpha_CH4_N2": r"PSA $\alpha_{CH_4/N_2}$",
+    "VSA_WC_CH4": r"VSA $q_{WC,CH_4}$",
+    "VSA_alpha_CH4_N2": r"VSA $\alpha_{CH_4/N_2}$",
+    "QstCH4": r"$Q_{st,CH_4}$",
 }
 
 CLUSTER_PROPERTY_TITLES = {
@@ -383,10 +382,10 @@ def plot_cluster_api_landscape(
                 linewidth=1.0,
             )
 
-        set_emphasized_title(
-            ax,
+        ax.set_title(
             compose_panel_title(panel_label, FIGURE6_PANEL_TITLES[api_col]),
             loc="left",
+            fontweight="bold",
         )
         ax.set_xlabel("Cluster")
         ax.set_ylabel("")
@@ -508,10 +507,10 @@ def plot_feature_shift_kde(
             ),
         )
 
-        set_emphasized_title(
-            ax,
+        ax.set_title(
             compose_panel_title(f"({chr(97 + i)})", title, unit),
             loc="left",
+            fontweight="bold",
         )
         ax.set_xlabel("")
         ax.set_ylabel("Density" if i % ncols == 0 else "")
@@ -616,11 +615,11 @@ def plot_cluster_property_intervals(
         ax.invert_yaxis()
         ax.set_xlabel("")
         ax.set_ylabel("Cluster", fontsize=layout.body_font)
-        set_emphasized_title(
-            ax,
+        ax.set_title(
             compose_panel_title(panel_label, CLUSTER_PROPERTY_TITLES[metric]),
             loc="left",
             fontsize=layout.title_font,
+            fontweight="bold",
         )
         ax.grid(axis="x", linestyle="--", alpha=0.25, linewidth=0.4)
         ax.spines["top"].set_visible(False)

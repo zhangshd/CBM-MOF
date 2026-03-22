@@ -38,6 +38,7 @@ from src.figures.style import (  # noqa: E402
     MODEL_COLORS,
     NATURE_COLORS,
     MODEL_MARKERS,
+    PANEL_ORDER,
     TASK_LABELS,
     TASK_UNITS,
     TICK_FONT_SIZE,
@@ -49,11 +50,6 @@ from src.figures.style import (  # noqa: E402
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-
-PANEL_ORDER = [
-    ["AdsCH4_10kPa", "AdsCH4_100kPa", "AdsCH4_1000kPa", "QstCH4"],
-    ["AdsN2_10kPa", "AdsN2_100kPa", "AdsN2_1000kPa", "QstN2"],
-]
 
 ALIGNN_CMAP = LinearSegmentedColormap.from_list(
     "nature_magenta_cyan",
@@ -194,6 +190,7 @@ def plot_figure5(output_dir: Path) -> None:
         for col in range(4):
             task = PANEL_ORDER[row][col]
             ax = axes[row, col]
+            letter = chr(ord('a') + row * 4 + col)
 
             y_true = df[f"{task}_true"].to_numpy()
             y_pred = df[f"{task}_pred"].to_numpy()
@@ -243,7 +240,7 @@ def plot_figure5(output_dir: Path) -> None:
             )
 
             ax.set_title(
-                TASK_LABELS[task],
+                f"({letter}) {TASK_LABELS[task]}",
                 fontsize=layout.title_font,
                 fontweight="bold",
                 pad=5,

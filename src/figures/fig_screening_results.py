@@ -34,9 +34,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 from figures.style import (  # noqa: E402
     DOUBLE_COL_INCH,
     NATURE_COLORS,
-    apply_uniform_text_emphasis,
     save_figure,
-    set_emphasized_title,
     set_publication_style,
 )
 
@@ -182,7 +180,7 @@ def plot_figure10(output_dir: Path) -> dict[str, float]:
         ax.annotate("ATC-Cu", (b_wc, b_alpha), xytext=(5, 5), textcoords="offset points", fontsize=7.0)
         ax.set_xlabel(r"CH$_4$ working capacity (mol/kg)")
         ax.set_ylabel(r"CH$_4$/N$_2$ selectivity")
-        set_emphasized_title(ax, title, loc="left")
+        ax.set_title(title, loc="left", fontweight="bold")
         _apply_axis_style(ax)
         cbar = fig.colorbar(sc, ax=ax, fraction=0.046, pad=0.02)
         cbar.set_label(rf"{process} API ({_format_api_unit()})")
@@ -198,7 +196,7 @@ def plot_figure10(output_dir: Path) -> dict[str, float]:
         ax.axvline(benchmark_api, color="black", linestyle=":", linewidth=1.0, label=f"ATC-Cu = {benchmark_api:.3f}")
         ax.set_xlabel(rf"API ({_format_api_unit()})")
         ax.set_ylabel("Density")
-        set_emphasized_title(ax, title, loc="left")
+        ax.set_title(title, loc="left", fontweight="bold")
         _apply_axis_style(ax)
         ax.legend(loc="best", fontsize=6.5, frameon=False)
 
@@ -265,7 +263,7 @@ def plot_figure11(output_dir: Path) -> pd.DataFrame:
         ax.set_xticklabels([_display_cluster_label(c) for c in summary["cluster"]])
         ax.set_xlabel("Cluster")
         ax.set_ylabel("Benchmark-beating count")
-        set_emphasized_title(ax, title, loc="left")
+        ax.set_title(title, loc="left", fontweight="bold")
         _apply_axis_style(ax)
         ax.text(0.98, 0.95, f"n = {int(summary['count'].sum())}\nAPI > {threshold:.3f}", transform=ax.transAxes, ha='right', va='top', fontsize=6.8, bbox=dict(boxstyle='round', facecolor='white', alpha=0.85, linewidth=0.4))
 

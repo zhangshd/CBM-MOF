@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-import matplotlib.patheffects as pe
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -55,8 +54,6 @@ TITLE_FONT_SIZE, BODY_FONT_SIZE = derive_word_equivalent_fonts(DOUBLE_COL_INCH)
 LABEL_FONT_SIZE = BODY_FONT_SIZE
 TICK_FONT_SIZE = max(7.5, _round_to_half_point(BODY_FONT_SIZE - 0.5))
 LEGEND_FONT_SIZE = TICK_FONT_SIZE
-TITLE_EMPHASIS_LINEWIDTH = 0.6
-
 
 @dataclass(frozen=True)
 class PanelGridLayout:
@@ -163,6 +160,12 @@ TASK_LIST = [
     "QstCH4", "QstN2",
 ]
 
+# 2×4 panel order matching Figure 5 layout (shared across figure scripts)
+PANEL_ORDER = [
+    ["AdsCH4_10kPa", "AdsCH4_100kPa", "AdsCH4_1000kPa", "QstCH4"],
+    ["AdsN2_10kPa", "AdsN2_100kPa", "AdsN2_1000kPa", "QstN2"],
+]
+
 TASK_LABELS = {
     "AdsCH4_10kPa":   r"CH$_4$@10 kPa",
     "AdsCH4_100kPa":  r"CH$_4$@100 kPa",
@@ -170,8 +173,8 @@ TASK_LABELS = {
     "AdsN2_10kPa":    r"N$_2$@10 kPa",
     "AdsN2_100kPa":   r"N$_2$@100 kPa",
     "AdsN2_1000kPa":  r"N$_2$@1000 kPa",
-    "QstCH4":         r"$Q_{\mathrm{st,CH}_4}$",
-    "QstN2":          r"$Q_{\mathrm{st,N}_2}$",
+    "QstCH4":         r"$Q_{st,CH_4}$",
+    "QstN2":          r"$Q_{st,N_2}$",
 }
 
 TASK_UNITS = {
@@ -197,6 +200,7 @@ def set_publication_style():
         "font.size":        BODY_FONT_SIZE,
         "axes.labelsize":   LABEL_FONT_SIZE,
         "axes.titlesize":   TITLE_FONT_SIZE,
+        "axes.titlelocation": "left",
         "axes.titleweight": "bold",
         "xtick.labelsize":  TICK_FONT_SIZE,
         "ytick.labelsize":  TICK_FONT_SIZE,
@@ -226,48 +230,6 @@ def set_publication_style():
         # Mathtext
         "mathtext.default": "regular",
     })
-
-
-def apply_uniform_text_emphasis(
-    text_obj,
-    *,
-    linewidth: float = TITLE_EMPHASIS_LINEWIDTH,
-    foreground: str = "black",
-) -> None:
-    """Apply a math-safe emphasis treatment to mixed text/math labels."""
-    text_obj.set_path_effects(
-        [
-            pe.Stroke(linewidth=linewidth, foreground=foreground),
-            pe.Normal(),
-        ]
-    )
-
-
-def set_emphasized_title(
-    ax,
-    text: str,
-    *,
-    loc: str = "center",
-    fontsize: float | None = None,
-    color: str = "black",
-    linewidth: float = TITLE_EMPHASIS_LINEWIDTH,
-    **kwargs,
-):
-    """Set a title and apply uniform emphasis to both text and math fragments."""
-    title_obj = ax.set_title(
-        text,
-        loc=loc,
-        fontsize=fontsize,
-        color=color,
-        fontweight="normal",
-        **kwargs,
-    )
-    apply_uniform_text_emphasis(
-        title_obj,
-        linewidth=linewidth,
-        foreground=color,
-    )
-    return title_obj
 
 
 def save_figure(fig, name: str, output_dir: str | Path,

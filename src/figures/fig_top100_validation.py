@@ -25,11 +25,11 @@ from src.figures.style import (
     MODEL_COLORS,
     MODEL_MARKERS,
     NATURE_COLORS,
+    PANEL_ORDER,
     TASK_LABELS,
     TASK_UNITS,
     compute_panel_grid_layout,
     save_figure,
-    set_emphasized_title,
     set_publication_style,
 )
 
@@ -49,11 +49,6 @@ TOP100_SPLIT_CSV = {
         MODEL_DIR / "top_candidates" / "hypo_top50_vsa.csv",
     ],
 }
-
-PANEL_ORDER = [
-    ["AdsCH4_10kPa", "AdsCH4_100kPa", "AdsCH4_1000kPa", "QstCH4"],
-    ["AdsN2_10kPa", "AdsN2_100kPa", "AdsN2_1000kPa", "QstN2"],
-]
 
 TASK_COLUMN_MAP = {
     "AdsCH4_10kPa": ("gcmc_AdsCH4_10kPa", "AdsCH4_10kPa"),
@@ -247,11 +242,11 @@ def plot_figure9_4x4(output_dir: Path) -> None:
             bbox=dict(boxstyle="round,pad=0.25", fc="white", ec="none", alpha=0.85),
         )
 
-        set_emphasized_title(
-            ax,
+        ax.set_title(
             f"{TASK_LABELS[task]} {split_suffix}",
             loc="left",
             fontsize=layout.body_font,
+            fontweight="bold",
             pad=5,
         )
 
@@ -357,11 +352,11 @@ def plot_figure9_2x4(output_dir: Path) -> None:
             bbox=dict(boxstyle="round,pad=0.25", fc="white", ec="none", alpha=0.85),
         )
 
-        set_emphasized_title(
-            ax,
+        ax.set_title(
             TASK_LABELS[task],
             loc="left",
             fontsize=layout.body_font,
+            fontweight="bold",
             pad=5,
         )
 

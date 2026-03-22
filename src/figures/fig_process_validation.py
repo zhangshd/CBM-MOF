@@ -279,7 +279,7 @@ def step1_breakthrough_overlay(bkt_dir: Path, fig_dir: Path, eq_method: str = "c
             )
 
         ax.set_xlabel("Time (min)")
-        ax.set_ylabel(r"$C_{\mathrm{CH_4}}/C_0$")
+        ax.set_ylabel(r"$C_{CH_4}/C_0$")
         ax.set_title(title, fontsize=8, fontweight="bold", loc="left")
         ax.set_ylim(-0.02, 1.08)
         ax.set_xlim(left=0)
@@ -655,9 +655,9 @@ def step3_selectivity_comparison(bkt_dir: Path, fig_dir: Path, eq_method: str = 
     )
 
     style_map = {
-        "alpha_GCMC": dict(color="#1f77b4", marker="o", label=r"$\alpha_{\mathrm{GCMC}}$"),
-        "alpha_IAST": dict(color="#d55e00", marker="^", label=r"$\alpha_{\mathrm{IAST}}$"),
-        "alpha_BKT": dict(color="black", marker="s", label=r"$\alpha_{\mathrm{BKT}}$"),
+        "alpha_GCMC": dict(color="#1f77b4", marker="o", label=r"$\alpha_{GCMC}$"),
+        "alpha_IAST": dict(color="#d55e00", marker="^", label=r"$\alpha_{IAST}$"),
+        "alpha_BKT": dict(color="black", marker="s", label=r"$\alpha_{BKT}$"),
     }
 
     for ax, df, title in zip(
