@@ -75,8 +75,8 @@ def make_figure(
 
     # Panel config: (ax, wc_col, alpha_col, api_col, label, exp_ids, hypo_ids)
     panels = [
-        (axes[0], "PSA_WC_CH4", "PSA_alpha_CH4_N2", "PSA_API_CH4", "(a) PSA", exp_psa_ids, hypo_psa_ids),
-        (axes[1], "VSA_WC_CH4", "VSA_alpha_CH4_N2", "VSA_API_CH4", "(b) VSA", exp_vsa_ids, hypo_vsa_ids),
+        (axes[0], "PSA_WC_CH4", "PSA_alpha_CH4_N2", "PSA_API_CH4", "(a) PSA Case", exp_psa_ids, hypo_psa_ids),
+        (axes[1], "VSA_WC_CH4", "VSA_alpha_CH4_N2", "VSA_API_CH4", "(b) VSA Case", exp_vsa_ids, hypo_vsa_ids),
     ]
 
     is_atccu = df["mof_id"] == ATC_CU_ID
@@ -106,24 +106,22 @@ def make_figure(
 
         # Exp Top candidates (blue triangles with edge)
         exp = df[is_exp_top]
-        n_exp = exp.shape[0]
         ax.scatter(
             exp[wc_col], exp[alpha_col],
             c=exp[api_col], cmap=cmap, norm=norm,
             s=18, marker="^", edgecolors=NATURE_COLORS["blue"],
             linewidths=0.5, alpha=0.9, zorder=3,
-            label=f"Exp Top-{n_exp}",
+            label="Exp Top-50",
         )
 
         # Hypo Top candidates (orange circles with edge)
         hypo = df[is_hypo_top]
-        n_hypo = hypo.shape[0]
         ax.scatter(
             hypo[wc_col], hypo[alpha_col],
             c=hypo[api_col], cmap=cmap, norm=norm,
             s=18, marker="o", edgecolors=NATURE_COLORS["orange"],
             linewidths=0.5, alpha=0.9, zorder=3,
-            label=f"Hypo Top-{n_hypo}",
+            label="Hypo Top-50",
         )
 
         # ATC-Cu star
@@ -167,7 +165,7 @@ def make_figure(
         cbar = fig.colorbar(sm, ax=ax, fraction=0.046, pad=0.02)
         # Only show colorbar label on the last (rightmost) panel
         if i == len(scatter_mappables) - 1:
-            cbar.set_label("Predicted API", fontsize=layout.body_font)
+            cbar.set_label(r"Predicted API (mol$^2$ kg$^{-1}$ kJ$^{-1}$)", fontsize=layout.body_font)
         cbar.ax.tick_params(labelsize=layout.tick_font)
 
     return fig

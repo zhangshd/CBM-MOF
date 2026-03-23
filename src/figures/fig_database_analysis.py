@@ -43,7 +43,21 @@ FEATURE_CSV = (
     / "RAC_and_zeo_features_deduplicated.csv"
 )
 ATC_CU_ID = "CoRE-2020[Cu][pts]3[ASR]1"
-TOP_N = 1000
+TOP_N = 100
+
+# Top candidate CSVs (exp top-50 + hypo top-50 per process)
+TOP_CANDIDATES_DIR = PROJECT_ROOT / "results" / "alignn" / "model_ep150" / "top_candidates"
+EXP_PSA_CSV = TOP_CANDIDATES_DIR / "exp_top50_psa.csv"
+HYPO_PSA_CSV = TOP_CANDIDATES_DIR / "hypo_top50_psa.csv"
+EXP_VSA_CSV = TOP_CANDIDATES_DIR / "exp_top50_vsa.csv"
+HYPO_VSA_CSV = TOP_CANDIDATES_DIR / "hypo_top50_vsa.csv"
+
+
+def load_top_candidate_ids() -> tuple[set[str], set[str]]:
+    """Load the dual-track top-50 exp + top-50 hypo candidate IDs per process."""
+    psa_ids = set(pd.read_csv(EXP_PSA_CSV)["mof_id"]) | set(pd.read_csv(HYPO_PSA_CSV)["mof_id"])
+    vsa_ids = set(pd.read_csv(EXP_VSA_CSV)["mof_id"]) | set(pd.read_csv(HYPO_VSA_CSV)["mof_id"])
+    return psa_ids, vsa_ids
 
 ZEO_FEATURE_COLUMNS = [
     "Di",
@@ -106,7 +120,7 @@ FEATURE_UNITS = {
 }
 
 FIGURE7_FEATURES = ["rho", "POAV_vol_frac", "GSA", "VSA", "Dif", "Df"]
-FIGURE7_CLIP_FEATURES = {"Dif", "Df"}
+
 FIGURE6_API_UNIT = r"mol$^2$ kg$^{-1}$ kJ$^{-1}$"
 FIGURE6_PANEL_TITLES = {
     "PSA_API_CH4": f"Predicted PSA API ({FIGURE6_API_UNIT})",
@@ -121,6 +135,8 @@ GROUP_COLORS = {
 }
 
 CLUSTER_PROPERTY_COLUMNS = [
+    "PSA_API_CH4",
+    "VSA_API_CH4",
     "PSA_WC_CH4",
     "PSA_alpha_CH4_N2",
     "VSA_WC_CH4",
@@ -129,6 +145,8 @@ CLUSTER_PROPERTY_COLUMNS = [
 ]
 
 CLUSTER_PROPERTY_LABELS = {
+    "PSA_API_CH4": r"PSA API",
+    "VSA_API_CH4": r"VSA API",
     "PSA_WC_CH4": r"PSA $q_{WC,CH_4}$",
     "PSA_alpha_CH4_N2": r"PSA $\alpha_{CH_4/N_2}$",
     "VSA_WC_CH4": r"VSA $q_{WC,CH_4}$",
@@ -137,6 +155,8 @@ CLUSTER_PROPERTY_LABELS = {
 }
 
 CLUSTER_PROPERTY_TITLES = {
+    "PSA_API_CH4": r"PSA API (mol$^2$ kg$^{-1}$ kJ$^{-1}$)",
+    "VSA_API_CH4": r"VSA API (mol$^2$ kg$^{-1}$ kJ$^{-1}$)",
     "PSA_WC_CH4": r"PSA CH$_4$ Working Capacity (mol/kg)",
     "PSA_alpha_CH4_N2": r"PSA CH$_4$/N$_2$ Selectivity",
     "VSA_WC_CH4": r"VSA CH$_4$ Working Capacity (mol/kg)",
@@ -153,7 +173,7 @@ def build_database_analysis_frame(
     """Merge API predictions, cluster labels, and Zeo++ features."""
     api_df = pd.read_csv(
         api_csv,
-        usecols=["mof_id", "PSA_API_CH4", "VSA_API_CH4"] + CLUSTER_PROPERTY_COLUMNS,
+        usecols=list(dict.fromkeys(["mof_id", "PSA_API_CH4", "VSA_API_CH4"] + CLUSTER_PROPERTY_COLUMNS)),
     )
     cluster_df = pd.read_csv(cluster_csv, usecols=["CifId", "Cluster"]).rename(
         columns={"CifId": "mof_id"}
@@ -208,8 +228,9 @@ def compute_feature_shift_summary(
     top_n: int = TOP_N,
 ) -> pd.DataFrame:
     """Rank Zeo++ features by how strongly top candidates shift from the full library."""
-    top_psa = df.nlargest(top_n, "PSA_API_CH4")
-    top_vsa = df.nlargest(top_n, "VSA_API_CH4")
+    psa_ids, vsa_ids = load_top_candidate_ids()
+    top_psa = df[df["mof_id"].isin(psa_ids)]
+    top_vsa = df[df["mof_id"].isin(vsa_ids)]
 
     rows: list[dict[str, float | str]] = []
     for feature in feature_columns:
@@ -236,12 +257,20 @@ def compute_feature_shift_summary(
                 "all_q10": float(all_vals.quantile(0.10)),
                 "all_median": all_median,
                 "all_q90": float(all_vals.quantile(0.90)),
+                "all_q5": float(all_vals.quantile(0.05)),
+                "all_q95": float(all_vals.quantile(0.95)),
+                "all_min": float(all_vals.min()),
+                "all_max": float(all_vals.max()),
                 "psa_q10": float(psa_vals.quantile(0.10)),
                 "psa_median": psa_median,
                 "psa_q90": float(psa_vals.quantile(0.90)),
+                "psa_min": float(psa_vals.min()),
+                "psa_max": float(psa_vals.max()),
                 "vsa_q10": float(vsa_vals.quantile(0.10)),
                 "vsa_median": vsa_median,
                 "vsa_q90": float(vsa_vals.quantile(0.90)),
+                "vsa_min": float(vsa_vals.min()),
+                "vsa_max": float(vsa_vals.max()),
             }
         )
 
@@ -312,10 +341,7 @@ def clip_feature_for_kde(
     psa_data: pd.Series,
     vsa_data: pd.Series,
 ) -> tuple[pd.Series, pd.Series, pd.Series]:
-    """Clip long-tailed pore-size panels for cleaner KDE visualization."""
-    if feature not in FIGURE7_CLIP_FEATURES:
-        return all_data, psa_data, vsa_data
-
+    """Clip long-tailed features for cleaner KDE visualization."""
     upper_bound = float(all_data.quantile(0.99))
     return (
         all_data[all_data <= upper_bound],
@@ -407,6 +433,7 @@ def plot_feature_shift_kde(
     import matplotlib.pyplot as plt
     import seaborn as sns
 
+    set_publication_style()
     n_features = len(selected_features)
     ncols = 2 if n_features > 3 else 1
     nrows = int(np.ceil(n_features / ncols))
@@ -430,8 +457,9 @@ def plot_feature_shift_kde(
     )
     axes = np.atleast_1d(axes).reshape(nrows, ncols).flatten()
 
-    top_psa = df.nlargest(TOP_N, "PSA_API_CH4")
-    top_vsa = df.nlargest(TOP_N, "VSA_API_CH4")
+    psa_ids, vsa_ids = load_top_candidate_ids()
+    top_psa = df[df["mof_id"].isin(psa_ids)]
+    top_vsa = df[df["mof_id"].isin(vsa_ids)]
 
     for i, feature in enumerate(selected_features):
         ax = axes[i]
@@ -482,13 +510,12 @@ def plot_feature_shift_kde(
             )
 
         annotation_text = (
-            "10th-90th percentile\n"
-            f"All: [{format_range_value(row['all_q10'])}, "
-            f"{format_range_value(row['all_q90'])}]\n"
-            f"PSA: [{format_range_value(row['psa_q10'])}, "
-            f"{format_range_value(row['psa_q90'])}]\n"
-            f"VSA: [{format_range_value(row['vsa_q10'])}, "
-            f"{format_range_value(row['vsa_q90'])}]"
+            f"All: [{format_range_value(row['all_min'])}, "
+            f"{format_range_value(row['all_max'])}]\n"
+            f"PSA Top-{TOP_N}: [{format_range_value(row['psa_min'])}, "
+            f"{format_range_value(row['psa_max'])}]\n"
+            f"VSA Top-{TOP_N}: [{format_range_value(row['vsa_min'])}, "
+            f"{format_range_value(row['vsa_max'])}]"
         )
         ax.text(
             0.98,
@@ -520,7 +547,7 @@ def plot_feature_shift_kde(
 
         if i == 0:
             ax.legend(
-                loc="lower right",
+                loc="best",
                 frameon=True,
                 fancybox=False,
                 edgecolor="#999999",
@@ -544,13 +571,28 @@ def plot_cluster_property_intervals(
     output_dir: str | Path,
     *,
     file_name: str = "FigureS04_cluster_property_intervals",
+    benchmark_api: dict[str, float] | None = None,
 ) -> None:
-    """Plot ranked interval summaries for key process metrics by cluster."""
+    """Plot ranked interval summaries for key process metrics by cluster.
+
+    Parameters
+    ----------
+    summary_df : pd.DataFrame
+        Output of :func:`compute_cluster_property_summary`.
+    output_dir : str | Path
+        Directory to write the figure into.
+    file_name : str
+        Stem of the output file (no extension).
+    benchmark_api : dict[str, float] | None
+        Optional mapping of API column name to ATC-Cu benchmark value.
+        When provided, a vertical dashed line is drawn on the corresponding
+        API panel(s).
+    """
     import matplotlib.pyplot as plt
 
     set_publication_style()
     layout = compute_panel_grid_layout(
-        nrows=3,
+        nrows=4,
         ncols=2,
         figure_width_inch=DOUBLE_COL_INCH,
         panel_aspect=0.70,
@@ -560,13 +602,15 @@ def plot_cluster_property_intervals(
         top_margin_inch=0.18,
     )
     fig = plt.figure(figsize=(layout.figure_width, layout.figure_height))
-    gs = fig.add_gridspec(3, 2)
+    gs = fig.add_gridspec(4, 2)
     axes = [
-        fig.add_subplot(gs[0, 0]),
-        fig.add_subplot(gs[0, 1]),
-        fig.add_subplot(gs[1, 0]),
-        fig.add_subplot(gs[1, 1]),
-        fig.add_subplot(gs[2, :]),
+        fig.add_subplot(gs[0, 0]),  # (a) PSA API
+        fig.add_subplot(gs[0, 1]),  # (b) VSA API
+        fig.add_subplot(gs[1, 0]),  # (c) PSA WC
+        fig.add_subplot(gs[1, 1]),  # (d) PSA alpha
+        fig.add_subplot(gs[2, 0]),  # (e) VSA WC
+        fig.add_subplot(gs[2, 1]),  # (f) VSA alpha
+        fig.add_subplot(gs[3, :]),  # (g) QstCH4 — full-width
     ]
     fig.subplots_adjust(
         left=layout.left,
@@ -578,12 +622,9 @@ def plot_cluster_property_intervals(
     )
 
     default_color = NATURE_COLORS["purple"]
+    panel_labels = ["(a)", "(b)", "(c)", "(d)", "(e)", "(f)", "(g)"]
 
-    for ax, metric, panel_label in zip(
-        axes,
-        CLUSTER_PROPERTY_COLUMNS,
-        ["(a)", "(b)", "(c)", "(d)", "(e)"],
-    ):
+    for ax, metric, panel_label in zip(axes, CLUSTER_PROPERTY_COLUMNS, panel_labels):
         panel_df = summary_df.loc[summary_df["metric"] == metric].sort_values(
             "median", ascending=False
         )
@@ -607,6 +648,18 @@ def plot_cluster_property_intervals(
                 zorder=3,
                 alpha=0.75,
             )
+
+        # Draw ATC-Cu benchmark line for API panels
+        if benchmark_api is not None and metric in benchmark_api:
+            bm_val = benchmark_api[metric]
+            if np.isfinite(bm_val):
+                ax.axvline(
+                    bm_val,
+                    color=NATURE_COLORS["red"],
+                    linestyle="--",
+                    linewidth=1.0,
+                    zorder=2,
+                )
 
         tick_labels = [str(int(cluster)) for cluster in panel_df["Cluster"]]
         ax.set_yticks(y_positions)
@@ -651,7 +704,7 @@ def generate_assets(
     cluster_csv: str | Path = CLUSTER_CSV,
     feature_csv: str | Path = FEATURE_CSV,
 ) -> tuple[pd.DataFrame, list[str]]:
-    """Generate Figure 6, Figure 7, and the ranked feature-shift summary."""
+    """Generate Figure 7 (feature-shift KDE) and Figure S4 (cluster property intervals)."""
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -664,7 +717,6 @@ def generate_assets(
     cluster_summary_df = compute_cluster_property_summary(df)
     selected = FIGURE7_FEATURES
 
-    plot_cluster_api_landscape(df, output_dir)
     plot_feature_shift_kde(df, summary_df, selected, output_dir)
     plot_cluster_property_intervals(cluster_summary_df, output_dir)
 

@@ -242,13 +242,8 @@ def plot_figure9_4x4(output_dir: Path) -> None:
             bbox=dict(boxstyle="round,pad=0.25", fc="white", ec="none", alpha=0.85),
         )
 
-        ax.set_title(
-            f"{TASK_LABELS[task]} {split_suffix}",
-            loc="left",
-            fontsize=layout.body_font,
-            fontweight="bold",
-            pad=5,
-        )
+        label = chr(ord('a') + idx)
+        ax.set_title(f"({label}) {TASK_LABELS[task]} {split_suffix}", pad=5)
 
         if row == 3:
             ax.set_xlabel(f"GCMC ({TASK_UNITS[task]})", fontsize=layout.body_font)
@@ -352,13 +347,8 @@ def plot_figure9_2x4(output_dir: Path) -> None:
             bbox=dict(boxstyle="round,pad=0.25", fc="white", ec="none", alpha=0.85),
         )
 
-        ax.set_title(
-            TASK_LABELS[task],
-            loc="left",
-            fontsize=layout.body_font,
-            fontweight="bold",
-            pad=5,
-        )
+        label = chr(ord('a') + idx)
+        ax.set_title(f"({label}) {TASK_LABELS[task]}", pad=5)
 
         if row == 1:
             ax.set_xlabel(f"GCMC ({TASK_UNITS[task]})", fontsize=layout.body_font)
