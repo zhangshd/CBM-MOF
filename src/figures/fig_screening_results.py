@@ -180,7 +180,7 @@ def plot_figure10(output_dir: Path) -> dict[str, float]:
         ax.annotate("ATC-Cu", (b_wc, b_alpha), xytext=(5, 5), textcoords="offset points", fontsize=7.0)
         ax.set_xlabel(r"CH$_4$ working capacity (mol/kg)")
         ax.set_ylabel(r"CH$_4$/N$_2$ selectivity")
-        ax.set_title(title, loc="left", fontweight="bold")
+        ax.set_title(title)
         _apply_axis_style(ax)
         cbar = fig.colorbar(sc, ax=ax, fraction=0.046, pad=0.02)
         cbar.set_label(rf"{process} API ({_format_api_unit()})")
@@ -196,9 +196,12 @@ def plot_figure10(output_dir: Path) -> dict[str, float]:
         ax.axvline(benchmark_api, color="black", linestyle=":", linewidth=1.0, label=f"ATC-Cu = {benchmark_api:.3f}")
         ax.set_xlabel(rf"API ({_format_api_unit()})")
         ax.set_ylabel("Density")
-        ax.set_title(title, loc="left", fontweight="bold")
+        ax.set_title(title)
         _apply_axis_style(ax)
-        ax.legend(loc="best", fontsize=6.5, frameon=False)
+        # Extend x-axis to avoid legend-line overlap
+        xlim = ax.get_xlim()
+        ax.set_xlim(xlim[0], xlim[1] * 1.25)
+        ax.legend(loc="upper right", fontsize=6.5, frameon=False)
 
     fig.tight_layout(w_pad=0.7, h_pad=0.9)
     save_figure(fig, "Figure10_screening_scatter", output_dir, formats=("png",))
@@ -214,15 +217,16 @@ def plot_figure11(output_dir: Path) -> pd.DataFrame:
     validated = load_validated_top100()
 
     process_specs = [
-        ("PSA", "gcmc_PSA_API_CH4", "psa_rank", float(benchmark["PSA_API_CH4"]), NATURE_COLORS["blue"], "(a) PSA benchmark-beating candidates"),
-        ("VSA", "gcmc_VSA_API_CH4", "vsa_rank", float(benchmark["VSA_API_CH4"]), NATURE_COLORS["orange"], "(b) VSA benchmark-beating candidates"),
+        ("PSA", "gcmc_PSA_API_CH4", "psa_rank", float(benchmark["PSA_API_CH4"]), NATURE_COLORS["blue"]),
+        ("VSA", "gcmc_VSA_API_CH4", "vsa_rank", float(benchmark["VSA_API_CH4"]), NATURE_COLORS["orange"]),
     ]
 
     rows = []
     set_publication_style()
     fig, axes = plt.subplots(1, 2, figsize=(DOUBLE_COL_INCH, 0.45 * DOUBLE_COL_INCH))
 
-    for col_idx, (process, api_col, rank_col, threshold, color, title) in enumerate(process_specs):
+    panel_labels = ["(a)", "(b)"]
+    for col_idx, (process, api_col, rank_col, threshold, color) in enumerate(process_specs):
         ax = axes[col_idx]
         top = validated[validated[rank_col].notna()].copy()
         top["beat"] = top[api_col] > threshold
@@ -263,9 +267,9 @@ def plot_figure11(output_dir: Path) -> pd.DataFrame:
         ax.set_xticklabels([_display_cluster_label(c) for c in summary["cluster"]])
         ax.set_xlabel("Cluster")
         ax.set_ylabel("Benchmark-beating count")
-        ax.set_title(title, loc="left", fontweight="bold")
+        n_hits = int(summary["count"].sum())
+        ax.set_title(f"{panel_labels[col_idx]} {process} Case (n = {n_hits}, API > {threshold:.3f})")
         _apply_axis_style(ax)
-        ax.text(0.98, 0.95, f"n = {int(summary['count'].sum())}\nAPI > {threshold:.3f}", transform=ax.transAxes, ha='right', va='top', fontsize=6.8, bbox=dict(boxstyle='round', facecolor='white', alpha=0.85, linewidth=0.4))
 
     fig.tight_layout(w_pad=1.0)
     save_figure(fig, "Figure11_cluster_analysis", output_dir, formats=("png",))
