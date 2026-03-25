@@ -97,7 +97,7 @@ def _load_precious_set(model_dir: Path) -> Optional[set]:
     return set(df.loc[df["has_precious_rare"], "mof_id"])
 
 
-def _load_mofsnn_passing_set() -> Optional[set]:
+def _load_mofsnn_passing_set() -> Optional[tuple[set, set]]:
     """Load the set of MOF IDs that pass both MOFSNN stability criteria (SSD+WS24)."""
     path = REPO_ROOT / "data" / "processed" / "stabilities" / "infer_results_mofsnn.csv"
     if not path.exists():
@@ -129,36 +129,51 @@ def build_funnel_table(model_dir: Path) -> pd.DataFrame:
     """
     data_dir = REPO_ROOT / "data" / "processed"
 
-    # Pre-load sets needed for intermediate stage computation
+    # Pre-load shared data once to avoid repeated file reads
     precious_set = _load_precious_set(model_dir)
     mofsnn_result = _load_mofsnn_passing_set()
+    geo = load_ids_txt(data_dir / "textural_screened" / "textural_screened_list.txt")
 
-    def _compute_after_elemental() -> Optional[pd.Series]:
-        geo = load_ids_txt(data_dir / "textural_screened" / "textural_screened_list.txt")
+    # Cache intermediate results for the cascading filter pipeline
+    _after_elem: Optional[set] = None
+    _after_mofsnn: Optional[set] = None
+
+    def _get_after_elemental() -> Optional[set]:
+        nonlocal _after_elem
+        if _after_elem is not None:
+            return _after_elem
         if geo is None or precious_set is None:
             return None
-        return geo[~geo.isin(precious_set)]
+        _after_elem = set(geo[~geo.isin(precious_set)])
+        return _after_elem
 
-    def _compute_after_mofsnn() -> Optional[pd.Series]:
-        geo = load_ids_txt(data_dir / "textural_screened" / "textural_screened_list.txt")
-        if geo is None or precious_set is None or mofsnn_result is None:
+    def _get_after_mofsnn() -> Optional[set]:
+        nonlocal _after_mofsnn
+        if _after_mofsnn is not None:
+            return _after_mofsnn
+        after_elem = _get_after_elemental()
+        if after_elem is None or mofsnn_result is None:
             return None
         passes, covered = mofsnn_result
-        after_elem = set(geo[~geo.isin(precious_set)])
         # Keep MOFs that pass MOFSNN or are not covered (conservative retention)
-        after_mofsnn = {m for m in after_elem if m in passes or m not in covered}
-        return pd.Series(list(after_mofsnn))
+        _after_mofsnn = {m for m in after_elem if m in passes or m not in covered}
+        return _after_mofsnn
+
+    def _compute_after_elemental() -> Optional[pd.Series]:
+        result = _get_after_elemental()
+        return pd.Series(list(result)) if result is not None else None
+
+    def _compute_after_mofsnn() -> Optional[pd.Series]:
+        result = _get_after_mofsnn()
+        return pd.Series(list(result)) if result is not None else None
 
     def _compute_after_inference() -> Optional[pd.Series]:
-        geo = load_ids_txt(data_dir / "textural_screened" / "textural_screened_list.txt")
+        after_mofsnn = _get_after_mofsnn()
         infer = load_ids_csv(
             model_dir / "full_library_inference" / "full_library_with_api.csv", "mof_id"
         )
-        if geo is None or infer is None or precious_set is None or mofsnn_result is None:
+        if after_mofsnn is None or infer is None:
             return None
-        passes, covered = mofsnn_result
-        after_elem = set(geo[~geo.isin(precious_set)])
-        after_mofsnn = {m for m in after_elem if m in passes or m not in covered}
         after_infer = after_mofsnn & set(infer)
         return pd.Series(list(after_infer))
 

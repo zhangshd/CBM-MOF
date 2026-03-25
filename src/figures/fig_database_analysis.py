@@ -226,9 +226,10 @@ def compute_feature_shift_summary(
     df: pd.DataFrame,
     feature_columns: list[str] = ZEO_FEATURE_COLUMNS,
     top_n: int = TOP_N,
+    candidate_ids: tuple[set[str], set[str]] | None = None,
 ) -> pd.DataFrame:
     """Rank Zeo++ features by how strongly top candidates shift from the full library."""
-    psa_ids, vsa_ids = load_top_candidate_ids()
+    psa_ids, vsa_ids = candidate_ids if candidate_ids is not None else load_top_candidate_ids()
     top_psa = df[df["mof_id"].isin(psa_ids)]
     top_vsa = df[df["mof_id"].isin(vsa_ids)]
 
@@ -428,6 +429,7 @@ def plot_feature_shift_kde(
     summary_df: pd.DataFrame,
     selected_features: list[str],
     output_dir: str | Path,
+    candidate_ids: tuple[set[str], set[str]] | None = None,
 ) -> None:
     """Plot KDE comparisons for selected Zeo++ features with percentile annotations."""
     import matplotlib.pyplot as plt
@@ -457,7 +459,7 @@ def plot_feature_shift_kde(
     )
     axes = np.atleast_1d(axes).reshape(nrows, ncols).flatten()
 
-    psa_ids, vsa_ids = load_top_candidate_ids()
+    psa_ids, vsa_ids = candidate_ids if candidate_ids is not None else load_top_candidate_ids()
     top_psa = df[df["mof_id"].isin(psa_ids)]
     top_vsa = df[df["mof_id"].isin(vsa_ids)]
 
@@ -713,11 +715,12 @@ def generate_assets(
         cluster_csv=cluster_csv,
         feature_csv=feature_csv,
     )
-    summary_df = compute_feature_shift_summary(df, top_n=top_n)
+    candidate_ids = load_top_candidate_ids()
+    summary_df = compute_feature_shift_summary(df, top_n=top_n, candidate_ids=candidate_ids)
     cluster_summary_df = compute_cluster_property_summary(df)
     selected = FIGURE7_FEATURES
 
-    plot_feature_shift_kde(df, summary_df, selected, output_dir)
+    plot_feature_shift_kde(df, summary_df, selected, output_dir, candidate_ids=candidate_ids)
     plot_cluster_property_intervals(cluster_summary_df, output_dir)
 
     if summary_csv is None:
