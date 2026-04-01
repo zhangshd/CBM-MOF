@@ -2,10 +2,10 @@
 filter_stable_candidates.py — Task 2.3a: Stability screening of ML-screened library.
 
 Apply four stability filters to full_library_screened.csv:
-  Filter 3: NOT IfPreciousOrRare  (precious/rare metal detection from CIF)
-  Filter 6: No Al metal nodes     (DREIDING force field artifact; Li et al. 2024 JCTC)
-  Filter 4: SSD_pred == 1         (solvent-removal stable; MOFSNN-covered MOFs only)
-  Filter 5: WS24_water_pred == 1  (water stable; MOFSNN-covered MOFs only)
+  Filter 1: NOT IfPreciousOrRare  (precious/rare metal detection from CIF)
+  Filter 2: No Al metal nodes     (DREIDING force field artifact; Li et al. 2024 JCTC)
+  Filter 3: SSD_pred == 1         (solvent-removal stable; MOFSNN-covered MOFs only)
+  Filter 4: WS24_water_pred == 1  (water stable; MOFSNN-covered MOFs only)
 
 Precious/rare metal detection logic is replicated verbatim from
   src/experiments/exp08_screening_ml.py::detect_precious_rare_metals_in_cif()
@@ -171,32 +171,32 @@ def main(test_mode: bool = False) -> None:
     print("Step 4: Applying stability filters …", flush=True)
     n_before = len(df)
 
-    # Filter 3: no precious/rare metals
+    # Filter 1: no precious/rare metals
     mask_precious = ~df["IfPreciousOrRare"]
-    removed_f3 = (~mask_precious).sum()
+    removed_f1 = (~mask_precious).sum()
     df = df[mask_precious].copy()
-    print(f"  Filter 3 (no precious/rare metals): removed {removed_f3:,}, remaining {len(df):,}", flush=True)
+    print(f"  Filter 1 (no precious/rare metals): removed {removed_f1:,}, remaining {len(df):,}", flush=True)
 
-    # Filter 6: Force field reliability — exclude Al metal-node MOFs.
+    # Filter 2: Force field reliability — exclude Al metal-node MOFs.
     # DREIDING force field produces unreliable CH4 adsorption for Al-MOFs
     # (up to 16x overestimate; Li et al. 2024, J. Chem. Theory Comput.).
-    # Ga and In are already excluded by Filter 3 (precious/rare metals).
+    # Ga and In are already excluded by Filter 1 (precious/rare metals).
     mask_al = ~df["IfAlMetal"]
-    removed_f6 = (~mask_al).sum()
+    removed_f2 = (~mask_al).sum()
     df = df[mask_al].copy()
-    print(f"  Filter 6 (no Al metal nodes — FF reliability): removed {removed_f6:,}, remaining {len(df):,}", flush=True)
+    print(f"  Filter 2 (no Al metal nodes — FF reliability): removed {removed_f2:,}, remaining {len(df):,}", flush=True)
 
-    # Filter 4: SSD_pred == 1 (only for MOFSNN-covered MOFs)
+    # Filter 3: SSD_pred == 1 (only for MOFSNN-covered MOFs)
     mask_ssd = df["SSD_pred"].isna() | (df["SSD_pred"] == 1)
-    removed_f4 = (~mask_ssd).sum()
+    removed_f3 = (~mask_ssd).sum()
     df = df[mask_ssd].copy()
-    print(f"  Filter 4 (SSD_pred == 1, MOFSNN-covered only): removed {removed_f4:,}, remaining {len(df):,}", flush=True)
+    print(f"  Filter 3 (SSD_pred == 1, MOFSNN-covered only): removed {removed_f3:,}, remaining {len(df):,}", flush=True)
 
-    # Filter 5: WS24_water_pred == 1 (only for MOFSNN-covered MOFs)
+    # Filter 4: WS24_water_pred == 1 (only for MOFSNN-covered MOFs)
     mask_ws = df["WS24_water_pred"].isna() | (df["WS24_water_pred"] == 1)
-    removed_f5 = (~mask_ws).sum()
+    removed_f4 = (~mask_ws).sum()
     df = df[mask_ws].copy()
-    print(f"  Filter 5 (WS24_water_pred == 1, MOFSNN-covered only): removed {removed_f5:,}, remaining {len(df):,}", flush=True)
+    print(f"  Filter 4 (WS24_water_pred == 1, MOFSNN-covered only): removed {removed_f4:,}, remaining {len(df):,}", flush=True)
 
     n_final = len(df)
     total_removed = n_before - n_final
@@ -209,10 +209,10 @@ def main(test_mode: bool = False) -> None:
     print(f"  {'Step':<45} {'Removed':>10} {'Remaining':>12}")
     print(f"  {'-'*45} {'-'*10} {'-'*12}")
     print(f"  {'Input (post-Tasks 2.1+2.2)':<45} {'':>10} {n_before:>12,}")
-    print(f"  {'Filter 3: precious/rare metals':<45} {removed_f3:>10,} {n_before-removed_f3:>12,}")
-    print(f"  {'Filter 6: Al metal nodes (FF reliability)':<45} {removed_f6:>10,} {n_before-removed_f3-removed_f6:>12,}")
-    print(f"  {'Filter 4: SSD_pred != 1':<45} {removed_f4:>10,} {n_before-removed_f3-removed_f6-removed_f4:>12,}")
-    print(f"  {'Filter 5: WS24_water_pred != 1':<45} {removed_f5:>10,} {n_final:>12,}")
+    print(f"  {'Filter 1: precious/rare metals':<45} {removed_f1:>10,} {n_before-removed_f1:>12,}")
+    print(f"  {'Filter 2: Al metal nodes (FF reliability)':<45} {removed_f2:>10,} {n_before-removed_f1-removed_f2:>12,}")
+    print(f"  {'Filter 3: SSD_pred != 1':<45} {removed_f3:>10,} {n_before-removed_f1-removed_f2-removed_f3:>12,}")
+    print(f"  {'Filter 4: WS24_water_pred != 1':<45} {removed_f4:>10,} {n_final:>12,}")
 
     # ------------------------------------------------------------------
     # Step 6 — Save output

@@ -91,7 +91,7 @@ def adapt_for_ch4_n2(
     if ldf_coefficients is None:
         ldf_coefficients = compute_ldf_coefficients(
             T=298.0, P_bar=1.0,
-            r_p=1e-3, d_pore=1e-9,
+            r_p=1e-3, d_pore=100e-9,
             epsilon_p=0.35, tau_p=3.0,
         )
 
@@ -99,7 +99,8 @@ def adapt_for_ch4_n2(
     phys = cfg["physical_constants"]
     for key, val in CH4_N2_CONSTANTS.items():
         phys[key] = val
-    phys["D_m"] = float(f"{ldf_coefficients['D_m']:.6e}")
+    if "D_m" in ldf_coefficients:
+        phys["D_m"] = float(f"{ldf_coefficients['D_m']:.6e}")
 
     # Update adsorbent bed LDF coefficients
     bed = cfg["adsorbent_bed"]

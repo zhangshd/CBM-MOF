@@ -140,7 +140,7 @@ def main() -> None:
     default_fits = bkt_dir / "isotherm_fits" / "best_isotherm_fits.csv"
     default_density = REPO_ROOT / "data" / "processed" / "RAC_and_zeo_features.csv"
     default_qst = bkt_dir / "top20_combined.csv"
-    default_template = SUPERPSA_DATA / "ProcessConfig.yaml"
+    default_template = SUPERPSA_DATA / "ProcessConfig_CH4N2.yaml"
 
     parser = argparse.ArgumentParser(
         description="Prepare SuperPSA inputs: candidate selection + Adsorbents CSVs + ProcessConfig YAMLs",
@@ -159,6 +159,8 @@ def main() -> None:
                         help="ProcessConfig.yaml template")
     parser.add_argument("--skip-config", action="store_true",
                         help="Skip ProcessConfig YAML generation")
+    parser.add_argument("--use-template-ldf", action="store_true",
+                        help="Use LDF coefficients from template YAML instead of computing from transport properties")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -190,8 +192,21 @@ def main() -> None:
     if not args.skip_config:
         print("\nGenerating ProcessConfig YAMLs ...")
         template = load_template(args.template)
+
+        # Extract LDF coefficients from template if requested
+        ldf = None
+        if args.use_template_ldf:
+            bed = template.get("adsorbent_bed", {})
+            phys = template.get("physical_constants", {})
+            ldf = {
+                "k_CH4_LDF": bed["k_CO2_LDF"],  # MATLAB key: CO2 = CH4
+                "k_N2_LDF": bed["k_N2_LDF"],
+                "D_m": phys.get("D_m", 2.17e-5),
+            }
+            print(f"  Using template LDF: k_CH4={ldf['k_CH4_LDF']}, k_N2={ldf['k_N2_LDF']}")
+
         for mode in ("PSA", "VSA"):
-            config = adapt_for_ch4_n2(template, mode)
+            config = adapt_for_ch4_n2(template, mode, ldf_coefficients=ldf)
             yaml_path = args.output_dir / f"ProcessConfig_{mode}.yaml"
             write_config(config, yaml_path)
             print(f"  {mode}: {yaml_path}")

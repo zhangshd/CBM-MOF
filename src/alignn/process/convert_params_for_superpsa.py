@@ -35,7 +35,7 @@ def compute_ldf_coefficients(
     T: float = 298.0,
     P_bar: float = 1.0,
     r_p: float = 1e-3,
-    d_pore: float = 1e-9,
+    d_pore: float = 100e-9,
     epsilon_p: float = 0.35,
     tau_p: float = 3.0,
 ) -> dict[str, float]:

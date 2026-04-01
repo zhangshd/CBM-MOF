@@ -21,6 +21,7 @@ Usage:
 import argparse
 import sys
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -231,7 +232,11 @@ def load_all_sources() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
 # Main analysis
 # ---------------------------------------------------------------------------
 
-def run_analysis(output_dir: Path, rank_threshold: int = 10) -> None:
+def run_analysis(
+    output_dir: Path,
+    rank_threshold: int = 10,
+    candidate_list: Optional[Path] = None,
+) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Step 1: Load all data sources
@@ -239,6 +244,20 @@ def run_analysis(output_dir: Path, rank_threshold: int = 10) -> None:
     print("Step 1: Loading GCMC + Widom from all data sources", flush=True)
     print("=" * 70, flush=True)
     df_2080, df_5050, df_widom = load_all_sources()
+
+    # Optional: restrict to candidate list
+    if candidate_list is not None:
+        cand_df = pd.read_csv(candidate_list)
+        cand_col = "mof_id" if "mof_id" in cand_df.columns else cand_df.columns[0]
+        allowed = set(cand_df[cand_col])
+        n_before = len(df_2080), len(df_5050), len(df_widom)
+        df_2080 = df_2080[df_2080["mof_id"].isin(allowed)]
+        df_5050 = df_5050[df_5050["mof_id"].isin(allowed)]
+        df_widom = df_widom[df_widom["mof_id"].isin(allowed)]
+        print(f"\n--- Filtered to candidate list ({len(allowed)} MOFs) ---", flush=True)
+        print(f"  GCMC 20:80: {n_before[0]} -> {len(df_2080)}", flush=True)
+        print(f"  GCMC 50:50: {n_before[1]} -> {len(df_5050)}", flush=True)
+        print(f"  Widom:      {n_before[2]} -> {len(df_widom)}", flush=True)
 
     # Step 2: Find common MOFs with GCMC at BOTH compositions + Widom
     common_mofs = set(df_2080["mof_id"]) & set(df_5050["mof_id"])
@@ -503,11 +522,18 @@ def main():
         default=10,
         help="Minimum rank change to flag as 'switching' (default: 10).",
     )
+    parser.add_argument(
+        "--candidate-list",
+        type=str,
+        default=None,
+        help="CSV with mof_id column to restrict analysis to specific candidates.",
+    )
     args = parser.parse_args()
 
     run_analysis(
         output_dir=Path(args.output_dir),
         rank_threshold=args.rank_threshold,
+        candidate_list=Path(args.candidate_list) if args.candidate_list else None,
     )
 
 
