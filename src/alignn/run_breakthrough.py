@@ -462,7 +462,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--bkt-dir", type=str, default=None,
-        help="Override bkt_candidates directory path.",
+        help="Override process_candidates directory path.",
     )
     args = parser.parse_args()
 
@@ -478,7 +478,7 @@ def main() -> None:
                 md = REPO_ROOT / md
         else:
             md = REPO_ROOT / "results" / "alignn" / "model_ep150"
-        bkt_dir = md / "bkt_candidates"
+        bkt_dir = md / "process_candidates"
     cif_dir = bkt_dir / "cifs"
     fit_csv = bkt_dir / "isotherm_fits" / "best_isotherm_fits.csv"
     psa_csv = bkt_dir / "top10_psa.csv"

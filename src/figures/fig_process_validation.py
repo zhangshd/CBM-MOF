@@ -853,7 +853,7 @@ def main():
     )
     parser.add_argument(
         "--bkt-dir", type=str, default=None,
-        help="Override bkt_candidates directory path.",
+        help="Override process_candidates directory path.",
     )
     args = parser.parse_args()
 
@@ -870,7 +870,7 @@ def main():
                 md = REPO_ROOT / md
         else:
             md = REPO_ROOT / "results" / "alignn" / "model_ep150"
-        bkt_dir = md / "bkt_candidates"
+        bkt_dir = md / "process_candidates"
 
     if args.fig_dir:
         fig_dir = Path(args.fig_dir)

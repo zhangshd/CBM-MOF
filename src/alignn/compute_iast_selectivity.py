@@ -5,7 +5,7 @@ Reads isotherm parameters from best_isotherm_fits.csv (supports DSL, DSLF,
 Langmuir, and Langmuir-Freundlich models), then solves binary IAST via
 spreading pressure equality using the generic solver from bkt.src.isotherms.
 
-Output: bkt_candidates/iast_selectivity.csv
+Output: process_candidates/iast_selectivity.csv
 
 Usage:
     conda run -n mofmthnn python src/alignn/compute_iast_selectivity.py
@@ -164,7 +164,7 @@ def main():
     )
     parser.add_argument(
         "--bkt-dir", type=str, default=None,
-        help="Override bkt_candidates directory path.",
+        help="Override process_candidates directory path.",
     )
     args = parser.parse_args()
 
@@ -179,7 +179,7 @@ def main():
                 md = REPO_ROOT / md
         else:
             md = REPO_ROOT / "results" / "alignn" / "model_ep150"
-        bkt_dir = md / "bkt_candidates"
+        bkt_dir = md / "process_candidates"
     fits_csv = bkt_dir / "isotherm_fits" / "best_isotherm_fits.csv"
     output_csv = bkt_dir / "iast_selectivity.csv"
 

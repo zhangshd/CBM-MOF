@@ -18,7 +18,7 @@ class ModelPaths:
     uq_dir: Path
     inference_dir: Path
     top_candidates_dir: Path
-    bkt_candidates_dir: Path
+    process_candidates_dir: Path
 
 
 def resolve_repo_path(path_str: str | Path) -> Path:
@@ -36,5 +36,5 @@ def resolve_model_paths(model_dir: str | Path) -> ModelPaths:
         uq_dir=resolved / "uq",
         inference_dir=resolved / "full_library_inference",
         top_candidates_dir=resolved / "top_candidates",
-        bkt_candidates_dir=resolved / "bkt_candidates",
+        process_candidates_dir=resolved / "process_candidates",
     )

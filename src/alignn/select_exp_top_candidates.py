@@ -26,6 +26,11 @@ CIF_SOURCE = REPO_ROOT / "data" / "processed" / "integrated_cifs"
 
 EXP_PREFIXES = ("CoRE-", "MOSAEC-", "ARC-DB12-", "ARC-DB14-")
 
+# MOFs to exclude before Top-N selection (benchmark duplicates, etc.)
+# CoRE-2023[Cu][pts]3[ASR]1 and CoRE-2023[Cu][pts]3[ASR]2 are both ATC-Cu
+# duplicate entries of the benchmark CoRE-2020[Cu][pts]3[ASR]1
+EXCLUDE_MOFS = {"CoRE-2023[Cu][pts]3[ASR]1", "CoRE-2023[Cu][pts]3[ASR]2"}
+
 
 def is_experimental(mof_id: str) -> bool:
     return any(mof_id.startswith(p) for p in EXP_PREFIXES)
@@ -46,6 +51,13 @@ def main():
     df = pd.read_csv(input_csv)
     df["is_exp"] = df["mof_id"].apply(is_experimental)
     print(f"  Total: {len(df)}, Exp: {df['is_exp'].sum()}, Hypo: {(~df['is_exp']).sum()}")
+
+    # Exclude benchmark duplicates before selection
+    mask = df["mof_id"].isin(EXCLUDE_MOFS)
+    n_excluded = mask.sum()
+    if n_excluded:
+        print(f"  Excluded {n_excluded} benchmark duplicates: {EXCLUDE_MOFS}")
+        df = df[~mask]
 
     exp = df[df["is_exp"]]
     hypo = df[~df["is_exp"]]

@@ -31,7 +31,7 @@ from sklearn import metrics as skm
 # Paths (defaults; overridden by --model-dir at bottom)
 # ---------------------------------------------------------------------------
 REPO_ROOT   = Path(__file__).resolve().parents[2]
-DATA_FILE   = REPO_ROOT / "results" / "alignn" / "model_ep150" / "bkt_candidates" / "gcmc_vs_ml_comparison.csv"
+DATA_FILE   = REPO_ROOT / "results" / "alignn" / "model_ep150" / "process_candidates" / "gcmc_vs_ml_comparison.csv"
 UMAP_CSV    = REPO_ROOT / "results" / "cbm_screening" / "inference" / "umap_coordinates_descriptor_with_metrics_ml.csv"
 TRAIN_ADS   = REPO_ROOT / "results" / "cbm_screening" / "raspa3_parsed_results_round2_0917.csv"
 TRAIN_WIDOM = REPO_ROOT / "results" / "cbm_screening" / "widom_results_round2_0917.csv"
@@ -610,7 +610,7 @@ if __name__ == "__main__":
         _md = Path(args.model_dir)
         if not _md.is_absolute():
             _md = REPO_ROOT / _md
-        DATA_FILE = _md / "bkt_candidates" / "gcmc_vs_ml_comparison.csv"
+        DATA_FILE = _md / "process_candidates" / "gcmc_vs_ml_comparison.csv"
         FIG_DIR   = _md / "figures"
 
     FIG_DIR.mkdir(parents=True, exist_ok=True)

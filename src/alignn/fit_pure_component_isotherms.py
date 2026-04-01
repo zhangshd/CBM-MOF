@@ -36,13 +36,13 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 DEFAULT_INPUT_CSVS = [
     REPO_ROOT / "results" / "alignn" / "model_ep150"
-    / "bkt_candidates" / "isotherm_input" / "atc_cu_pure_component.csv",
+    / "process_candidates" / "isotherm_input" / "atc_cu_pure_component.csv",
     REPO_ROOT / "results" / "alignn" / "model_ep150"
-    / "bkt_candidates" / "isotherm_input" / "top20_pure_component.csv",
+    / "process_candidates" / "isotherm_input" / "top20_pure_component.csv",
 ]
 DEFAULT_OUTPUT_DIR = (
     REPO_ROOT / "results" / "alignn" / "model_ep150"
-    / "bkt_candidates" / "isotherm_fits"
+    / "process_candidates" / "isotherm_fits"
 )
 
 STANDARD_COLUMNS = [

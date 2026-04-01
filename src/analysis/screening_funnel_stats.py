@@ -202,7 +202,7 @@ def build_funnel_table(model_dir: Path) -> pd.DataFrame:
              model_dir / "top_candidates" / "hypo_top50_vsa.csv",
          ], "mof_id")),
         (8, "186 unique candidates", 5,
-         lambda: load_ids_csv(model_dir / "bkt_candidates" / "gcmc_vs_ml_comparison.csv", "mof_id")),
+         lambda: load_ids_csv(model_dir / "process_candidates" / "gcmc_vs_ml_comparison.csv", "mof_id")),
     ]
 
     # First pass: compute counts

@@ -87,7 +87,7 @@ def parse_candidate_mode(model_dir: Path, output_csv: Path, bkt_dir: Path | None
         gcmc_base = bkt_dir / "gcmc_pure_component"
     else:
         model_paths = resolve_model_paths(model_dir)
-        gcmc_base = model_paths.bkt_candidates_dir / "gcmc_pure_component"
+        gcmc_base = model_paths.process_candidates_dir / "gcmc_pure_component"
     frames = []
     for gas_dir in ["methane", "N2"]:
         gas_base = gcmc_base / gas_dir
@@ -144,7 +144,7 @@ def main() -> None:
         "--bkt-dir",
         type=Path,
         default=None,
-        help="Override bkt_candidates directory path (for candidate mode).",
+        help="Override process_candidates directory path (for candidate mode).",
     )
     args = parser.parse_args()
 
@@ -153,11 +153,11 @@ def main() -> None:
         bkt_dir_resolved = args.bkt_dir if args.bkt_dir.is_absolute() else REPO_ROOT / args.bkt_dir
 
     if args.mode == "benchmark":
-        default_bkt = bkt_dir_resolved or resolve_model_paths(args.model_dir).bkt_candidates_dir
+        default_bkt = bkt_dir_resolved or resolve_model_paths(args.model_dir).process_candidates_dir
         output_csv = args.output_csv or (default_bkt / "isotherm_input" / "atc_cu_pure_component.csv")
         parse_benchmark_mode(args.result_dir, output_csv)
     else:
-        default_bkt = bkt_dir_resolved or resolve_model_paths(args.model_dir).bkt_candidates_dir
+        default_bkt = bkt_dir_resolved or resolve_model_paths(args.model_dir).process_candidates_dir
         output_csv = args.output_csv or (default_bkt / "isotherm_input" / "top20_pure_component.csv")
         parse_candidate_mode(args.model_dir, output_csv, bkt_dir=bkt_dir_resolved)
 

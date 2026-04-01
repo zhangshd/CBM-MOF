@@ -14,7 +14,7 @@ import numpy as np
 from scipy import stats
 from pathlib import Path
 
-BKT_DIR = Path("/home/zhangsd/repos/CBM-MOF/results/alignn/model_ep150/bkt_candidates")
+BKT_DIR = Path("/home/zhangsd/repos/CBM-MOF/results/alignn/model_ep150/process_candidates")
 
 # ── Load data ──
 fig13 = pd.read_csv(BKT_DIR / "Figure13_selectivity_dumbbell_metrics.csv")

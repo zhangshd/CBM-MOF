@@ -9,7 +9,7 @@ For each MOF × composition × process (PSA/VSA):
   - WC_CH4 = q_CH4(P_high) - q_CH4(P_low)
   - API = (α - 1) × WC / |Qst_CH4|
 
-Output: results/alignn/model_ep150/bkt_candidates/iast_multicomp/iast_multicomp.csv
+Output: results/alignn/model_ep150/process_candidates/iast_multicomp/iast_multicomp.csv
 
 Usage:
     conda run -n alignn_env --no-banner env PYTHONPATH=src python src/alignn/compute_iast_multicomp.py
@@ -284,7 +284,7 @@ def main():
     else:
         md = REPO_ROOT / "results" / "alignn" / "model_ep150"
 
-    bkt_dir = md / "bkt_candidates"
+    bkt_dir = md / "process_candidates"
     fits_csv = bkt_dir / "isotherm_fits" / "best_isotherm_fits.csv"
     qst_csv = bkt_dir / "top20_combined.csv"
     output_dir = bkt_dir / "iast_multicomp"

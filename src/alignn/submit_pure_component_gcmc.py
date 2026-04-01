@@ -141,8 +141,8 @@ def main() -> None:
         help="SLURM partition name (default: C9654)."
     )
     parser.add_argument(
-        "--bkt-dir", type=str, default="bkt_candidates",
-        help="BKT candidates subdir name under model-dir (default: bkt_candidates)."
+        "--bkt-dir", type=str, default="process_candidates",
+        help="Process candidates subdir name under model-dir (default: process_candidates)."
     )
     args = parser.parse_args()
     dry_run = args.test

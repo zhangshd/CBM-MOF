@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 REPO_ROOT = Path("/home/zhangsd/repos/CBM-MOF")
 CLUSTER_CSV = REPO_ROOT / "results/cbm_screening/inference/umap_coordinates_descriptor_with_metrics_ml.csv"
-GCMC_CSV = REPO_ROOT / "results/alignn/model_ep150/bkt_candidates/gcmc_vs_ml_comparison.csv"
+GCMC_CSV = REPO_ROOT / "results/alignn/model_ep150/process_candidates/gcmc_vs_ml_comparison.csv"
 ZEO_CSV = REPO_ROOT / "data/processed/RAC_and_zeo_features_deduplicated.csv"
 CIF_DIR_PRIMARY = REPO_ROOT / "data/processed/integrated_cifs"
 CIF_DIR_FALLBACK = REPO_ROOT / "results/cbm_screening/all_graphs_grids"

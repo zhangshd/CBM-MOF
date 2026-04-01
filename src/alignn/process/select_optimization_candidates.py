@@ -136,7 +136,7 @@ def select_candidates(top_n: int = 10) -> tuple[set[str], set[str]]:
 
 def main() -> None:
     # Default paths
-    bkt_dir = REPO_ROOT / "results" / "alignn" / "model_ep150" / "bkt_candidates"
+    bkt_dir = REPO_ROOT / "results" / "alignn" / "model_ep150" / "process_candidates"
     default_fits = bkt_dir / "isotherm_fits" / "best_isotherm_fits.csv"
     default_density = REPO_ROOT / "data" / "processed" / "RAC_and_zeo_features.csv"
     default_qst = bkt_dir / "top20_combined.csv"

@@ -37,7 +37,7 @@ from src.figures.style import (
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MODEL_DIR = REPO_ROOT / "results" / "alignn" / "model_ep150"
 # New 186-MOF dual-track validation data
-GCMC_COMPARE_CSV = MODEL_DIR / "bkt_candidates" / "gcmc_vs_ml_comparison.csv"
+GCMC_COMPARE_CSV = MODEL_DIR / "process_candidates" / "gcmc_vs_ml_comparison.csv"
 # PSA/VSA splits derived from top-50 exp + top-50 hypo per process
 TOP100_SPLIT_CSV = {
     "top_100_psa": [

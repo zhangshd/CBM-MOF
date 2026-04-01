@@ -1,8 +1,9 @@
 """
 filter_stable_candidates.py — Task 2.3a: Stability screening of ML-screened library.
 
-Apply three stability filters to full_library_screened.csv:
+Apply four stability filters to full_library_screened.csv:
   Filter 3: NOT IfPreciousOrRare  (precious/rare metal detection from CIF)
+  Filter 6: No Al metal nodes     (DREIDING force field artifact; Li et al. 2024 JCTC)
   Filter 4: SSD_pred == 1         (solvent-removal stable; MOFSNN-covered MOFs only)
   Filter 5: WS24_water_pred == 1  (water stable; MOFSNN-covered MOFs only)
 
@@ -43,16 +44,23 @@ PRECIOUS_RARE_METALS = {
     'Tl', 'W',  'Yb', 'Hg',
 }
 
+# Force field reliability: Group IIIA metals (Al) — DREIDING gives unreliable
+# adsorption for these metal nodes due to missing/poor LJ parameters.
+# Li et al. 2024, J. Chem. Theory Comput. — 16x CH4 overestimate for Al-MOFs.
+# Ga and In are already in PRECIOUS_RARE_METALS; only Al needs a separate filter.
+FF_UNRELIABLE_METALS = {'Al'}
 
-def detect_precious_rare_metals_in_cif(cif_file_path) -> bool:
-    """Return True if the CIF contains any precious/rare metals.
 
-    Copied verbatim from exp08_screening_ml.py.
+def extract_elements_from_cif(cif_file_path) -> set:
+    """Extract element symbols found in a CIF file.
+
+    Parsing logic from exp08_screening_ml.py::detect_precious_rare_metals_in_cif().
+    Returns a set of element symbols (e.g. {'Cu', 'C', 'O', 'N', 'H'}).
     """
     cif_path = Path(cif_file_path)
     if not cif_path.exists():
         print(f"  [WARN] CIF not found: {cif_path}", flush=True)
-        return False
+        return set()
     try:
         content = cif_path.read_text(encoding="utf-8", errors="ignore")
         element_patterns = [
@@ -72,29 +80,34 @@ def detect_precious_rare_metals_in_cif(cif_file_path) -> bool:
                     if m:
                         found_elements.add(m.group(1))
         found_elements.update(re.findall(r'\b([A-Z][a-z]?)\b', content))
-        return bool(found_elements & PRECIOUS_RARE_METALS)
+        return found_elements
     except Exception as e:
         print(f"  [WARN] Error reading {cif_path}: {e}", flush=True)
-        return False
+        return set()
 
 
-def _detect_batch(batch: list) -> list:
-    """Module-level wrapper so multiprocessing.Pool can pickle it."""
-    return [detect_precious_rare_metals_in_cif(CIF_DIR / f"{mof_id}.cif") for mof_id in batch]
+def detect_precious_rare_metals_in_cif(cif_file_path) -> bool:
+    """Return True if the CIF contains any precious/rare metals."""
+    return bool(extract_elements_from_cif(cif_file_path) & PRECIOUS_RARE_METALS)
 
 
-def detect_precious_rare_metals_parallel(mof_ids: list) -> list:
-    """Run precious/rare metal detection in parallel; returns list of bool."""
+def _extract_elements_batch(batch: list) -> list:
+    """Module-level wrapper for parallel element extraction."""
+    return [extract_elements_from_cif(CIF_DIR / f"{mof_id}.cif") for mof_id in batch]
+
+
+def extract_elements_parallel(mof_ids: list) -> list:
+    """Extract elements from CIFs in parallel; returns list of sets."""
     n_cores = min(cpu_count(), 32)
     batch_size = max(1, len(mof_ids) // (n_cores * 8))
     batches = [mof_ids[i:i + batch_size] for i in range(0, len(mof_ids), batch_size)]
 
-    print(f"  Detecting precious/rare metals: {n_cores} workers, "
+    print(f"  Extracting elements from CIFs: {n_cores} workers, "
           f"{len(batches)} batches × ~{batch_size} MOFs …", flush=True)
 
     results: list = []
     with Pool(processes=n_cores) as pool:
-        for i, batch_result in enumerate(pool.imap(_detect_batch, batches, chunksize=1), 1):
+        for i, batch_result in enumerate(pool.imap(_extract_elements_batch, batches, chunksize=1), 1):
             results.extend(batch_result)
             if i % max(1, len(batches) // 10) == 0:
                 print(f"    {i}/{len(batches)} batches done ({len(results)} MOFs processed)", flush=True)
@@ -136,17 +149,24 @@ def main(test_mode: bool = False) -> None:
     print(f"  MOFSNN coverage: {n_covered:,} covered / {n_uncovered:,} uncovered (kept, not filtered)", flush=True)
 
     # ------------------------------------------------------------------
-    # Step 3 — Precious/rare metal detection (parallel)
+    # Step 3 — Element extraction from CIFs (parallel, single pass)
     # ------------------------------------------------------------------
-    print("Step 3: Detecting precious/rare metals …", flush=True)
+    print("Step 3: Extracting elements from CIFs …", flush=True)
     mof_ids = df["mof_id"].tolist()
-    precious_flags = detect_precious_rare_metals_parallel(mof_ids)
+    element_sets = extract_elements_parallel(mof_ids)
+
+    # Derive precious/rare metal flags and Al flags from extracted elements
+    precious_flags = [bool(elems & PRECIOUS_RARE_METALS) for elems in element_sets]
+    al_flags = [bool(elems & FF_UNRELIABLE_METALS) for elems in element_sets]
     df["IfPreciousOrRare"] = precious_flags
+    df["IfAlMetal"] = al_flags
     n_precious = sum(precious_flags)
+    n_al = sum(al_flags)
     print(f"  Detected {n_precious:,} MOFs with precious/rare metals", flush=True)
+    print(f"  Detected {n_al:,} MOFs with Al metal nodes", flush=True)
 
     # ------------------------------------------------------------------
-    # Step 4 — Apply three filters with per-step statistics
+    # Step 4 — Apply four filters with per-step statistics
     # ------------------------------------------------------------------
     print("Step 4: Applying stability filters …", flush=True)
     n_before = len(df)
@@ -156,6 +176,15 @@ def main(test_mode: bool = False) -> None:
     removed_f3 = (~mask_precious).sum()
     df = df[mask_precious].copy()
     print(f"  Filter 3 (no precious/rare metals): removed {removed_f3:,}, remaining {len(df):,}", flush=True)
+
+    # Filter 6: Force field reliability — exclude Al metal-node MOFs.
+    # DREIDING force field produces unreliable CH4 adsorption for Al-MOFs
+    # (up to 16x overestimate; Li et al. 2024, J. Chem. Theory Comput.).
+    # Ga and In are already excluded by Filter 3 (precious/rare metals).
+    mask_al = ~df["IfAlMetal"]
+    removed_f6 = (~mask_al).sum()
+    df = df[mask_al].copy()
+    print(f"  Filter 6 (no Al metal nodes — FF reliability): removed {removed_f6:,}, remaining {len(df):,}", flush=True)
 
     # Filter 4: SSD_pred == 1 (only for MOFSNN-covered MOFs)
     mask_ssd = df["SSD_pred"].isna() | (df["SSD_pred"] == 1)
@@ -177,12 +206,13 @@ def main(test_mode: bool = False) -> None:
     # Step 5 — Print filter statistics table
     # ------------------------------------------------------------------
     print("\n  Filter statistics:")
-    print(f"  {'Step':<40} {'Removed':>10} {'Remaining':>12}")
-    print(f"  {'-'*40} {'-'*10} {'-'*12}")
-    print(f"  {'Input (post-Tasks 2.1+2.2)':<40} {'':>10} {n_before:>12,}")
-    print(f"  {'Filter 3: precious/rare metals':<40} {removed_f3:>10,} {n_before-removed_f3:>12,}")
-    print(f"  {'Filter 4: SSD_pred != 1':<40} {removed_f4:>10,} {n_before-removed_f3-removed_f4:>12,}")
-    print(f"  {'Filter 5: WS24_water_pred != 1':<40} {removed_f5:>10,} {n_final:>12,}")
+    print(f"  {'Step':<45} {'Removed':>10} {'Remaining':>12}")
+    print(f"  {'-'*45} {'-'*10} {'-'*12}")
+    print(f"  {'Input (post-Tasks 2.1+2.2)':<45} {'':>10} {n_before:>12,}")
+    print(f"  {'Filter 3: precious/rare metals':<45} {removed_f3:>10,} {n_before-removed_f3:>12,}")
+    print(f"  {'Filter 6: Al metal nodes (FF reliability)':<45} {removed_f6:>10,} {n_before-removed_f3-removed_f6:>12,}")
+    print(f"  {'Filter 4: SSD_pred != 1':<45} {removed_f4:>10,} {n_before-removed_f3-removed_f6-removed_f4:>12,}")
+    print(f"  {'Filter 5: WS24_water_pred != 1':<45} {removed_f5:>10,} {n_final:>12,}")
 
     # ------------------------------------------------------------------
     # Step 6 — Save output
