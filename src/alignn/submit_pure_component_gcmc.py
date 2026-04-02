@@ -144,6 +144,14 @@ def main() -> None:
         "--bkt-dir", type=str, default="process_candidates",
         help="Process candidates subdir name under model-dir (default: process_candidates)."
     )
+    parser.add_argument(
+        "--temperatures", type=float, nargs="+", default=None,
+        help="Override temperatures in K (default: 298.0). E.g. --temperatures 273 323"
+    )
+    parser.add_argument(
+        "--output-suffix", type=str, default=None,
+        help="Append suffix to output dir name (e.g. '_multitemp')."
+    )
     args = parser.parse_args()
     dry_run = args.test
 
@@ -156,7 +164,15 @@ def main() -> None:
         md = REPO_ROOT / "results" / "alignn" / "model_ep150"
 
     cif_dir = str(md / args.bkt_dir / "cifs")
-    output_base = str(md / args.bkt_dir / "gcmc_pure_component")
+    out_name = "gcmc_pure_component"
+    if args.output_suffix:
+        out_name += args.output_suffix
+    output_base = str(md / args.bkt_dir / out_name)
+
+    # Override temperatures if provided
+    if args.temperatures:
+        global TEMPERATURES
+        TEMPERATURES = args.temperatures
 
     # Verify CIFs
     cif_path = Path(cif_dir)

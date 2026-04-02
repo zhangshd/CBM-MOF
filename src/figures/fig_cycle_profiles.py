@@ -1,0 +1,273 @@
+"""
+fig_cycle_profiles.py
+=====================
+Spatial cycle profile figure for PSA/VSA process simulation (SI figure).
+
+Layout: 2x3 subplot grid
+  Top row:    PSA (ARC-o10)    — Pressure / CH4 mole fraction / Temperature
+  Bottom row: VSA (ARC-o25.15) — same three columns
+
+Each line represents the spatial profile at the end of a cycle step.
+X-axis: dimensionless bed position z/L (10 interior FVM nodes).
+
+Usage:
+    python -m src.figures.fig_cycle_profiles
+    python -m src.figures.fig_cycle_profiles --psa-csv path/to/psa.csv --vsa-csv path/to/vsa.csv
+"""
+
+from __future__ import annotations
+
+import argparse
+import functools
+import logging
+import shutil
+import sys
+from pathlib import Path
+
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import matplotlib.lines as mlines
+import numpy as np
+import pandas as pd
+
+# ---------------------------------------------------------------------------
+# Paths
+# ---------------------------------------------------------------------------
+REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO_ROOT / "src" / "figures"))
+
+from style import (
+    DOUBLE_COL_INCH, DPI,
+    set_publication_style, save_figure,
+    TICK_FONT_SIZE, LABEL_FONT_SIZE, LEGEND_FONT_SIZE,
+    BODY_FONT_SIZE, TITLE_FONT_SIZE,
+)
+
+logger = logging.getLogger(__name__)
+print = functools.partial(print, flush=True)
+
+# ---------------------------------------------------------------------------
+# Defaults
+# ---------------------------------------------------------------------------
+SUPERPSA_RESULTS = REPO_ROOT / "src" / "SuperPSA" / "Results"
+DEFAULT_PSA_CSV = SUPERPSA_RESULTS / "profile_PSA_ARC-o10.csv"
+DEFAULT_VSA_CSV = SUPERPSA_RESULTS / "profile_VSA_ARC-o25_15.csv"
+PAPER_ROOT = REPO_ROOT.parent / "CBM-MOF-paper"
+DEFAULT_OUTPUT = PAPER_ROOT / "manuscript" / "figures"
+SI_IMAGES_DIR = PAPER_ROOT / "manuscript" / "SuppInfo_CBM" / "images"
+
+FIGURE_WIDTH = DOUBLE_COL_INCH  # 6.89 in  (~17.5 cm, double-column)
+FIGURE_HEIGHT = 3.8
+
+# ---------------------------------------------------------------------------
+# Step styling
+# ---------------------------------------------------------------------------
+STEP_COLORS = {
+    1: "#2196F3",  # CoCPres  — blue
+    2: "#4CAF50",  # Ads      — green
+    3: "#FF9800",  # HR1      — orange
+    4: "#F44336",  # CoCDepres — red
+    5: "#9C27B0",  # HR2      — purple
+    6: "#795548",  # CnCDepres — brown
+    7: "#607D8B",  # LR       — blue-grey
+}
+
+STEP_LABELS = {
+    1: "Pressurization",
+    2: "Adsorption",
+    3: "Heavy reflux 1",
+    4: "CoC depres.",
+    5: "Heavy reflux 2",
+    6: "CnC blowdown",
+    7: "Light reflux",
+}
+
+ROW_LABELS = {0: "PSA", 1: "VSA"}
+COL_TITLES = ["Pressure (bar)", r"CH$_4$ mole fraction", "Temperature (K)"]
+
+# Columns from CSV → what to plot in each column
+_COL_KEYS = ["P_Pa", "y_CH4", "T_K"]
+_COL_CONVERTERS = {
+    "P_Pa": lambda x: x / 1e5,  # Pa → bar
+    "y_CH4": lambda x: x,
+    "T_K": lambda x: x,
+}
+
+
+# ---------------------------------------------------------------------------
+# Data loading
+# ---------------------------------------------------------------------------
+def load_profile(csv_path: Path) -> pd.DataFrame:
+    """Load a spatial profile CSV and validate expected columns."""
+    expected = {"step", "node", "z", "P_Pa", "y_CH4", "T_K"}
+    df = pd.read_csv(csv_path)
+    missing = expected - set(df.columns)
+    if missing:
+        raise ValueError(f"Missing columns in {csv_path.name}: {missing}")
+    logger.info("Loaded %d rows from %s (steps: %s)",
+                len(df), csv_path.name, sorted(df["step"].unique()))
+    return df
+
+
+# ---------------------------------------------------------------------------
+# Plotting helpers
+# ---------------------------------------------------------------------------
+def _plot_spatial_profiles(ax: plt.Axes, df: pd.DataFrame, ycol: str,
+                           converter=None):
+    """Plot spatial profiles colored by step number."""
+    if converter is None:
+        converter = lambda x: x  # noqa: E731
+
+    steps_present = sorted(df["step"].unique())
+
+    for step_num in steps_present:
+        seg = df[df["step"] == step_num].sort_values("z")
+        if seg.empty:
+            continue
+        color = STEP_COLORS.get(step_num, "#333333")
+        ax.plot(seg["z"].values, converter(seg[ycol].values),
+                color=color, linewidth=1.0, marker="o", markersize=2.0,
+                zorder=3)
+
+
+def _build_step_legend(fig: plt.Figure, ncols: int = 4):
+    """Add a single legend at the bottom of the figure."""
+    handles = []
+    for step_num in sorted(STEP_LABELS.keys()):
+        h = mlines.Line2D(
+            [], [], color=STEP_COLORS[step_num], linewidth=1.5,
+            marker="o", markersize=2.5,
+            label=STEP_LABELS[step_num],
+        )
+        handles.append(h)
+
+    fig.legend(
+        handles=handles,
+        loc="lower center",
+        ncol=ncols,
+        fontsize=LEGEND_FONT_SIZE,
+        frameon=False,
+        handlelength=1.4,
+        handletextpad=0.4,
+        columnspacing=1.0,
+        bbox_to_anchor=(0.5, -0.01),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Main figure
+# ---------------------------------------------------------------------------
+def plot_cycle_profiles(
+    psa_csv: Path,
+    vsa_csv: Path,
+    output_dir: Path,
+):
+    """Generate the 2x3 spatial cycle profile figure."""
+    set_publication_style()
+
+    psa_df = load_profile(psa_csv)
+    vsa_df = load_profile(vsa_csv)
+
+    fig, axes = plt.subplots(
+        2, 3,
+        figsize=(FIGURE_WIDTH, FIGURE_HEIGHT),
+        constrained_layout=False,
+    )
+
+    fig.subplots_adjust(
+        left=0.10, right=0.97,
+        bottom=0.19, top=0.91,
+        wspace=0.35, hspace=0.20,
+    )
+
+    datasets = [psa_df, vsa_df]
+
+    for row_idx, df in enumerate(datasets):
+        for col_idx, ycol in enumerate(_COL_KEYS):
+            ax = axes[row_idx, col_idx]
+            converter = _COL_CONVERTERS.get(ycol)
+            _plot_spatial_profiles(ax, df, ycol, converter)
+
+            # Column titles on top row only
+            if row_idx == 0:
+                ax.set_title(COL_TITLES[col_idx], fontsize=BODY_FONT_SIZE,
+                             fontweight="normal", loc="center")
+
+            # x-axis label on bottom row only
+            if row_idx == 1:
+                ax.set_xlabel("$z/L$", fontsize=LABEL_FONT_SIZE)
+            else:
+                ax.tick_params(labelbottom=False)
+
+            ax.tick_params(labelsize=TICK_FONT_SIZE)
+            ax.set_xlim(-0.02, 1.02)
+
+            # Minor ticks
+            ax.minorticks_on()
+            ax.tick_params(which="minor", length=1.5, width=0.4)
+
+    # Row labels
+    for row_idx, label in ROW_LABELS.items():
+        row_axes = axes[row_idx, :]
+        y_centers = []
+        for a in row_axes:
+            bbox = a.get_position()
+            y_centers.append((bbox.y0 + bbox.y1) / 2.0)
+        y_mid = np.mean(y_centers)
+        fig.text(
+            0.02, y_mid, label,
+            fontsize=BODY_FONT_SIZE, fontweight="bold",
+            ha="center", va="center", rotation=90,
+        )
+
+    # Step legend at figure bottom
+    _build_step_legend(fig, ncols=4)
+
+    # Save
+    save_figure(fig, "fig_cycle_profiles", output_dir,
+                formats=("png", "pdf"), tight_layout=False)
+
+    # Copy PNG to SI images directory
+    src_png = output_dir / "fig_cycle_profiles.png"
+    dst_png = SI_IMAGES_DIR / "img_008.png"
+    if src_png.exists() and SI_IMAGES_DIR.exists():
+        shutil.copy2(src_png, dst_png)
+        print(f"  Copied to SI: {dst_png}")
+    elif not SI_IMAGES_DIR.exists():
+        logger.warning("SI images directory not found: %s", SI_IMAGES_DIR)
+
+    plt.close(fig)
+    print("Done: fig_cycle_profiles.png/.pdf")
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Generate PSA/VSA spatial cycle profile figure for SI.",
+    )
+    parser.add_argument(
+        "--psa-csv", type=Path, default=DEFAULT_PSA_CSV,
+        help="Path to PSA cycle profile CSV (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--vsa-csv", type=Path, default=DEFAULT_VSA_CSV,
+        help="Path to VSA cycle profile CSV (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--output-dir", type=Path, default=DEFAULT_OUTPUT,
+        help="Output directory for figure files (default: %(default)s)",
+    )
+    return parser.parse_args()
+
+
+def main():
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    args = parse_args()
+    plot_cycle_profiles(args.psa_csv, args.vsa_csv, args.output_dir)
+
+
+if __name__ == "__main__":
+    main()

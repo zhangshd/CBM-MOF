@@ -66,6 +66,9 @@ _SHORT_NAME_MAP = {
     "CoRE-2010[Co][pts]3[ASR]2": "CoRE-Co",
     "CoRE-2011[Ni][dia]3[ASR]1": "CoRE-Ni",
     "MOSAEC-YOBPOW_full_REPEAT": "YOBPOW",
+    "CoRE-2021[Ni][dia]3[ASR]1": "CoRE-Ni-2021",
+    "ARC-DB12-TAKTOR_clean_repeat": "TAKTOR",
+    "MOSAEC-QAJDEK_full_REPEAT": "QAJDEK",
 }
 
 
@@ -247,10 +250,6 @@ def _build_legend(
     handles.append(mlines.Line2D([], [], linestyle="None", label=""))
 
     # Cycle type markers
-    handles.append(mlines.Line2D(
-        [], [], color="gray", marker="o", markersize=4,
-        linestyle="None", label="Basic cycle",
-    ))
     handles.append(mlines.Line2D(
         [], [], color="gray", marker="^", markersize=4,
         linestyle="None", label="HR cycle",

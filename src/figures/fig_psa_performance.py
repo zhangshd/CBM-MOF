@@ -67,6 +67,9 @@ _SHORT_NAME_MAP = {
     "CoRE-2010[Co][pts]3[ASR]2": "CoRE-Co",
     "CoRE-2011[Ni][dia]3[ASR]1": "CoRE-Ni",
     "MOSAEC-YOBPOW_full_REPEAT": "YOBPOW",
+    "CoRE-2021[Ni][dia]3[ASR]1": "CoRE-Ni-2021",
+    "ARC-DB12-TAKTOR_clean_repeat": "TAKTOR",
+    "MOSAEC-QAJDEK_full_REPEAT": "QAJDEK",
 }
 
 
@@ -316,8 +319,6 @@ def plot_performance_figure(ranking_csv: Path, output_dir: Path):
 
     # Legend for cycle types
     handles = [
-        mlines.Line2D([], [], color=NATURE_COLORS["blue"], marker="o",
-                       markersize=5, linestyle="None", label="Basic cycle"),
         mlines.Line2D([], [], color=NATURE_COLORS["orange"], marker="^",
                        markersize=5, linestyle="None", label="HR cycle"),
         mlines.Line2D([], [], color="#D62728", marker="*",
