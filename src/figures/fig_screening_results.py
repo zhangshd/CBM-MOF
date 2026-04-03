@@ -200,7 +200,7 @@ def plot_figure10(output_dir: Path) -> dict[str, float]:
         _apply_axis_style(ax)
         # Extend x-axis to avoid legend-line overlap
         xlim = ax.get_xlim()
-        ax.set_xlim(xlim[0], xlim[1] * 1.25)
+        ax.set_xlim(xlim[0], xlim[1] * 1.45)
         ax.legend(loc="upper right", fontsize=6.5, frameon=False)
 
     fig.tight_layout(w_pad=0.7, h_pad=0.9)
@@ -229,7 +229,7 @@ def plot_figure11(output_dir: Path) -> pd.DataFrame:
     for col_idx, (process, api_col, rank_col, threshold, color) in enumerate(process_specs):
         ax = axes[col_idx]
         top = validated[validated[rank_col].notna()].copy()
-        top["beat"] = top[api_col] > threshold
+        top["beat"] = top[api_col] >= threshold
         summary = (
             top.groupby("cluster")
                .agg(count=("beat", "sum"), total_top100=("beat", "size"))

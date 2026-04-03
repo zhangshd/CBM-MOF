@@ -56,10 +56,8 @@ CLUSTER_CSV = (
     / "umap_coordinates_descriptor_with_metrics_ml.csv"
 )
 
-# ATC-Cu benchmark API (from Round-1 GCMC, hardcoded)
-BENCHMARK_PSA = 0.457
-BENCHMARK_VSA = 0.173
-
+# ATC-Cu benchmark: extracted from validation set (Round-1 GCMC data)
+BENCHMARK_MOF = "CoRE-2020[Cu][pts]3[ASR]1"
 
 OUTPUT_DIR = MODEL_DIR / "process_candidates"
 CIF_SRC_DIR = MODEL_DIR / "top_candidates" / "cifs_all_top"
@@ -125,6 +123,18 @@ def parse_widom(widom_dir: Path) -> pd.DataFrame:
     df_widom = df_ch4.merge(df_n2, on="mof_id", how="outer")
     print(f"  Widom pivoted: {len(df_widom):,} unique MOFs")
     return df_widom
+
+
+# ---------------------------------------------------------------------------
+# Step 1b: Extract ATC-Cu benchmark from validation set
+# ---------------------------------------------------------------------------
+
+def extract_benchmark_api(df: pd.DataFrame) -> tuple[float, float]:
+    """Extract ATC-Cu PSA/VSA API from the GCMC-validated dataset."""
+    row = df.loc[df["mof_id"] == BENCHMARK_MOF]
+    if row.empty:
+        raise ValueError(f"Benchmark MOF {BENCHMARK_MOF} not found in validation set.")
+    return float(row.iloc[0]["gcmc_PSA_API_CH4"]), float(row.iloc[0]["gcmc_VSA_API_CH4"])
 
 
 # ---------------------------------------------------------------------------
@@ -239,7 +249,7 @@ def select_top_n(
 ) -> pd.DataFrame:
     """Select top-N benchmark-beating MOFs with cluster-aware diversity."""
     # Filter to benchmark beaters with valid GCMC API
-    subset = df[df[api_col].notna() & (df[api_col] > benchmark)].copy()
+    subset = df[df[api_col].notna() & (df[api_col] >= benchmark)].copy()
     print(f"\n{'='*60}")
     print(f"[{label}] Benchmark threshold: {benchmark:.3f}")
     print(f"[{label}] Benchmark-beating candidates: {len(subset)}")
@@ -345,14 +355,18 @@ def main():
         print("  [ERROR] No GCMC data found!")
         return
 
+    # Extract ATC-Cu benchmark API from validation set
+    benchmark_psa, benchmark_vsa = extract_benchmark_api(df_all)
+    print(f"\nATC-Cu benchmark API: PSA={benchmark_psa:.6f}, VSA={benchmark_vsa:.6f}")
+
     # Identify benchmark beaters
-    psa_beaters = df_all[df_all["gcmc_PSA_API_CH4"] > BENCHMARK_PSA]
-    vsa_beaters = df_all[df_all["gcmc_VSA_API_CH4"] > BENCHMARK_VSA]
-    print(f"\nBenchmark-beating candidates:")
-    print(f"  PSA (>{BENCHMARK_PSA:.3f}): {len(psa_beaters)} "
+    psa_beaters = df_all[df_all["gcmc_PSA_API_CH4"] >= benchmark_psa]
+    vsa_beaters = df_all[df_all["gcmc_VSA_API_CH4"] >= benchmark_vsa]
+    print(f"Benchmark-beating candidates:")
+    print(f"  PSA (>={benchmark_psa:.4f}): {len(psa_beaters)} "
           f"(exp: {(psa_beaters['group']=='exp').sum()}, "
           f"hypo: {(psa_beaters['group']=='hypo').sum()})")
-    print(f"  VSA (>{BENCHMARK_VSA:.3f}): {len(vsa_beaters)} "
+    print(f"  VSA (>={benchmark_vsa:.4f}): {len(vsa_beaters)} "
           f"(exp: {(vsa_beaters['group']=='exp').sum()}, "
           f"hypo: {(vsa_beaters['group']=='hypo').sum()})")
 
@@ -403,13 +417,13 @@ def main():
     # Select PSA Top-10
     psa_top = select_top_n(
         df_clustered, api_col="gcmc_PSA_API_CH4",
-        benchmark=BENCHMARK_PSA, n=args.n, label="PSA"
+        benchmark=benchmark_psa, n=args.n, label="PSA"
     )
 
     # Select VSA Top-10
     vsa_top = select_top_n(
         df_clustered, api_col="gcmc_VSA_API_CH4",
-        benchmark=BENCHMARK_VSA, n=args.n, label="VSA"
+        benchmark=benchmark_vsa, n=args.n, label="VSA"
     )
 
     # Overlap analysis
