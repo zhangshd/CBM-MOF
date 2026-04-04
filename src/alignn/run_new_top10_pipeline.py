@@ -59,6 +59,16 @@ CLUSTER_CSV = (
 # ATC-Cu benchmark: extracted from validation set (Round-1 GCMC data)
 BENCHMARK_MOF = "CoRE-2020[Cu][pts]3[ASR]1"
 
+# PSA/VSA Top-100 split CSVs (exp50 + hypo50 each)
+PSA_SPLIT_CSVS = [
+    MODEL_DIR / "top_candidates" / "exp_top50_psa.csv",
+    MODEL_DIR / "top_candidates" / "hypo_top50_psa.csv",
+]
+VSA_SPLIT_CSVS = [
+    MODEL_DIR / "top_candidates" / "exp_top50_vsa.csv",
+    MODEL_DIR / "top_candidates" / "hypo_top50_vsa.csv",
+]
+
 OUTPUT_DIR = MODEL_DIR / "process_candidates"
 CIF_SRC_DIR = MODEL_DIR / "top_candidates" / "cifs_all_top"
 
@@ -359,14 +369,28 @@ def main():
     benchmark_psa, benchmark_vsa = extract_benchmark_api(df_all)
     print(f"\nATC-Cu benchmark API: PSA={benchmark_psa:.6f}, VSA={benchmark_vsa:.6f}")
 
-    # Identify benchmark beaters
-    psa_beaters = df_all[df_all["gcmc_PSA_API_CH4"] >= benchmark_psa]
-    vsa_beaters = df_all[df_all["gcmc_VSA_API_CH4"] >= benchmark_vsa]
-    print(f"Benchmark-beating candidates:")
-    print(f"  PSA (>={benchmark_psa:.4f}): {len(psa_beaters)} "
+    # Load PSA/VSA Top-100 membership for process-specific selection
+    psa_100_ids: set[str] = set()
+    for p in PSA_SPLIT_CSVS:
+        psa_100_ids.update(pd.read_csv(p, usecols=["mof_id"])["mof_id"].astype(str))
+    vsa_100_ids: set[str] = set()
+    for p in VSA_SPLIT_CSVS:
+        vsa_100_ids.update(pd.read_csv(p, usecols=["mof_id"])["mof_id"].astype(str))
+    df_all["in_psa100"] = df_all["mof_id"].isin(psa_100_ids)
+    df_all["in_vsa100"] = df_all["mof_id"].isin(vsa_100_ids)
+    print(f"  PSA Top-100 matched: {df_all['in_psa100'].sum()}")
+    print(f"  VSA Top-100 matched: {df_all['in_vsa100'].sum()}")
+
+    # Identify benchmark beaters within each process-specific Top-100
+    psa_pool = df_all[df_all["in_psa100"]]
+    vsa_pool = df_all[df_all["in_vsa100"]]
+    psa_beaters = psa_pool[psa_pool["gcmc_PSA_API_CH4"] >= benchmark_psa]
+    vsa_beaters = vsa_pool[vsa_pool["gcmc_VSA_API_CH4"] >= benchmark_vsa]
+    print(f"\nBenchmark-beating candidates (within respective Top-100):")
+    print(f"  PSA (>={benchmark_psa:.4f}): {len(psa_beaters)}/{len(psa_pool)} "
           f"(exp: {(psa_beaters['group']=='exp').sum()}, "
           f"hypo: {(psa_beaters['group']=='hypo').sum()})")
-    print(f"  VSA (>={benchmark_vsa:.4f}): {len(vsa_beaters)} "
+    print(f"  VSA (>={benchmark_vsa:.4f}): {len(vsa_beaters)}/{len(vsa_pool)} "
           f"(exp: {(vsa_beaters['group']=='exp').sum()}, "
           f"hypo: {(vsa_beaters['group']=='hypo').sum()})")
 
@@ -414,15 +438,17 @@ def main():
     df_clustered = df_all[df_all["cluster"].notna()].copy()
     df_clustered["cluster"] = df_clustered["cluster"].astype(int)
 
-    # Select PSA Top-10
+    # Select PSA Top-10 from PSA Top-100 subset only
     psa_top = select_top_n(
-        df_clustered, api_col="gcmc_PSA_API_CH4",
+        df_clustered[df_clustered["in_psa100"]].copy(),
+        api_col="gcmc_PSA_API_CH4",
         benchmark=benchmark_psa, n=args.n, label="PSA"
     )
 
-    # Select VSA Top-10
+    # Select VSA Top-10 from VSA Top-100 subset only
     vsa_top = select_top_n(
-        df_clustered, api_col="gcmc_VSA_API_CH4",
+        df_clustered[df_clustered["in_vsa100"]].copy(),
+        api_col="gcmc_VSA_API_CH4",
         benchmark=benchmark_vsa, n=args.n, label="VSA"
     )
 

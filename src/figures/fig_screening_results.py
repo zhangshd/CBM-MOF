@@ -225,55 +225,64 @@ def plot_figure11(output_dir: Path) -> pd.DataFrame:
     set_publication_style()
     fig, axes = plt.subplots(1, 2, figsize=(DOUBLE_COL_INCH, 0.45 * DOUBLE_COL_INCH))
 
+    exp_color = NATURE_COLORS["green"]
+    hypo_color = NATURE_COLORS["purple"]
+
     panel_labels = ["(a)", "(b)"]
     for col_idx, (process, api_col, rank_col, threshold, color) in enumerate(process_specs):
         ax = axes[col_idx]
         top = validated[validated[rank_col].notna()].copy()
         top["beat"] = top[api_col] >= threshold
+        beaters = top[top["beat"]].copy()
+
+        # Aggregate by cluster and group (exp/hypo)
         summary = (
-            top.groupby("cluster")
-               .agg(count=("beat", "sum"), total_top100=("beat", "size"))
-               .reset_index()
+            beaters.groupby(["cluster", "group"])
+                   .size()
+                   .unstack(fill_value=0)
+                   .reindex(columns=["exp", "hypo"], fill_value=0)
+                   .reset_index()
         )
-        summary["hit_rate"] = summary["count"] / summary["total_top100"]
-        summary = summary[summary["count"] > 0].sort_values(["count", "hit_rate"], ascending=False)
+        summary["total"] = summary["exp"] + summary["hypo"]
+        summary = summary[summary["total"] > 0].sort_values("total", ascending=False)
+
         rows.extend(
             {
                 "process": process,
-                "cluster": int(row.cluster),
-                "cluster_display": int(row.cluster) + 1,
-                "count": int(row.count),
-                "total_top100": int(row.total_top100),
-                "hit_rate": float(row.hit_rate),
+                "cluster": int(r.cluster),
+                "cluster_display": int(r.cluster) + 1,
+                "exp": int(r.exp),
+                "hypo": int(r.hypo),
+                "total": int(r.total),
                 "benchmark_api": threshold,
             }
-            for row in summary.itertuples(index=False)
+            for r in summary.itertuples(index=False)
         )
 
         x = np.arange(len(summary))
-        bars = ax.bar(x, summary["count"], color=color, edgecolor="black", linewidth=0.4, alpha=0.85)
-        for bar, count in zip(bars, summary["count"]):
-            ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(), f"{int(count)}", ha="center", va="bottom", fontsize=6.5)
-        ax2 = ax.twinx()
-        ax2.plot(x, summary["hit_rate"], color="black", marker="o", markersize=3.2, linewidth=0.8)
-        ax2.set_ylim(0, 1.05)
-        ax2.set_ylabel("Hit rate within cluster", fontsize=7.5)
-        ax2.tick_params(axis="y", labelsize=7.0, width=0.5, length=3)
-        ax2.spines["top"].set_visible(False)
-        ax2.spines["left"].set_visible(False)
-        ax2.spines["right"].set_linewidth(0.5)
+        bar_width = 0.7
+        # Stacked bars: exp on bottom, hypo on top
+        bars_exp = ax.bar(x, summary["exp"], bar_width, color=exp_color, edgecolor="black",
+                          linewidth=0.4, alpha=0.85, label="Experimental")
+        bars_hypo = ax.bar(x, summary["hypo"], bar_width, bottom=summary["exp"], color=hypo_color,
+                           edgecolor="black", linewidth=0.4, alpha=0.85, label="Hypothetical")
+        # Count labels on top
+        for xi, total in zip(x, summary["total"]):
+            ax.text(xi, total, f"{total}", ha="center", va="bottom", fontsize=6.5)
 
         ax.set_xticks(x)
         ax.set_xticklabels([_display_cluster_label(c) for c in summary["cluster"]])
         ax.set_xlabel("Cluster")
         ax.set_ylabel("Benchmark-beating count")
-        n_hits = int(summary["count"].sum())
-        ax.set_title(f"{panel_labels[col_idx]} {process} Case (n = {n_hits}, API > {threshold:.3f})")
+        n_hits = int(summary["total"].sum())
+        ax.set_title(f"{panel_labels[col_idx]} {process} (n = {n_hits}, API \u2265 {threshold:.3f})")
         _apply_axis_style(ax)
+        if col_idx == 0:
+            ax.legend(fontsize=6.5, frameon=False, loc="upper right")
 
     fig.tight_layout(w_pad=1.0)
     save_figure(fig, "Figure11_cluster_analysis", output_dir, formats=("png",))
-    summary_df = pd.DataFrame(rows).sort_values(["process", "count", "hit_rate"], ascending=[True, False, False])
+    summary_df = pd.DataFrame(rows).sort_values(["process", "total"], ascending=[True, False])
     summary_df.to_csv(output_dir / "Figure11_cluster_analysis_summary.csv", index=False)
     return summary_df
 
