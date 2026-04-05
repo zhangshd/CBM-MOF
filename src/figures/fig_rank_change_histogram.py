@@ -35,7 +35,7 @@ DEFAULT_OUTPUT_DIR = REPO / "results" / "alignn" / "model_ep150" / "figures"
 
 EXP_PREFIXES = ("CoRE-", "MOSAEC-", "ARC-DB12-", "ARC-DB14-")
 
-# Visual identity (matches fig_composition_sensitivity.py)
+# Visual identity
 COLOR_EXP = NATURE_COLORS["blue"]
 COLOR_HYPO = NATURE_COLORS["orange"]
 

@@ -27,9 +27,19 @@ CIF_SOURCE = REPO_ROOT / "data" / "processed" / "integrated_cifs"
 EXP_PREFIXES = ("CoRE-", "MOSAEC-", "ARC-DB12-", "ARC-DB14-")
 
 # MOFs to exclude before Top-N selection (benchmark duplicates, etc.)
-# CoRE-2023[Cu][pts]3[ASR]1 and CoRE-2023[Cu][pts]3[ASR]2 are both ATC-Cu
-# duplicate entries of the benchmark CoRE-2020[Cu][pts]3[ASR]1
-EXCLUDE_MOFS = {"CoRE-2023[Cu][pts]3[ASR]1", "CoRE-2023[Cu][pts]3[ASR]2"}
+# All entries below are ATC-Cu (CoRE-2020[Cu][pts]3[ASR]1) duplicates from
+# different databases, confirmed by pymatgen StructureMatcher:
+#   CoRE-2023: same database, different year entries
+#   ARC-DB12-BIMDIL: CSD refcode BIMDIL = ATC-Cu
+#   MOSAEC-IMAZAA/IMAYUT: CSD refcode IMAZAA/IMAYUT = ATC-Cu
+EXCLUDE_MOFS = {
+    "CoRE-2023[Cu][pts]3[ASR]1",
+    "CoRE-2023[Cu][pts]3[ASR]2",
+    "ARC-DB12-BIMDIL_freeONLY_repeat",
+    "ARC-DB12-BIMDIL_clean_repeat",
+    "MOSAEC-IMAZAA_full_REPEAT",
+    "MOSAEC-IMAYUT_full_REPEAT",
+}
 
 
 def is_experimental(mof_id: str) -> bool:
