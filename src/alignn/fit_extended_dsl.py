@@ -1735,7 +1735,7 @@ def main() -> None:
                                template_path, suffix)
                 continue
             spsa_df = build_superpsa_csv(ext_fits, template_csv=template_path)
-            out_path = superpsa_dir / f"Adsorbents_CH4N2_{suffix}_extDSL.csv"
+            out_path = superpsa_dir / f"Adsorbents_CH4N2_{suffix}.csv"
             spsa_df.to_csv(out_path, index=False)
             logger.info("SuperPSA %s CSV: %s (%d rows)", suffix, out_path, len(spsa_df))
     else:
@@ -1761,7 +1761,7 @@ def main() -> None:
             spsa_df = build_superpsa_csv(
                 ext_fits, material_metadata=metadata[suffix],
             )
-            out_path = superpsa_dir / f"Adsorbents_CH4N2_{suffix}_extDSL.csv"
+            out_path = superpsa_dir / f"Adsorbents_CH4N2_{suffix}.csv"
             spsa_df.to_csv(out_path, index=False)
             logger.info("SuperPSA %s CSV: %s (%d rows)", suffix, out_path, len(spsa_df))
 
