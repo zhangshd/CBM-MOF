@@ -86,13 +86,20 @@ def _theta_to_ext_dsl_params(theta: np.ndarray) -> np.ndarray:
 
 
 # Bounds in theta space for global Extended DSL fit
+# Physical constraints (2026-04-06 revision):
+#   - q_total capped at 20 mol/kg to break Henry-regime qs·b degeneracy
+#     (GCMC q_max(10bar,298K) ≤ 9 mol/kg; ~2× headroom for high-P extrapolation)
+#   - ΔU ∈ [-45, -5] kJ/mol matches physisorption range (Hu 2023: -5.8 to -45 kJ/mol)
+#   - ln_b0 ∈ [-30, 2] gives b0 ∈ [9e-14, 7.4] bar⁻¹, combined with ΔU bounds
+#     produces b(298K) ∈ ~[1e-6, 100] bar⁻¹ (physically reasonable affinity)
+#   - delta_ln_b0 ≤ 15 limits two-site b0 ratio to ≤6.5 decades
 EXTDSL_THETA_BOUNDS = [
-    (0.1, 400.0),       # q_total [mol/kg]
+    (0.1, 20.0),        # q_total [mol/kg] (capped for physical capacity)
     (0.05, 0.95),       # alpha (each site >= 5%)
-    (-40.0, 5.0),       # ln_b0_b (pre-exponential, very wide)
-    (0.0, 30.0),        # delta_ln_b0 >= 0 (b0_b >= b0_d)
-    (-100000.0, -500.0),  # deltaU_b [J/mol] (must be negative, exothermic)
-    (-100000.0, -500.0),  # deltaU_d [J/mol] (must be negative)
+    (-30.0, 2.0),       # ln_b0_b (physical pre-exponential range)
+    (0.0, 15.0),        # delta_ln_b0 >= 0 (b0_b >= b0_d)
+    (-45000.0, -5000.0),  # deltaU_b [J/mol] (physisorption range)
+    (-45000.0, -5000.0),  # deltaU_d [J/mol] (physisorption range)
 ]
 
 # Standard multi-start initial guesses in theta space
@@ -220,6 +227,289 @@ def _fit_ext_dsl_global(
     }
 
 
+# ---------------------------------------------------------------------------
+# Single-site Extended Langmuir (Occam's razor fallback)
+# ---------------------------------------------------------------------------
+
+def ext_single_langmuir(T: np.ndarray, P: np.ndarray, params: np.ndarray) -> np.ndarray:
+    """Single-site Extended Langmuir with Arrhenius T-dependence.
+
+    q(T, P) = qs * b(T) * P / (1 + b(T) * P),  b(T) = b0 * exp(-ΔU/RT)
+
+    params = [qs, b0, deltaU]  (b0 in bar^-1, ΔU in J/mol, negative).
+    """
+    qs, b0, deltaU = params
+    B = b0 * np.exp(-deltaU / R_GAS / T)
+    return qs * B * P / (1.0 + B * P)
+
+
+# Single-site bounds match the dual-site physical range
+SINGLE_SITE_BOUNDS = [
+    (0.1, 20.0),          # qs [mol/kg]
+    # log-space for b0 is used via theta parameterization below
+]
+
+# Theta parameterization: [qs, ln_b0, deltaU]
+SINGLE_SITE_THETA_BOUNDS = [
+    (0.1, 20.0),          # qs [mol/kg]
+    (-30.0, 2.0),         # ln_b0
+    (-45000.0, -5000.0),  # deltaU [J/mol]
+]
+
+SINGLE_SITE_P0_LIST = [
+    [5.0,  -4.0, -20000.0],
+    [8.0,  -6.0, -25000.0],
+    [3.0,  -2.0, -15000.0],
+    [10.0, -8.0, -30000.0],
+    [6.0,  -5.0, -18000.0],
+    [15.0, -7.0, -28000.0],
+    [2.0,  -1.0, -12000.0],
+    [12.0, -9.0, -35000.0],
+]
+
+
+def _fit_single_site_global(
+    T_all: np.ndarray,
+    P_all: np.ndarray,
+    q_all: np.ndarray,
+) -> Optional[Dict]:
+    """Global fit of single-site Extended Langmuir (3 params)."""
+    n_data = len(T_all)
+    q_var = np.var(q_all)
+    if q_var == 0:
+        q_var = 1.0
+
+    def objective(theta):
+        qs, ln_b0, deltaU = theta
+        params = np.array([qs, np.exp(ln_b0), deltaU])
+        q_pred = ext_single_langmuir(T_all, P_all, params)
+        return np.sum((q_all - q_pred) ** 2) / (n_data * q_var)
+
+    best_result = None
+    best_obj = np.inf
+    for p0 in SINGLE_SITE_P0_LIST:
+        try:
+            result = minimize(
+                objective, p0, bounds=SINGLE_SITE_THETA_BOUNDS, method="L-BFGS-B",
+                options={"maxiter": 20000, "ftol": 1e-15},
+            )
+            if result.fun < best_obj:
+                best_obj = result.fun
+                best_result = result
+        except Exception:
+            continue
+
+    if best_result is None:
+        return None
+
+    qs, ln_b0, deltaU = best_result.x
+    b0 = float(np.exp(ln_b0))
+    params = np.array([qs, b0, deltaU])
+    q_pred = ext_single_langmuir(T_all, P_all, params)
+    r2_global = _r_squared(q_all, q_pred)
+
+    r2_per_temp = {}
+    for temp in TEMPERATURES:
+        mask = np.isclose(T_all, temp)
+        if np.sum(mask) > 0:
+            q_pred_t = ext_single_langmuir(T_all[mask], P_all[mask], params)
+            r2_per_temp[f"R2_{int(temp)}"] = _r_squared(q_all[mask], q_pred_t)
+
+    return {
+        "parameters": {
+            "qs": float(qs),
+            "b0": b0,
+            "deltaU": float(deltaU),
+        },
+        "R2_global": r2_global,
+        "R2_per_temp": r2_per_temp,
+        "objective": float(best_obj),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Penalized dual-site fit (Method A: soft ridge on qs_tot)
+# ---------------------------------------------------------------------------
+
+def _fit_ext_dsl_penalized(
+    T_all: np.ndarray,
+    P_all: np.ndarray,
+    q_all: np.ndarray,
+    q_prior: float,
+    twostep_params: Optional[np.ndarray] = None,
+    penalty_weight: float = 0.01,
+    sigma_tol: float = 3.0,
+) -> Optional[Dict]:
+    """Dual-site Extended DSL fit with soft ridge penalty on qs_tot.
+
+    Loss = SSE + penalty_weight * mean(q_obs^2) * (max(0, qs_tot - q_prior) / sigma_tol)^2
+
+    Args:
+        q_prior: Target qs_tot from observation anchor (mol/kg).
+        penalty_weight: Scale of penalty relative to data (dimensionless).
+        sigma_tol: Tolerance band before full penalty kicks in [mol/kg].
+    """
+    n_data = len(T_all)
+    q_var = np.var(q_all)
+    if q_var == 0:
+        q_var = 1.0
+    q_sq_mean = float(np.mean(q_all ** 2))
+
+    def objective(theta):
+        params = _theta_to_ext_dsl_params(theta)
+        q_pred = ext_dsl(T_all, P_all, params)
+        sse_norm = np.sum((q_all - q_pred) ** 2) / (n_data * q_var)
+        qs_tot = params[0] + params[1]
+        excess = max(0.0, qs_tot - q_prior)
+        # Normalize penalty to same scale as sse_norm (both ~O(1e-4))
+        penalty = penalty_weight * (q_sq_mean / q_var) * (excess / sigma_tol) ** 2 / n_data
+        return sse_norm + penalty
+
+    best_result = None
+    best_obj = np.inf
+
+    for p0 in EXTDSL_THETA_P0_LIST:
+        try:
+            result = minimize(
+                objective, p0, bounds=EXTDSL_THETA_BOUNDS, method="L-BFGS-B",
+                options={"maxiter": 20000, "ftol": 1e-15},
+            )
+            if result.fun < best_obj:
+                best_obj = result.fun
+                best_result = result
+        except Exception:
+            continue
+
+    if twostep_params is not None:
+        qs_b, qs_d, b0_b, b0_d, deltaU_b, deltaU_d = twostep_params
+        if qs_b > 0 and qs_d > 0 and b0_b > 0 and b0_d > 0:
+            q_total = qs_b + qs_d
+            alpha = qs_b / q_total
+            ln_b0_b = np.log(b0_b)
+            if b0_b >= b0_d:
+                delta_ln_b0 = ln_b0_b - np.log(b0_d)
+            else:
+                ln_b0_b = np.log(b0_d)
+                delta_ln_b0 = np.log(b0_d) - np.log(b0_b)
+                alpha = 1.0 - alpha
+                deltaU_b, deltaU_d = deltaU_d, deltaU_b
+            theta_ts = np.array([q_total, alpha, ln_b0_b, delta_ln_b0,
+                                 deltaU_b, deltaU_d])
+            for i, (lo, hi) in enumerate(EXTDSL_THETA_BOUNDS):
+                theta_ts[i] = np.clip(theta_ts[i], lo, hi)
+            try:
+                result = minimize(
+                    objective, theta_ts, bounds=EXTDSL_THETA_BOUNDS, method="L-BFGS-B",
+                    options={"maxiter": 20000, "ftol": 1e-15},
+                )
+                if result.fun < best_obj:
+                    best_obj = result.fun
+                    best_result = result
+            except Exception:
+                pass
+
+    if best_result is None:
+        return None
+
+    popt = _theta_to_ext_dsl_params(best_result.x)
+    q_pred = ext_dsl(T_all, P_all, popt)
+    r2_global = _r_squared(q_all, q_pred)
+    qs_tot_fit = float(popt[0] + popt[1])
+
+    r2_per_temp = {}
+    for temp in TEMPERATURES:
+        mask = np.isclose(T_all, temp)
+        if np.sum(mask) > 0:
+            q_pred_t = ext_dsl(T_all[mask], P_all[mask], popt)
+            r2_per_temp[f"R2_{int(temp)}"] = _r_squared(q_all[mask], q_pred_t)
+
+    return {
+        "parameters": {
+            "qs_b": float(popt[0]),
+            "qs_d": float(popt[1]),
+            "b0_b": float(popt[2]),
+            "b0_d": float(popt[3]),
+            "deltaU_b": float(popt[4]),
+            "deltaU_d": float(popt[5]),
+        },
+        "R2_global": r2_global,
+        "R2_per_temp": r2_per_temp,
+        "objective": float(best_obj),
+        "qs_tot": qs_tot_fit,
+        "penalty_triggered": bool(qs_tot_fit > q_prior),
+        "q_prior": float(q_prior),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Model selection orchestrator (Method B primary, Method A fallback)
+# ---------------------------------------------------------------------------
+
+SINGLE_SITE_R2_THRESHOLD = 0.998  # If single-site R² >= this, prefer single-site
+
+
+def select_and_fit(
+    T_all: np.ndarray,
+    P_all: np.ndarray,
+    q_all: np.ndarray,
+    twostep_params: Optional[np.ndarray] = None,
+) -> Optional[Dict]:
+    """Model-selecting fit: try single-site first, fall back to penalized dual-site.
+
+    Returns a unified dict with:
+      - parameters: dict with qs_b, qs_d, b0_b, b0_d, deltaU_b, deltaU_d
+        (for single-site: qs_d=0, b0_d=b0_b*1e-10, deltaU_d=0.0)
+      - R2_global, R2_per_temp
+      - model_used: "single_site" or "dual_site"
+      - R2_single: single-site R² (diagnostic, even when dual-site is chosen)
+      - penalty_triggered: dual-site only
+      - q_prior: dual-site only
+    """
+    # Step 1: fit single-site
+    single = _fit_single_site_global(T_all, P_all, q_all)
+    r2_single = single["R2_global"] if single is not None else -np.inf
+
+    if single is not None and r2_single >= SINGLE_SITE_R2_THRESHOLD:
+        # Accept single-site (Occam's razor)
+        qs = single["parameters"]["qs"]
+        b0 = single["parameters"]["b0"]
+        deltaU = single["parameters"]["deltaU"]
+        return {
+            "parameters": {
+                "qs_b": qs,
+                "qs_d": 0.0,
+                "b0_b": b0,
+                "b0_d": b0 * 1e-10,   # math-zero second site (preserves denominator stability)
+                "deltaU_b": deltaU,
+                "deltaU_d": 0.0,      # flagged as "dummy" by downstream readers
+            },
+            "R2_global": single["R2_global"],
+            "R2_per_temp": single["R2_per_temp"],
+            "model_used": "single_site",
+            "R2_single": r2_single,
+            "penalty_triggered": False,
+            "q_prior": float("nan"),
+        }
+
+    # Step 2: fall back to penalized dual-site
+    # Anchor prior on GCMC max observation (T=298 preferred, else overall max)
+    q_max_obs = float(np.max(q_all))
+    q_prior = max(q_max_obs * 1.8, 8.0)
+    # Cap prior at hard upper bound 20 to avoid vacuous penalty
+    q_prior = min(q_prior, 20.0)
+
+    dual = _fit_ext_dsl_penalized(
+        T_all, P_all, q_all, q_prior=q_prior, twostep_params=twostep_params,
+    )
+    if dual is None:
+        return None
+
+    # Attach diagnostic info
+    dual["model_used"] = "dual_site"
+    dual["R2_single"] = r2_single
+    return dual
+
+
 def fit_global(
     merged: pd.DataFrame,
     twostep_fits: Optional[pd.DataFrame] = None,
@@ -277,15 +567,16 @@ def fit_global(
                             ts["deltaU_b"], ts["deltaU_d"],
                         ])
 
-            result = _fit_ext_dsl_global(T_all, P_all, q_all, twostep_params)
+            result = select_and_fit(T_all, P_all, q_all, twostep_params)
             if result is None:
-                logger.warning("  FAILED: %s / %s (global fit)", mof, gas)
+                logger.warning("  FAILED: %s / %s (model selection)", mof, gas)
                 continue
 
             p = result["parameters"]
             row = {
                 "MofName": mof,
                 "GasName": gas,
+                "model_used": result["model_used"],
                 "qs_b": p["qs_b"],
                 "qs_d": p["qs_d"],
                 "b0_b": p["b0_b"],
@@ -293,18 +584,22 @@ def fit_global(
                 "deltaU_b": p["deltaU_b"],
                 "deltaU_d": p["deltaU_d"],
                 "R2_global": result["R2_global"],
+                "R2_single": result.get("R2_single", float("nan")),
+                "penalty_triggered": result.get("penalty_triggered", False),
+                "q_prior": result.get("q_prior", float("nan")),
                 **result["R2_per_temp"],
             }
             rows.append(row)
             n_success += 1
 
-            init_tag = "TS-init" if twostep_params is not None else "std-init"
-            logger.info("  %s / %s [%s]: R2_global=%.6f  "
+            tag = result["model_used"][:6]  # "single" or "dual_s"
+            logger.info("  %s / %s [%s]: R2=%.6f (R2_1site=%.6f)  "
                          "qs_b=%.3f qs_d=%.3f  b0_b=%.4e b0_d=%.4e  "
-                         "dU_b=%.0f dU_d=%.0f",
-                         mof, gas, init_tag, result["R2_global"],
+                         "dU_b=%.0f dU_d=%.0f  penalty=%s",
+                         mof, gas, tag, result["R2_global"], result.get("R2_single", -1),
                          p["qs_b"], p["qs_d"], p["b0_b"], p["b0_d"],
-                         p["deltaU_b"], p["deltaU_d"])
+                         p["deltaU_b"], p["deltaU_d"],
+                         result.get("penalty_triggered", False))
 
     logger.info("Global fit complete: %d/%d success", n_success, n_total)
     return pd.DataFrame(rows)
@@ -616,11 +911,21 @@ def validate_parameters(
 
     issues = []
     has_global = "R2_global" in ext_fits.columns
+    has_model_col = "model_used" in ext_fits.columns
 
-    # 1. All deltaU < 0 (exothermic)
+    # Filter out single-site rows from site-d physical checks: their site-d
+    # is a placeholder (qs_d=0, deltaU_d=0, b0_d=b0_b*1e-10) that contributes
+    # zero to the isotherm by construction.
+    if has_model_col:
+        dual_rows = ext_fits[ext_fits["model_used"] == "dual_site"]
+    else:
+        dual_rows = ext_fits
+
+    # 1. All deltaU < 0 (exothermic) — skip site d for single-site rows
     for site in ["b", "d"]:
         col = f"deltaU_{site}"
-        positive = ext_fits[ext_fits[col] >= 0]
+        subset = ext_fits if site == "b" else dual_rows
+        positive = subset[subset[col] >= 0]
         if len(positive) > 0:
             for _, row in positive.iterrows():
                 msg = (f"deltaU_{site} >= 0 for {row['MofName']}/{row['GasName']}: "
@@ -692,10 +997,13 @@ def validate_parameters(
             b_298_dsl_b = dsl_row["b1"]
             b_298_dsl_d = dsl_row["b2"]
 
-            for site_label, b_ext, b_dsl in [
-                ("b", b_298_ext_b, b_298_dsl_b),
-                ("d", b_298_ext_d, b_298_dsl_d),
-            ]:
+            # Skip site-d comparison for single-site rows (site d is a placeholder)
+            is_single = (has_model_col and erow.get("model_used") == "single_site")
+            site_comparisons = [("b", b_298_ext_b, b_298_dsl_b)]
+            if not is_single:
+                site_comparisons.append(("d", b_298_ext_d, b_298_dsl_d))
+
+            for site_label, b_ext, b_dsl in site_comparisons:
                 if b_dsl > 0:
                     pct_dev = abs(b_ext - b_dsl) / b_dsl * 100
                     deviations.append(pct_dev)
@@ -711,10 +1019,18 @@ def validate_parameters(
                          np.mean(deviations), np.max(deviations),
                          sum(1 for d in deviations if d <= 5.0), len(deviations))
 
-    # deltaU range check (Hu 2023: -90,000 to -5,800 J/mol)
-    all_deltaU = pd.concat([ext_fits["deltaU_b"], ext_fits["deltaU_d"]])
+    # deltaU range check (Hu 2023: -90,000 to -5,800 J/mol) — exclude single-site placeholders
+    deltaU_b_all = ext_fits["deltaU_b"]
+    deltaU_d_active = dual_rows["deltaU_d"] if has_model_col else ext_fits["deltaU_d"]
+    all_deltaU = pd.concat([deltaU_b_all, deltaU_d_active])
     logger.info("  deltaU range: [%.0f, %.0f] J/mol (Hu 2023 ref: [-90000, -5800])",
                 all_deltaU.min(), all_deltaU.max())
+    if has_model_col:
+        n_single = (ext_fits["model_used"] == "single_site").sum()
+        n_dual = (ext_fits["model_used"] == "dual_site").sum()
+        n_pen = ext_fits.get("penalty_triggered", pd.Series(dtype=bool)).fillna(False).sum()
+        logger.info("  model_used: %d single-site, %d dual-site (%d with penalty active)",
+                    n_single, n_dual, int(n_pen))
 
     summary = {
         "n_issues": len(issues),
