@@ -4,8 +4,8 @@ fig_cycle_profiles.py
 Spatial cycle profile figure for PSA/VSA process simulation (SI figure).
 
 Layout: 2x3 subplot grid
-  Top row:    PSA (ARC-o10)    — Pressure / CH4 mole fraction / Temperature
-  Bottom row: VSA (ARC-o25.15) — same three columns
+  Top row:    PSA (MOSAEC-YOBPOW) — Pressure / CH4 mole fraction / Temperature
+  Bottom row: VSA (ATC-Cu)        — same three columns
 
 Each line represents the spatial profile at the end of a cycle step.
 X-axis: dimensionless bed position z/L (10 interior FVM nodes).
@@ -51,8 +51,8 @@ print = functools.partial(print, flush=True)
 # Defaults
 # ---------------------------------------------------------------------------
 SUPERPSA_RESULTS = REPO_ROOT / "src" / "SuperPSA" / "Results"
-DEFAULT_PSA_CSV = SUPERPSA_RESULTS / "profile_PSA_ARC-o10.csv"
-DEFAULT_VSA_CSV = SUPERPSA_RESULTS / "profile_VSA_ARC-o25_15.csv"
+DEFAULT_PSA_CSV = SUPERPSA_RESULTS / "profile_PSA_YOBPOW.csv"
+DEFAULT_VSA_CSV = SUPERPSA_RESULTS / "profile_VSA_ATC-Cu.csv"
 PAPER_ROOT = REPO_ROOT.parent / "CBM-MOF-paper"
 DEFAULT_OUTPUT = PAPER_ROOT / "manuscript" / "figures"
 SI_IMAGES_DIR = PAPER_ROOT / "manuscript" / "SuppInfo_CBM" / "images"
