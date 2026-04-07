@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 # Repository layout defaults
 _REPO = Path(__file__).resolve().parents[3]  # .../CBM-MOF
-_RESULTS_DIR = _REPO / "src" / "SuperPSA" / "Results"
+_RESULTS_DIR = _REPO / "src" / "SuperPSA" / "Results_extDSL_HR"
 _PSA_CSV = _REPO / "src" / "SuperPSA" / "data" / "Adsorbents_CH4N2_PSA.csv"
 _VSA_CSV = _REPO / "src" / "SuperPSA" / "data" / "Adsorbents_CH4N2_VSA.csv"
 _OUTPUT_DIR = _REPO / "results" / "alignn" / "model_ep150" / "psa_optimization"
@@ -285,7 +285,7 @@ def discover_result_files(results_dir: Path) -> list[Path]:
     """Find all NSGA-II result files, excluding archives and non-result files.
 
     Args:
-        results_dir: Path to SuperPSA/Results/ directory.
+        results_dir: Path to SuperPSA/Results_extDSL_HR/ directory.
 
     Returns:
         Sorted list of result file paths.
@@ -476,14 +476,41 @@ def _print_parse_summary(summary: list[dict]) -> None:
     print()
 
 
-def _build_ranking(pareto_df: pd.DataFrame) -> pd.DataFrame:
-    """Build material ranking from Pareto analysis.
+def _compute_igd(candidate: np.ndarray, reference: np.ndarray) -> float:
+    """Compute Inverted Generational Distance (IGD).
 
-    For each (mode, material), aggregate across cycle types:
-      - n_pareto_points: total Pareto points across all cycles
-      - n_global_contributions: points on the global front
-      - best_productivity, best_energy: best values achieved
-      - cycle_type_best: which cycle type contributed most global points
+    IGD(A, R) = (1/|R|) * sum_{r in R} min_{a in A} ||r - a||
+
+    Both objectives should be pre-normalized to [0, 1] before calling.
+    Lower IGD = candidate front is closer to (and better covers) the reference front.
+
+    Args:
+        candidate: (N, 2) array of candidate Pareto points (normalized).
+        reference: (M, 2) array of reference Pareto points (normalized).
+
+    Returns:
+        IGD value (float). Lower is better.
+    """
+    # For each reference point, find min Euclidean distance to any candidate point
+    # Use broadcasting: (M, 1, 2) - (1, N, 2) -> (M, N, 2) -> (M, N) -> (M,)
+    diff = reference[:, np.newaxis, :] - candidate[np.newaxis, :, :]
+    dists = np.sqrt((diff ** 2).sum(axis=2))
+    min_dists = dists.min(axis=1)
+    return float(min_dists.mean())
+
+
+def _build_ranking(pareto_df: pd.DataFrame) -> pd.DataFrame:
+    """Build material ranking from Pareto analysis using IGD.
+
+    For each mode, the global Pareto front serves as the reference set.
+    Each material's local Pareto front is evaluated against it via IGD
+    (Inverted Generational Distance). Materials are ranked by IGD (ascending).
+
+    Both objectives are min-max normalized within each mode before computing IGD
+    to ensure equal weighting of productivity and energy.
+
+    Note: productivity is negated before normalization so that both objectives
+    are in "lower is better" form, consistent with the energy objective.
 
     Args:
         pareto_df: DataFrame from build_pareto_analysis with is_globally_nondominated.
@@ -497,11 +524,30 @@ def _build_ranking(pareto_df: pd.DataFrame) -> pd.DataFrame:
         if mode_df.empty:
             continue
 
+        # Extract objectives: negate productivity so both are "lower is better"
+        prod_all = mode_df["productivity"].values
+        energy_all = mode_df["energy"].values
+        neg_prod = -prod_all
+
+        # Min-max normalization ranges (across all materials in this mode)
+        np_min, np_max = neg_prod.min(), neg_prod.max()
+        en_min, en_max = energy_all.min(), energy_all.max()
+        np_range = np_max - np_min if np_max > np_min else 1.0
+        en_range = en_max - en_min if en_max > en_min else 1.0
+
+        # Build normalized global reference front
+        gnd_mask = mode_df["is_globally_nondominated"].values
+        ref_points = np.column_stack([
+            (neg_prod[gnd_mask] - np_min) / np_range,
+            (energy_all[gnd_mask] - en_min) / en_range,
+        ])
+
         materials = mode_df["material_name"].unique()
         mat_stats = []
 
         for mat in materials:
-            mat_df = mode_df[mode_df["material_name"] == mat]
+            mat_mask = (mode_df["material_name"] == mat).values
+            mat_df = mode_df[mat_mask]
             n_pareto = len(mat_df)
             global_df = mat_df[mat_df["is_globally_nondominated"]]
             n_global = len(global_df)
@@ -511,12 +557,18 @@ def _build_ranking(pareto_df: pd.DataFrame) -> pd.DataFrame:
             prod_range = mat_df["productivity"].max() - mat_df["productivity"].min()
             energy_range = mat_df["energy"].max() - mat_df["energy"].min()
 
+            # Normalized candidate points for this material
+            candidate = np.column_stack([
+                (neg_prod[mat_mask] - np_min) / np_range,
+                (energy_all[mat_mask] - en_min) / en_range,
+            ])
+            igd = _compute_igd(candidate, ref_points)
+
             # Which cycle type contributed most global points
             if n_global > 0:
                 cycle_counts = global_df["cycle_type"].value_counts()
                 cycle_best = cycle_counts.index[0]
             else:
-                # Fall back to cycle type with most Pareto points
                 cycle_counts = mat_df["cycle_type"].value_counts()
                 cycle_best = cycle_counts.index[0]
 
@@ -530,10 +582,11 @@ def _build_ranking(pareto_df: pd.DataFrame) -> pd.DataFrame:
                 "best_energy": best_energy,
                 "productivity_range": prod_range,
                 "energy_range": energy_range,
+                "igd": igd,
             })
 
-        # Rank by: primary = n_global_contributions (desc), secondary = best_energy (asc)
-        mat_stats.sort(key=lambda x: (-x["n_global_contributions"], x["best_energy"]))
+        # Rank by IGD (ascending: lower = closer to global front)
+        mat_stats.sort(key=lambda x: x["igd"])
         for rank, ms in enumerate(mat_stats, 1):
             ms["global_rank"] = rank
 
@@ -553,22 +606,23 @@ def print_ranking_summary(ranking_df: pd.DataFrame) -> None:
         if mode_df.empty:
             continue
 
-        print(f"\n{'=' * 110}")
-        print(f"  {mode} Material Ranking (by global Pareto contribution)")
-        print(f"{'=' * 110}")
+        print(f"\n{'=' * 120}")
+        print(f"  {mode} Material Ranking (by IGD to global Pareto front)")
+        print(f"{'=' * 120}")
         print(
             f"{'Rank':>4}  {'Material':<50} {'Cycle':<6} "
-            f"{'Pareto':>6} {'Global':>6} {'BestProd':>10} {'BestEnergy':>10}"
+            f"{'Pareto':>6} {'Global':>6} {'BestProd':>10} {'BestEnergy':>10} {'IGD':>8}"
         )
-        print("-" * 110)
+        print("-" * 120)
         for _, row in mode_df.iterrows():
             print(
                 f"{row['global_rank']:>4}  {row['material_name']:<50} "
                 f"{row['cycle_type_best']:<6} {row['n_pareto_points']:>6} "
                 f"{row['n_global_contributions']:>6} "
                 f"{row['best_productivity']:>10.2f} {row['best_energy']:>10.1f}"
+                f"{row['igd']:>8.4f}"
             )
-        print(f"{'=' * 110}")
+        print(f"{'=' * 120}")
 
 
 def main() -> None:

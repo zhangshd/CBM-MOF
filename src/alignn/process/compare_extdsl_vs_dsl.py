@@ -32,8 +32,8 @@ from alignn.process.parse_nsga2_results import (  # noqa: E402
     compute_pareto_front,
 )
 
-_EXT_DIR = _REPO / "src" / "SuperPSA" / "Results"
-_DSL_DIR = _REPO / "src" / "SuperPSA" / "Results" / "archive_DSL"
+_EXT_DIR = _REPO / "src" / "SuperPSA" / "Results_extDSL_HR"
+_DSL_DIR = _REPO / "src" / "SuperPSA" / "Results_backup_20260407" / "archive_DSL"
 _OUT_DIR = Path("/home/zhangsd/repos/CBM-MOF-paper/notes/research/extdsl_vs_dsl_outputs")
 _OUT_DIR.mkdir(exist_ok=True, parents=True)
 

@@ -49,6 +49,7 @@ print = functools.partial(print, flush=True)
 # ---------------------------------------------------------------------------
 MODEL_DIR = REPO_ROOT / "results" / "alignn" / "model_ep150"
 DEFAULT_ANALYSIS = MODEL_DIR / "psa_optimization" / "pareto_analysis.csv"
+DEFAULT_RANKING = MODEL_DIR / "psa_optimization" / "material_ranking.csv"
 DEFAULT_OUTPUT = REPO_ROOT.parent / "CBM-MOF-paper" / "manuscript" / "figures"
 
 ATC_CU_NAME = "CoRE-2020[Cu][pts]3[ASR]1"
@@ -56,44 +57,32 @@ ATC_CU_NAME = "CoRE-2020[Cu][pts]3[ASR]1"
 # ---------------------------------------------------------------------------
 # Material name shortening
 # ---------------------------------------------------------------------------
-# Priority map for known materials (checked first, order doesn't matter)
-_SHORT_NAME_MAP = {
-    "CoRE-2020[Cu][pts]3[ASR]1": "ATC-Cu",
-    "CoRE-2014[Al][nan]3[ASR]4": "CoRE-Al",
-    "CoRE-2023[Cu][pts]3[ASR]2": "CoRE-Cu-2023",
-    "CoRE-2009[Cd][nuc]3[ASR]1": "CoRE-Cd",
-    "CoRE-2013[Mg][dia]3[ASR]1": "CoRE-Mg",
-    "CoRE-2010[Co][pts]3[ASR]2": "CoRE-Co",
-    "CoRE-2011[Ni][dia]3[ASR]1": "CoRE-Ni",
-    "MOSAEC-YOBPOW_full_REPEAT": "YOBPOW",
-    "CoRE-2021[Ni][dia]3[ASR]1": "CoRE-Ni-2021",
-    "ARC-DB12-TAKTOR_clean_repeat": "TAKTOR",
-    "MOSAEC-QAJDEK_full_REPEAT": "QAJDEK",
-}
-
-
 def _shorten_material_name(name: str) -> str:
-    """Create a short, unique display name for a material."""
-    if name in _SHORT_NAME_MAP:
-        return _SHORT_NAME_MAP[name]
+    """Strip database prefix and trailing suffixes, keep structural ID."""
+    # ATC-Cu is a well-known alias
+    if name == ATC_CU_NAME:
+        return "ATC-Cu"
 
-    # ARC-DB1 pattern: extract linker info + No{digits}
-    m = re.match(r"ARC-DB1-(\w+)-(\w+)-\w+_\w+_No(\d+)_repeat", name)
+    # Strip trailing _repeat / _clean_repeat / _full_REPEAT
+    cleaned = re.sub(r"_(full_REPEAT|clean_repeat|repeat)$", "", name)
+
+    # CoRE-YYYY[...] → strip "CoRE-YYYY" prefix
+    m = re.match(r"CoRE-\d{4}(.+)", cleaned)
     if m:
-        formula = m.group(1)
-        # Subscript digits in formula (e.g., Al2O6 -> Al2O6)
-        return f"{formula} #{m.group(3)}"
-
-    # ARC-DB0 pattern: extract o{digits} identifiers
-    m = re.match(r"ARC-DB\d+-m\d+_o(\d+)_o(\d+)_f\d+_fsc(?:\.sym\.(\d+))?_repeat", name)
+        return m.group(1)
+    # ARC-DB12- prefix (named structures like TAKTOR)
+    m = re.match(r"ARC-DB\d{2}-(.+)", cleaned)
     if m:
-        o1, o2 = m.group(1), m.group(2)
-        sym = m.group(3)
-        suffix = f".{sym}" if sym else ""
-        return f"ARC-o{o1}{suffix}"
-
-    # Fallback: truncate
-    return name[:15]
+        return m.group(1)
+    # ARC-DB0- prefix (coded structures): keep m/o/f/fsc identifiers
+    m = re.match(r"ARC-DB\d+-(.+)", cleaned)
+    if m:
+        return m.group(1)
+    # MOSAEC- prefix
+    m = re.match(r"MOSAEC-(.+)", cleaned)
+    if m:
+        return m.group(1)
+    return cleaned
 
 
 def _build_short_names(materials: list[str]) -> dict[str, str]:
@@ -133,8 +122,8 @@ _QUALITATIVE_COLORS = [
 ]
 
 
-def _assign_colors(materials: list[str], short_names: dict[str, str]) -> dict[str, str]:
-    """Assign a unique color to each material, ATC-Cu always red."""
+def _assign_colors_per_panel(materials: list[str]) -> dict[str, str]:
+    """Assign colors independently per panel. ATC-Cu always red."""
     colors = {}
     ci = 0
     for m in materials:
@@ -219,6 +208,10 @@ def _plot_pareto_panel(
             linewidths=0.8, zorder=5,
         )
 
+    # VSA: extend x-axis to give legend more room
+    if mode == "VSA":
+        ax.set_xlim(right=12)
+
     # Axis labels
     ax.set_xlabel(r"Productivity (mol$\cdot$kg$^{-1}\cdot$h$^{-1}$)",
                   fontsize=layout.body_font)
@@ -227,17 +220,18 @@ def _plot_pareto_panel(
 
 def _build_legend(
     fig: plt.Figure,
-    ax_right: plt.Axes,
-    materials_all: list[str],
+    ax: plt.Axes,
+    materials: list[str],
     short_names: dict[str, str],
     mat_colors: dict[str, str],
     layout,
+    ncol: int = 3,
 ):
-    """Build a combined legend for materials + cycle types."""
+    """Build a per-panel legend below the axis for materials + global Pareto front."""
     handles = []
 
-    # Material legend entries (colored circles)
-    for mat in materials_all:
+    # Material legend entries (colored circles), in provided sorted order
+    for mat in materials:
         color = mat_colors.get(mat, "#999999")
         short = short_names.get(mat, mat[:10])
         h = mlines.Line2D(
@@ -246,43 +240,52 @@ def _build_legend(
         )
         handles.append(h)
 
-    # Separator
-    handles.append(mlines.Line2D([], [], linestyle="None", label=""))
-
-    # GND indicator
+    # GND indicator (dashed line entry)
     handles.append(mlines.Line2D(
-        [], [], color="k", ls="--", lw=0.6, label="Global Pareto front",
+        [], [], color="k", ls="--", lw=0.6, label="Global Pareto",
     ))
 
-    ax_right.legend(
+    ax.legend(
         handles=handles,
-        loc="upper left",
-        bbox_to_anchor=(1.02, 1.0),
-        fontsize=layout.annotation_font,
-        frameon=False,
-        handletextpad=0.4,
-        labelspacing=0.3,
-        borderpad=0,
+        loc="upper right",
+        ncol=ncol,
+        fontsize=layout.annotation_font - 2,
+        frameon=True,
+        fancybox=False,
+        edgecolor="#dddddd",
+        framealpha=0.7,
+        handletextpad=0.3,
+        labelspacing=0.45,
+        borderpad=0.4,
     )
 
 
-def plot_pareto_figure(analysis_csv: Path, output_dir: Path):
-    """Generate the 1x2 Pareto front comparison figure."""
+def plot_pareto_figure(analysis_csv: Path, ranking_csv: Path, output_dir: Path):
+    """Generate the 1x2 (side-by-side) Pareto front comparison figure."""
     set_publication_style()
 
     df = pd.read_csv(analysis_csv)
+    ranking_df = pd.read_csv(ranking_csv)
     print(f"Loaded {len(df)} Pareto points from {analysis_csv}")
 
     # Collect all unique materials across both modes
     all_materials = sorted(df["material_name"].unique())
     short_names = _build_short_names(all_materials)
-    mat_colors = _assign_colors(all_materials, short_names)
 
-    # Layout
+    # Per-panel: get materials sorted by global_rank from ranking CSV
+    panel_materials_sorted: dict[str, list[str]] = {}
+    panel_colors: dict[str, dict[str, str]] = {}
+    for mode in ["PSA", "VSA"]:
+        mode_rank = ranking_df[ranking_df["mode"] == mode].sort_values("global_rank")
+        panel_mats = mode_rank["material_name"].tolist()
+        panel_materials_sorted[mode] = panel_mats
+        panel_colors[mode] = _assign_colors_per_panel(panel_mats)
+
+    # Layout — 1 row, 2 columns, double-column width; extra bottom for legends
     layout = compute_panel_grid_layout(
         nrows=1, ncols=2,
         figure_width_inch=DOUBLE_COL_INCH,
-        right_margin_inch=1.60,  # extra space for legend
+        bottom_margin_inch=0.60,
         panel_aspect=0.90,
     )
 
@@ -293,17 +296,19 @@ def plot_pareto_figure(analysis_csv: Path, output_dir: Path):
     fig.subplots_adjust(
         left=layout.left, right=layout.right,
         bottom=layout.bottom, top=layout.top,
-        wspace=layout.wspace + 0.08,
+        wspace=layout.wspace,
     )
 
     for ax, mode, label in zip(axes, ["PSA", "VSA"], ["(a)", "(b)"]):
+        mat_colors = panel_colors[mode]
         _plot_pareto_panel(ax, df, mode, short_names, mat_colors, layout)
         ax.set_title(f"{label} {mode}", fontsize=layout.title_font,
                      fontweight="bold", loc="left")
         ax.tick_params(labelsize=layout.tick_font)
 
-    # Build combined legend on right side
-    _build_legend(fig, axes[1], all_materials, short_names, mat_colors, layout)
+        # Per-panel legend, sorted by global_rank from ranking CSV
+        panel_materials = panel_materials_sorted[mode]
+        _build_legend(fig, ax, panel_materials, short_names, mat_colors, layout, ncol=1)
 
     save_figure(fig, "fig_psa_pareto", output_dir)
     plt.close(fig)
@@ -322,6 +327,10 @@ def parse_args():
         help="Path to pareto_analysis.csv",
     )
     parser.add_argument(
+        "--ranking-csv", type=Path, default=DEFAULT_RANKING,
+        help="Path to material_ranking.csv",
+    )
+    parser.add_argument(
         "--output-dir", type=Path, default=DEFAULT_OUTPUT,
         help="Output directory for figure files",
     )
@@ -330,7 +339,7 @@ def parse_args():
 
 def main():
     args = parse_args()
-    plot_pareto_figure(args.analysis_csv, args.output_dir)
+    plot_pareto_figure(args.analysis_csv, args.ranking_csv, args.output_dir)
 
 
 if __name__ == "__main__":

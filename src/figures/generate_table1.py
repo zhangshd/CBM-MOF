@@ -24,7 +24,7 @@ _DEFAULT_MODEL_DIR = Path(
     "/home/zhangsd/repos/CBM-MOF/results/alignn/model_ep150"
 )
 _SUPERPSA_DATA = Path("/home/zhangsd/repos/CBM-MOF/src/SuperPSA/data")
-_SUPERPSA_RESULTS = Path("/home/zhangsd/repos/CBM-MOF/src/SuperPSA/Results")
+_SUPERPSA_RESULTS = Path("/home/zhangsd/repos/CBM-MOF/src/SuperPSA/Results_extDSL_HR")
 
 # ── Short name mapping (consistent with fig_psa_performance.py) ──────────────
 

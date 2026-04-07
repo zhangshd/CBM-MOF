@@ -7,11 +7,14 @@ the knee point using normalized distance-to-utopia.
 Usage:
     python select_knee_points.py
 
-Output: prints selected operating conditions (Var1-Var10) for PSA and VSA.
+Output:
+    - selected_knee_points.json (machine-readable, consumed by MATLAB and figure scripts)
+    - stdout summary (human-readable)
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from pathlib import Path
@@ -22,10 +25,24 @@ import pandas as pd
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
-# Result files
+# Paths
 _REPO = Path(__file__).resolve().parents[3]
-_PSA_FILE = _REPO / "src" / "SuperPSA" / "Results" / "opt_PSA_HR_002_ARC-DB0-m3_o10_o146_f0_fsc_repeat_20260401_215802.txt"
-_VSA_FILE = _REPO / "src" / "SuperPSA" / "Results" / "opt_VSA_HR_004_ARC-DB0-m3_o25_o460_f0_fsc.sym.15_repeat_20260402_054821.txt"
+_RESULTS_DIR = _REPO / "src" / "SuperPSA" / "Results_extDSL_HR"
+_RANKING_CSV = _REPO / "results" / "alignn" / "model_ep150" / "psa_optimization" / "material_ranking.csv"
+_SUPERPSA_DATA = _REPO / "src" / "SuperPSA" / "data"
+_OUTPUT_JSON = _REPO / "results" / "alignn" / "model_ep150" / "psa_optimization" / "selected_knee_points.json"
+
+# Mode → config file mapping
+_MODE_CONFIG = {
+    "PSA": {
+        "yaml_name": "ProcessConfig_PSA_HR.yaml",
+        "csv_name": "Adsorbents_CH4N2_PSA.csv",
+    },
+    "VSA": {
+        "yaml_name": "ProcessConfig_VSA_HR.yaml",
+        "csv_name": "Adsorbents_CH4N2_VSA.csv",
+    },
+}
 
 # Column names (16 columns: 10 Vars + 2 Objs + 4 Cons)
 _DATA_COLS = [
@@ -34,6 +51,61 @@ _DATA_COLS = [
     "Obj1", "Obj2",
     "Cons1", "Cons2", "Cons3", "Cons4",
 ]
+
+
+def _find_result_file(results_dir: Path, mode: str, material_name: str) -> Path:
+    """Find the NSGA-II result file for a given mode and material.
+
+    Matches pattern: opt_{mode}_HR_*_{material_name}_*.txt
+    The material name may contain special chars like [] so we search by substring.
+    """
+    candidates = []
+    for f in results_dir.glob(f"opt_{mode}_HR_*.txt"):
+        if material_name in f.name:
+            candidates.append(f)
+    if not candidates:
+        raise FileNotFoundError(
+            f"No result file for {mode}/{material_name} in {results_dir}"
+        )
+    if len(candidates) > 1:
+        # Pick the latest by timestamp in filename
+        candidates.sort(key=lambda p: p.name)
+    return candidates[-1]
+
+
+def _get_top1_materials(ranking_csv: Path) -> dict[str, str]:
+    """Read material_ranking.csv and return Top-1 material name per mode."""
+    df = pd.read_csv(ranking_csv)
+    top1 = {}
+    for mode in ["PSA", "VSA"]:
+        mode_df = df[df["mode"] == mode].sort_values("global_rank")
+        if not mode_df.empty:
+            top1[mode] = mode_df.iloc[0]["material_name"]
+    return top1
+
+
+def _lookup_mat_idx(csv_path: Path, material_name: str) -> int:
+    """Find 1-based row index of material in adsorbent CSV (for MATLAB)."""
+    df = pd.read_csv(csv_path)
+    matches = df.index[df["material_name"] == material_name].tolist()
+    if not matches:
+        raise ValueError(f"{material_name} not found in {csv_path.name}")
+    return matches[0] + 1  # 1-based for MATLAB
+
+
+def _make_short_name(material_name: str) -> str:
+    """Create a filesystem-safe short name for profile CSV filenames."""
+    # Known aliases
+    if material_name == "CoRE-2020[Cu][pts]3[ASR]1":
+        return "ATC-Cu"
+    if material_name == "MOSAEC-YOBPOW_full_REPEAT":
+        return "YOBPOW"
+    if material_name == "CoRE-2010[Co][pts]3[ASR]2":
+        return "CoRE-Co"
+    # Generic: strip prefix + suffix, replace unsafe chars
+    cleaned = re.sub(r"_(full_REPEAT|clean_repeat|repeat)$", "", material_name)
+    cleaned = re.sub(r"^(CoRE-\d{4}|ARC-DB\d+-|MOSAEC-)", "", cleaned)
+    return cleaned.replace("[", "").replace("]", "").replace(".", "_")
 
 
 def parse_last_generation(filepath: Path) -> pd.DataFrame:
@@ -191,12 +263,16 @@ def format_operating_point(row: pd.Series, mode: str, mat_name: str) -> str:
 
 def main():
     results = {}
+    json_cases = []
 
-    for mode, filepath, mat_name in [
-        ("PSA", _PSA_FILE, "ARC-o10"),
-        ("VSA", _VSA_FILE, "ARC-o25.15"),
-    ]:
-        logger.info("Processing %s: %s", mode, filepath.name)
+    # Dynamically resolve Top-1 materials from ranking CSV
+    top1 = _get_top1_materials(_RANKING_CSV)
+    logger.info("Top-1 materials: %s", top1)
+
+    for mode in ["PSA", "VSA"]:
+        mat_name = top1[mode]
+        filepath = _find_result_file(_RESULTS_DIR, mode, mat_name)
+        logger.info("Processing %s: %s (%s)", mode, mat_name, filepath.name)
 
         # Parse last generation
         pop = parse_last_generation(filepath)
@@ -230,6 +306,31 @@ def main():
         print(f"    {'Prod (mol/kg/h)':>16s}  {'Energy (kWh/ton)':>16s}")
         for _, r in pareto.sort_values("Obj1").iterrows():
             print(f"    {-r['Obj1']:16.4f}  {r['Obj2']:16.2f}")
+
+        # Build JSON entry
+        cfg = _MODE_CONFIG[mode]
+        csv_path = _SUPERPSA_DATA / cfg["csv_name"]
+        mat_idx = _lookup_mat_idx(csv_path, mat_name)
+        short_name = _make_short_name(mat_name)
+        x_vector = [float(knee[f"Var{i}"]) for i in range(1, 11)]
+
+        json_cases.append({
+            "mode": mode,
+            "material_name": mat_name,
+            "short_name": short_name,
+            "mat_idx": mat_idx,
+            "yaml_name": cfg["yaml_name"],
+            "csv_name": cfg["csv_name"],
+            "x_vector": x_vector,
+            "productivity": float(-knee["Obj1"]),
+            "energy": float(knee["Obj2"]),
+        })
+
+    # Save JSON
+    _OUTPUT_JSON.parent.mkdir(parents=True, exist_ok=True)
+    with open(_OUTPUT_JSON, "w") as f:
+        json.dump(json_cases, f, indent=2)
+    print(f"\nSaved: {_OUTPUT_JSON}")
 
     return results
 
