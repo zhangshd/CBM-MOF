@@ -165,8 +165,8 @@ def _plot_pareto_panel(
     mat_best_energy = sub.groupby("material_name")["energy"].min()
     materials_sorted = mat_best_energy.sort_values().index.tolist()
 
-    # Cycle type markers
-    cycle_markers = {"Basic": "o", "HR": "^"}
+    # Marker settings (single cycle type — no shape distinction needed)
+    cycle_markers = {"Basic": "o", "HR": "o"}
     marker_size_normal = max(8, layout.marker_area * 0.8)
     marker_size_gnd = max(18, layout.marker_area * 2.0)
 
@@ -201,12 +201,12 @@ def _plot_pareto_panel(
                     alpha=0.85, edgecolors="white", linewidths=0.3, zorder=4,
                 )
 
-    # Connect global Pareto front with dashed line
+    # Connect global Pareto front with dashed line (top layer)
     gnd_all = sub[sub["is_globally_nondominated"]].sort_values("productivity")
     if not gnd_all.empty:
         ax.plot(
             gnd_all["productivity"], gnd_all["energy"],
-            color="k", ls="--", lw=0.6, alpha=0.5, zorder=3,
+            color="k", ls="--", lw=0.8, alpha=0.6, zorder=6,
         )
 
     # ATC-Cu star marker overlay
@@ -248,12 +248,6 @@ def _build_legend(
 
     # Separator
     handles.append(mlines.Line2D([], [], linestyle="None", label=""))
-
-    # Cycle type markers
-    handles.append(mlines.Line2D(
-        [], [], color="gray", marker="^", markersize=4,
-        linestyle="None", label="HR cycle",
-    ))
 
     # GND indicator
     handles.append(mlines.Line2D(
@@ -311,9 +305,9 @@ def plot_pareto_figure(analysis_csv: Path, output_dir: Path):
     # Build combined legend on right side
     _build_legend(fig, axes[1], all_materials, short_names, mat_colors, layout)
 
-    save_figure(fig, "fig_psa_pareto", output_dir, formats=("png", "pdf"))
+    save_figure(fig, "fig_psa_pareto", output_dir)
     plt.close(fig)
-    print("Done: fig_psa_pareto.png/.pdf")
+    print("Done: fig_psa_pareto.png")
 
 
 # ---------------------------------------------------------------------------

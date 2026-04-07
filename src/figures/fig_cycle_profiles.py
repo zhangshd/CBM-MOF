@@ -226,7 +226,7 @@ def plot_cycle_profiles(
 
     # Save
     save_figure(fig, "fig_cycle_profiles", output_dir,
-                formats=("png", "pdf"), tight_layout=False)
+                tight_layout=False)
 
     # Copy PNG to SI images directory
     src_png = output_dir / "fig_cycle_profiles.png"
@@ -238,7 +238,7 @@ def plot_cycle_profiles(
         logger.warning("SI images directory not found: %s", SI_IMAGES_DIR)
 
     plt.close(fig)
-    print("Done: fig_cycle_profiles.png/.pdf")
+    print("Done: fig_cycle_profiles.png")
 
 
 # ---------------------------------------------------------------------------

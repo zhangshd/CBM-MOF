@@ -332,9 +332,9 @@ def plot_performance_figure(ranking_csv: Path, output_dir: Path):
         handletextpad=0.3,
     )
 
-    save_figure(fig, "fig_psa_performance", output_dir, formats=("png", "pdf"))
+    save_figure(fig, "fig_psa_performance", output_dir)
     plt.close(fig)
-    print("Done: fig_psa_performance.png/.pdf")
+    print("Done: fig_psa_performance.png")
 
 
 # ---------------------------------------------------------------------------
