@@ -31,6 +31,12 @@ from src.figures.style import (
 
 logger = logging.getLogger(__name__)
 
+# ATC-Cu duplicates confirmed by StructureMatcher — excluded from process validation
+EXCLUDE_MOFS = {
+    "ARC-DB12-BIMDIL_freeONLY_repeat",
+    "MOSAEC-IMAZAA_full_REPEAT",
+}
+
 # ── Paths ────────────────────────────────────────────────────────────────────
 REPO = Path(__file__).resolve().parents[2]
 RESULTS = REPO / "results" / "alignn" / "model_ep150" / "process_candidates"
@@ -92,12 +98,14 @@ def load_gcmc_data() -> pd.DataFrame:
     df = pd.concat([df_298, df_mt], ignore_index=True)
     # Standardise columns
     df = df.rename(columns={"Temperature[K]": "T", "Pressure[bar]": "P"})
+    df = df[~df["MofName"].isin(EXCLUDE_MOFS)]
     return df
 
 
 def load_fit_params() -> pd.DataFrame:
     """Load ext-DSL fit parameters."""
-    return pd.read_csv(FIT_PARAMS)
+    df = pd.read_csv(FIT_PARAMS)
+    return df[~df["MofName"].isin(EXCLUDE_MOFS)]
 
 
 def choose_grid(n: int) -> tuple[int, int]:
@@ -114,8 +122,8 @@ def choose_grid(n: int) -> tuple[int, int]:
         return 4, 4
     if n <= 20:
         return 4, 5
-    if n <= 21:
-        return 4, 6  # 24 slots: 21 panels + 3 empty (legend goes in last)
+    if n <= 20:
+        return 4, 5
     if n <= 25:
         return 5, 5
     return 6, 5
