@@ -213,7 +213,7 @@ def _plot_pareto_panel(
         ax.set_xlim(right=12)
 
     # Axis labels
-    ax.set_xlabel(r"Productivity (mol$\cdot$kg$^{-1}\cdot$h$^{-1}$)",
+    ax.set_xlabel(r"Productivity (mol$\cdot$kg$^{-1}$$\cdot$h$^{-1}$)",
                   fontsize=layout.body_font)
     ax.set_ylabel(r"Energy (kWh$\cdot$ton$^{-1}$)", fontsize=layout.body_font)
 
