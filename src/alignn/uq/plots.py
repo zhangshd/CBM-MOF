@@ -134,16 +134,17 @@ def plot_sr_panel(sr_sweep: dict, threshold_value: float, recommended_pct: int, 
     ax2 = ax1.twinx()
     ax2.fill_between(percentiles, retention, alpha=0.12, color=grey, zorder=0)
     ax2.plot(percentiles, retention, color=grey, lw=0.8, alpha=0.7, zorder=1)
-    ax2.set_ylabel("Retention fraction", color=grey, fontsize=7)
+    ax2.set_ylabel("Retention fraction", color=grey, fontsize=5)
     ax2.set_ylim(0, 1.15)
-    ax2.tick_params(axis="y", labelcolor=grey, labelsize=6.5)
+    ax2.tick_params(axis="y", labelcolor=grey, labelsize=4.5)
 
     ax1.plot(percentiles[valid], sr[valid], color=green, lw=1.3, marker="D", ms=3.0)
     ax1.axvline(recommended_pct, color=orange, lw=1.0, ls="--", alpha=0.9)
     ax1.axhline(1.0, color=grey, lw=0.5, ls=":", alpha=0.6)
-    ax1.set_xlabel("LSV$_{\\rm norm}$ percentile cutoff")
-    ax1.set_ylabel("Separation Ratio (SR)")
-    ax1.set_title("LSV$_{\\rm norm}$ SR Analysis", fontsize=7, fontweight="bold", pad=4)
+    ax1.set_xlabel("LSV$_{\\rm norm}$ percentile cutoff", fontsize=6)
+    ax1.set_ylabel("Separation Ratio (SR)", fontsize=6)
+    ax1.set_title("LSV$_{\\rm norm}$ SR Analysis", fontsize=5, fontweight="bold", pad=4)
+    ax1.tick_params(labelsize=5.5)
     ax1.set_xlim(-2, 102)
     ax1.set_ylim(bottom=0.0)
 
@@ -156,7 +157,7 @@ def plot_sr_panel(sr_sweep: dict, threshold_value: float, recommended_pct: int, 
         transform=ax1.transAxes,
         ha="right",
         va="bottom",
-        fontsize=6,
+        fontsize=4,
         bbox=dict(boxstyle="round,pad=0.25", fc="white", ec="none", alpha=0.85),
     )
     fig.tight_layout(pad=0.5)
