@@ -95,10 +95,10 @@ def plot_pca_by_targets(all_features: np.ndarray, all_truths: np.ndarray, out_pa
 
 def plot_k_sweep(k_sweep: dict[int, dict[str, float | None]], out_path: Path) -> None:
     """Plot Spearman rho vs k for every target."""
-    from src.figures.style import LABEL_FONT_SIZE, TICK_FONT_SIZE
+    from src.figures.style import LABEL_FONT_SIZE, TICK_FONT_SIZE, TITLE_FONT_SIZE
     set_publication_style()
     k_values = sorted(k_sweep)
-    fig, axes = plt.subplots(2, 4, figsize=(DOUBLE_COL_INCH * 1.2, DOUBLE_COL_INCH * 0.72))
+    fig, axes = plt.subplots(2, 4, figsize=(DOUBLE_COL_INCH, 3.8))
     axes = axes.ravel()
     for idx, col in enumerate(TARGET_COLS):
         ax = axes[idx]
@@ -108,7 +108,7 @@ def plot_k_sweep(k_sweep: dict[int, dict[str, float | None]], out_path: Path) ->
             x_vals, y_vals = zip(*valid_pairs)
             ax.plot(x_vals, y_vals, color=MODEL_COLORS["ALIGNN"], lw=1.0, marker="D", ms=3.5)
         label_char = chr(ord("a") + idx)
-        ax.set_title(f"({label_char}) {TASK_LABELS.get(col, col)}", fontsize=LABEL_FONT_SIZE, fontweight="bold", loc="left")
+        ax.set_title(f"({label_char}) {TASK_LABELS.get(col, col)}", fontsize=TITLE_FONT_SIZE, fontweight="bold")
         ax.set_xlabel("$k$", fontsize=LABEL_FONT_SIZE)
         ax.set_ylabel("Spearman $\\rho$", fontsize=LABEL_FONT_SIZE)
         ax.set_xticks(k_values)
@@ -120,7 +120,6 @@ def plot_k_sweep(k_sweep: dict[int, dict[str, float | None]], out_path: Path) ->
 
 def plot_sr_panel(sr_sweep: dict, threshold_value: float, recommended_pct: int, out_path: Path) -> None:
     """Plot the SR sweep with the selected percentile threshold highlighted."""
-    from src.figures.style import LABEL_FONT_SIZE, TICK_FONT_SIZE, LEGEND_FONT_SIZE
     set_publication_style()
     green = MODEL_COLORS["ALIGNN"]
     orange = "#E07B00"
@@ -135,16 +134,16 @@ def plot_sr_panel(sr_sweep: dict, threshold_value: float, recommended_pct: int, 
     ax2 = ax1.twinx()
     ax2.fill_between(percentiles, retention, alpha=0.12, color=grey, zorder=0)
     ax2.plot(percentiles, retention, color=grey, lw=0.8, alpha=0.7, zorder=1)
-    ax2.set_ylabel("Retention fraction", color=grey, fontsize=LABEL_FONT_SIZE)
+    ax2.set_ylabel("Retention fraction", color=grey, fontsize=7)
     ax2.set_ylim(0, 1.15)
-    ax2.tick_params(axis="y", labelcolor=grey, labelsize=TICK_FONT_SIZE)
+    ax2.tick_params(axis="y", labelcolor=grey, labelsize=6.5)
 
     ax1.plot(percentiles[valid], sr[valid], color=green, lw=1.3, marker="D", ms=3.0)
     ax1.axvline(recommended_pct, color=orange, lw=1.0, ls="--", alpha=0.9)
     ax1.axhline(1.0, color=grey, lw=0.5, ls=":", alpha=0.6)
-    ax1.set_xlabel("LSV$_{\\rm norm}$ percentile cutoff", fontsize=LABEL_FONT_SIZE)
-    ax1.set_ylabel("Separation Ratio (SR)", fontsize=LABEL_FONT_SIZE)
-    ax1.tick_params(labelsize=TICK_FONT_SIZE)
+    ax1.set_xlabel("LSV$_{\\rm norm}$ percentile cutoff")
+    ax1.set_ylabel("Separation Ratio (SR)")
+    ax1.set_title("LSV$_{\\rm norm}$ SR Analysis", fontsize=7, fontweight="bold", pad=4)
     ax1.set_xlim(-2, 102)
     ax1.set_ylim(bottom=0.0)
 
@@ -157,7 +156,7 @@ def plot_sr_panel(sr_sweep: dict, threshold_value: float, recommended_pct: int, 
         transform=ax1.transAxes,
         ha="right",
         va="bottom",
-        fontsize=TICK_FONT_SIZE,
+        fontsize=6,
         bbox=dict(boxstyle="round,pad=0.25", fc="white", ec="none", alpha=0.85),
     )
     fig.tight_layout(pad=0.5)
