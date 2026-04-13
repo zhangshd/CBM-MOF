@@ -145,8 +145,12 @@ def _plot_pareto_panel(
     short_names: dict[str, str],
     mat_colors: dict[str, str],
     layout,
-):
-    """Plot one panel (PSA or VSA) of the Pareto front comparison."""
+) -> dict[str, str]:
+    """Plot one panel (PSA or VSA) of the Pareto front comparison.
+    
+    Returns:
+        Mapping of material_name → marker string for legend construction.
+    """
     sub = df[df["mode"] == mode].copy()
     materials = sub["material_name"].unique()
 
@@ -154,48 +158,26 @@ def _plot_pareto_panel(
     mat_best_energy = sub.groupby("material_name")["energy"].min()
     materials_sorted = mat_best_energy.sort_values().index.tolist()
 
-    # Marker settings (single cycle type — no shape distinction needed)
-    cycle_markers = {"Basic": "o", "HR": "o"}
+    # Same marker for all non-benchmark materials within a panel;
+    # different marker between PSA vs VSA for visual distinction.
+    _PANEL_MARKER = {"PSA": "o", "VSA": "D"}
+    panel_marker = _PANEL_MARKER.get(mode, "o")
+    mat_markers: dict[str, str] = {}
+    for m in materials_sorted:
+        mat_markers[m] = panel_marker  # ATC-Cu also gets panel marker (star overlay added later)
+
     marker_size_normal = max(8, layout.marker_area * 0.8)
-    marker_size_gnd = max(18, layout.marker_area * 2.0)
 
     # Plot each material
     for mat in materials_sorted:
         mat_df = sub[sub["material_name"] == mat]
         color = mat_colors.get(mat, "#999999")
-        short = short_names.get(mat, mat[:10])
+        marker = mat_markers[mat]
 
-        for ct in ["Basic", "HR"]:
-            ct_df = mat_df[mat_df["cycle_type"] == ct]
-            if ct_df.empty:
-                continue
-
-            marker = cycle_markers[ct]
-
-            # Normal (non-GND) points
-            normal = ct_df[~ct_df["is_globally_nondominated"]]
-            if not normal.empty:
-                ax.scatter(
-                    normal["productivity"], normal["energy"],
-                    c=color, marker=marker, s=marker_size_normal,
-                    alpha=0.35, edgecolors="none", zorder=2,
-                )
-
-            # GND points (larger, bold edge)
-            gnd = ct_df[ct_df["is_globally_nondominated"]]
-            if not gnd.empty:
-                ax.scatter(
-                    gnd["productivity"], gnd["energy"],
-                    c=color, marker=marker, s=marker_size_gnd,
-                    alpha=0.85, edgecolors="white", linewidths=0.3, zorder=4,
-                )
-
-    # Connect global Pareto front with dashed line (top layer)
-    gnd_all = sub[sub["is_globally_nondominated"]].sort_values("productivity")
-    if not gnd_all.empty:
-        ax.plot(
-            gnd_all["productivity"], gnd_all["energy"],
-            color="k", ls="--", lw=0.8, alpha=0.6, zorder=6,
+        ax.scatter(
+            mat_df["productivity"], mat_df["energy"],
+            c=color, marker=marker, s=marker_size_normal,
+            alpha=0.55, edgecolors="none", zorder=2,
         )
 
     # ATC-Cu star marker overlay
@@ -203,7 +185,7 @@ def _plot_pareto_panel(
     if not atc_df.empty:
         ax.scatter(
             atc_df["productivity"], atc_df["energy"],
-            marker="*", s=marker_size_gnd * 1.8,
+            marker="*", s=marker_size_normal * 3,
             facecolors="none", edgecolors="#D62728",
             linewidths=0.8, zorder=5,
         )
@@ -217,6 +199,8 @@ def _plot_pareto_panel(
                   fontsize=layout.body_font)
     ax.set_ylabel(r"Energy (kWh$\cdot$ton$^{-1}$)", fontsize=layout.body_font)
 
+    return mat_markers
+
 
 def _build_legend(
     fig: plt.Figure,
@@ -224,26 +208,23 @@ def _build_legend(
     materials: list[str],
     short_names: dict[str, str],
     mat_colors: dict[str, str],
+    mat_markers: dict[str, str],
     layout,
     ncol: int = 3,
 ):
-    """Build a per-panel legend below the axis for materials + global Pareto front."""
+    """Build a per-panel legend below the axis for materials."""
     handles = []
 
-    # Material legend entries (colored circles), in provided sorted order
+    # Material legend entries (colored markers matching the plot)
     for mat in materials:
         color = mat_colors.get(mat, "#999999")
         short = short_names.get(mat, mat[:10])
+        marker = mat_markers.get(mat, "o")
         h = mlines.Line2D(
-            [], [], color=color, marker="o", markersize=4,
+            [], [], color=color, marker=marker, markersize=4,
             linestyle="None", label=short,
         )
         handles.append(h)
-
-    # GND indicator (dashed line entry)
-    handles.append(mlines.Line2D(
-        [], [], color="k", ls="--", lw=0.6, label="Global Pareto",
-    ))
 
     ax.legend(
         handles=handles,
@@ -301,14 +282,14 @@ def plot_pareto_figure(analysis_csv: Path, ranking_csv: Path, output_dir: Path):
 
     for ax, mode, label in zip(axes, ["PSA", "VSA"], ["(a)", "(b)"]):
         mat_colors = panel_colors[mode]
-        _plot_pareto_panel(ax, df, mode, short_names, mat_colors, layout)
+        mat_markers = _plot_pareto_panel(ax, df, mode, short_names, mat_colors, layout)
         ax.set_title(f"{label} {mode}", fontsize=layout.title_font,
                      fontweight="bold", loc="left")
         ax.tick_params(labelsize=layout.tick_font)
 
         # Per-panel legend, sorted by global_rank from ranking CSV
         panel_materials = panel_materials_sorted[mode]
-        _build_legend(fig, ax, panel_materials, short_names, mat_colors, layout, ncol=1)
+        _build_legend(fig, ax, panel_materials, short_names, mat_colors, mat_markers, layout, ncol=1)
 
     save_figure(fig, "fig_psa_pareto", output_dir)
     plt.close(fig)
