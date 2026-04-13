@@ -104,12 +104,11 @@ STEP_LABELS = {
 }
 
 ROW_LABELS = {0: "PSA", 1: "VSA"}
-COL_TITLES = ["Pressure (bar)", r"CH$_4$ mole fraction", "Temperature (K)"]
+COL_TITLES = [r"CH$_4$ mole fraction", "Temperature (K)"]
 
 # Columns from CSV → what to plot in each column
-_COL_KEYS = ["P_Pa", "y_CH4", "T_K"]
+_COL_KEYS = ["y_CH4", "T_K"]
 _COL_CONVERTERS = {
-    "P_Pa": lambda x: x / 1e5,  # Pa → bar
     "y_CH4": lambda x: x,
     "T_K": lambda x: x,
 }
@@ -183,20 +182,20 @@ def plot_cycle_profiles(
     vsa_csv: Path,
     output_dir: Path,
 ):
-    """Generate the 2x3 spatial cycle profile figure."""
+    """Generate the 2x2 spatial cycle profile figure (mole fraction + temperature)."""
     set_publication_style()
 
     psa_df = load_profile(psa_csv)
     vsa_df = load_profile(vsa_csv)
 
     fig, axes = plt.subplots(
-        2, 3,
-        figsize=(FIGURE_WIDTH, FIGURE_HEIGHT),
+        2, 2,
+        figsize=(FIGURE_WIDTH * 0.72, FIGURE_HEIGHT),
         constrained_layout=False,
     )
 
     fig.subplots_adjust(
-        left=0.10, right=0.97,
+        left=0.12, right=0.97,
         bottom=0.19, top=0.91,
         wspace=0.35, hspace=0.20,
     )
