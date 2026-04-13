@@ -258,7 +258,7 @@ def make_figure(venn_counts: dict[str, int], n_exp: int, n_hypo: int) -> plt.Fig
                 patch.set_edgecolor("black")
                 patch.set_linewidth(mpl.rcParams["axes.linewidth"])
 
-    ax_venn.set_title("(a)", fontsize=layout.title_font, fontweight="bold", loc="left")
+    # Title placed via fig.text below for cross-panel alignment
 
     # ── Panel (b): Bar chart ──────────────────────────────────────────────────
     categories = ["Experimental", "Hypothetical"]
@@ -293,7 +293,18 @@ def make_figure(venn_counts: dict[str, int], n_exp: int, n_hypo: int) -> plt.Fig
 
     ax_bar.set_ylabel("Number of MOFs", fontsize=layout.body_font)
     ax_bar.tick_params(axis="both", which="major", labelsize=layout.tick_font)
-    ax_bar.set_title("(b)", fontsize=layout.title_font, fontweight="bold", loc="left")
+    # Title placed via fig.text below for cross-panel alignment
+
+    # Panel titles — use fig.text at a shared y so they align exactly
+    title_y = layout.top + 0.035
+    for ax, label in [(ax_venn, "(a)"), (ax_bar, "(b)")]:
+        bbox = ax.get_position()
+        fig.text(
+            bbox.x0 - 0.005, title_y, label,
+            fontsize=layout.title_font, fontweight="bold",
+            ha="left", va="bottom",
+            transform=fig.transFigure,
+        )
 
     return fig
 
