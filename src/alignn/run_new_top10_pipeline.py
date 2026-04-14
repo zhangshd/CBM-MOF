@@ -438,6 +438,59 @@ def main():
     df_clustered = df_all[df_all["cluster"].notna()].copy()
     df_clustered["cluster"] = df_clustered["cluster"].astype(int)
 
+    # ------------------------------------------------------------------
+    # Export benchmark-beating MOFs to CSV (SI Tables S6/S7)
+    # ------------------------------------------------------------------
+    psa_beaters_clust = df_clustered[
+        df_clustered["in_psa100"] & (df_clustered["gcmc_PSA_API_CH4"] >= benchmark_psa)
+    ].copy()
+    vsa_beaters_clust = df_clustered[
+        df_clustered["in_vsa100"] & (df_clustered["gcmc_VSA_API_CH4"] >= benchmark_vsa)
+    ].copy()
+
+    # PSA beaters — clean columns for SI Table S6
+    psa_beaters_out = (
+        psa_beaters_clust[["mof_id", "gcmc_PSA_WC_CH4", "gcmc_PSA_alpha_CH4_N2", "gcmc_PSA_API_CH4", "cluster"]]
+        .rename(columns={
+            "mof_id": "CifId",
+            "gcmc_PSA_WC_CH4": "PSA_WC_CH4",
+            "gcmc_PSA_alpha_CH4_N2": "PSA_alpha_CH4_N2",
+            "gcmc_PSA_API_CH4": "PSA_API_CH4",
+            "cluster": "Cluster",
+        })
+        .copy()
+    )
+    psa_beaters_out["Cluster"] = psa_beaters_out["Cluster"] + 1  # 1-indexed for paper
+    psa_beaters_out[["PSA_WC_CH4", "PSA_alpha_CH4_N2", "PSA_API_CH4"]] = (
+        psa_beaters_out[["PSA_WC_CH4", "PSA_alpha_CH4_N2", "PSA_API_CH4"]].round(3)
+    )
+    psa_beaters_out = psa_beaters_out.sort_values("PSA_API_CH4", ascending=False).reset_index(drop=True)
+
+    # VSA beaters — clean columns for SI Table S7
+    vsa_beaters_out = (
+        vsa_beaters_clust[["mof_id", "gcmc_VSA_WC_CH4", "gcmc_VSA_alpha_CH4_N2", "gcmc_VSA_API_CH4", "cluster"]]
+        .rename(columns={
+            "mof_id": "CifId",
+            "gcmc_VSA_WC_CH4": "VSA_WC_CH4",
+            "gcmc_VSA_alpha_CH4_N2": "VSA_alpha_CH4_N2",
+            "gcmc_VSA_API_CH4": "VSA_API_CH4",
+            "cluster": "Cluster",
+        })
+        .copy()
+    )
+    vsa_beaters_out["Cluster"] = vsa_beaters_out["Cluster"] + 1  # 1-indexed for paper
+    vsa_beaters_out[["VSA_WC_CH4", "VSA_alpha_CH4_N2", "VSA_API_CH4"]] = (
+        vsa_beaters_out[["VSA_WC_CH4", "VSA_alpha_CH4_N2", "VSA_API_CH4"]].round(3)
+    )
+    vsa_beaters_out = vsa_beaters_out.sort_values("VSA_API_CH4", ascending=False).reset_index(drop=True)
+
+    psa_beaters_csv = OUTPUT_DIR / "psa_beaters.csv"
+    vsa_beaters_csv = OUTPUT_DIR / "vsa_beaters.csv"
+    psa_beaters_out.to_csv(psa_beaters_csv, index=False)
+    vsa_beaters_out.to_csv(vsa_beaters_csv, index=False)
+    print(f"\nSaved: {psa_beaters_csv} ({len(psa_beaters_out)} MOFs, API >= {benchmark_psa:.4f})")
+    print(f"Saved: {vsa_beaters_csv} ({len(vsa_beaters_out)} MOFs, API >= {benchmark_vsa:.4f})")
+
     # Select PSA Top-10 from PSA Top-100 subset only
     psa_top = select_top_n(
         df_clustered[df_clustered["in_psa100"]].copy(),
