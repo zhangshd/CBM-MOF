@@ -66,8 +66,8 @@ def _shorten_material_name(name: str) -> str:
     # Strip trailing _repeat / _clean_repeat / _full_REPEAT
     cleaned = re.sub(r"_(full_REPEAT|clean_repeat|repeat)$", "", name)
 
-    # CoRE-YYYY[...] → strip "CoRE-YYYY" prefix
-    m = re.match(r"CoRE-\d{4}(.+)", cleaned)
+    # CoRE-YYYY[...] → strip "CoRE-" prefix, keep year + topology
+    m = re.match(r"CoRE-(.+)", cleaned)
     if m:
         return m.group(1)
     # ARC-DB12- prefix (named structures like TAKTOR)
