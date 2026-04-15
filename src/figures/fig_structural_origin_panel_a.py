@@ -1,7 +1,8 @@
 """
-Generate standalone Panel (a) for Figure 11: PLD vs Qst_CH4 scatter plot.
+Generate panel (a) for the structural-origin figure: PLD vs Qst_CH4 scatter.
 
-Outputs a single high-DPI PNG for manual composition in PPT.
+Outputs a single high-DPI PNG intended for manual composition in PPT or other
+graphics software when assembling the final manuscript Figure 8.
 """
 
 from __future__ import annotations
@@ -39,9 +40,6 @@ OUTPUT_DIR = MODEL_DIR / "figures"
 
 # ── Constants ────────────────────────────────────────────────────────────────
 BENCHMARK_MOF = "CoRE-2020[Cu][pts]3[ASR]1"
-PSA_API_THRESHOLD = 0.4573247894732109
-VSA_API_THRESHOLD = 0.17293197972618327
-
 COLOR_PSA = NATURE_COLORS["blue"]
 COLOR_VSA = NATURE_COLORS["orange"]
 COLOR_BENCHMARK = "black"
@@ -54,8 +52,14 @@ def load_scatter_data() -> pd.DataFrame:
     zeo = zeo.rename(columns={"name": "mof_id"})
     merged = gcmc.merge(zeo, on="mof_id", how="left")
 
-    merged["is_psa_beater"] = (merged["in_psa100"] == True) & (merged["gcmc_PSA_API_CH4"] >= PSA_API_THRESHOLD)
-    merged["is_vsa_beater"] = (merged["in_vsa100"] == True) & (merged["gcmc_VSA_API_CH4"] >= VSA_API_THRESHOLD)
+    benchmark_row = merged.loc[merged["mof_id"] == BENCHMARK_MOF]
+    if benchmark_row.empty:
+        raise ValueError(f"Benchmark MOF {BENCHMARK_MOF} not found in validated GCMC data.")
+    psa_api_threshold = float(benchmark_row.iloc[0]["gcmc_PSA_API_CH4"])
+    vsa_api_threshold = float(benchmark_row.iloc[0]["gcmc_VSA_API_CH4"])
+
+    merged["is_psa_beater"] = (merged["in_psa100"] == True) & (merged["gcmc_PSA_API_CH4"] >= psa_api_threshold)
+    merged["is_vsa_beater"] = (merged["in_vsa100"] == True) & (merged["gcmc_VSA_API_CH4"] >= vsa_api_threshold)
     merged["is_benchmark"] = merged["mof_id"] == BENCHMARK_MOF
 
     logger.info(
@@ -66,14 +70,14 @@ def load_scatter_data() -> pd.DataFrame:
     return merged
 
 
-def plot_panel_a_standalone(data: pd.DataFrame, output_dir: Path) -> None:
-    """Generate a standalone Panel (a) as a high-DPI PNG."""
+def plot_structural_origin_panel_a(data: pd.DataFrame, output_dir: Path) -> None:
+    """Generate the standalone structural-origin panel (a) as a high-DPI PNG."""
     set_publication_style()
 
-    # Bump fonts by +2 pt for standalone PPT asset (larger than inline journal figs)
-    label_fs = LABEL_FONT_SIZE + 2
-    tick_fs = LABEL_FONT_SIZE + 2  # match labels for readability at this asset size
-    legend_fs = LEGEND_FONT_SIZE + 2
+    # Panel asset for manual assembly: use one extra size step beyond the prior setting.
+    label_fs = LABEL_FONT_SIZE + 3
+    tick_fs = LABEL_FONT_SIZE + 3
+    legend_fs = LEGEND_FONT_SIZE + 3
 
     plot_df = data.dropna(subset=["Di", "QstCH4_gcmc"]).copy()
 
@@ -105,20 +109,22 @@ def plot_panel_a_standalone(data: pd.DataFrame, output_dir: Path) -> None:
               markerscale=1.2)
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    out_path = output_dir / "Figure11a_PLD_vs_Qst.png"
+    out_path = output_dir / "Figure08a_PLD_vs_Qst.png"
     fig.savefig(out_path, format="png", dpi=DPI, bbox_inches="tight", pad_inches=0.02)
     logger.info("Saved: %s", out_path)
     plt.close(fig)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate standalone Figure 11a (PLD vs Qst scatter).")
+    parser = argparse.ArgumentParser(
+        description="Generate Figure 8 panel (a): PLD vs Qst scatter."
+    )
     parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR,
                         help="Output directory (default: %(default)s)")
     args = parser.parse_args()
 
     data = load_scatter_data()
-    plot_panel_a_standalone(data, args.output_dir)
+    plot_structural_origin_panel_a(data, args.output_dir)
 
 
 if __name__ == "__main__":

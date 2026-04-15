@@ -82,15 +82,27 @@ def _calculate_process_metrics(df: pd.DataFrame) -> pd.DataFrame:
         out[f"{process}_API_CH4"] = ((alpha - 1.0) * out[f"{process}_WC_CH4"]) / out["QstCH4"].abs()
     return out
 
+def load_benchmark_reference() -> tuple[pd.Series, pd.Series]:
+    """Return benchmark rows from the training and validated datasets.
 
-def load_benchmark_row() -> pd.Series:
+    The training-set row is used for the lower-panel API-distribution reference,
+    while the validated-set row is the canonical source for benchmark-beating
+    counts and validated scatter coordinates. This keeps the figure aligned with
+    the manuscript and the Top-10 selection pipeline.
+    """
     ads = pd.read_csv(TRAINING_ADS_R1_CSV)
     widom = pd.read_csv(TRAINING_WIDOM_R1_CSV)
-    merged = _calculate_process_metrics(_create_integrated_dataset(ads, widom))
-    row = merged.loc[merged["mof_id"] == BENCHMARK_MOF]
-    if row.empty:
+    training = _calculate_process_metrics(_create_integrated_dataset(ads, widom))
+    training_row = training.loc[training["mof_id"] == BENCHMARK_MOF]
+    if training_row.empty:
         raise ValueError(f"Benchmark MOF {BENCHMARK_MOF} not found in Round-1 training data.")
-    return row.iloc[0]
+
+    validated = pd.read_csv(GCMC_VALIDATION_CSV)
+    validated_row = validated.loc[validated["mof_id"] == BENCHMARK_MOF]
+    if validated_row.empty:
+        raise ValueError(f"Benchmark MOF {BENCHMARK_MOF} not found in validated GCMC data.")
+
+    return training_row.iloc[0], validated_row.iloc[0]
 
 
 def load_training_api_distribution() -> pd.DataFrame:
@@ -147,7 +159,7 @@ def _format_api_unit() -> str:
 
 
 def plot_figure10(output_dir: Path) -> dict[str, float]:
-    benchmark = load_benchmark_row()
+    benchmark_train, benchmark_validated = load_benchmark_reference()
     train = load_training_api_distribution()
     validated = load_validated_top100()
     psa = validated[validated["psa_rank"].notna()].copy()
@@ -161,8 +173,8 @@ def plot_figure10(output_dir: Path) -> dict[str, float]:
         (axes[0, 1], vsa, "VSA", NATURE_COLORS["orange"], "(b) VSA Elites (n=100)"),
     ]
     enrichment_specs = [
-        (axes[1, 0], "PSA", train["PSA_API_CH4"].dropna(), psa["gcmc_PSA_API_CH4"].dropna(), benchmark["PSA_API_CH4"], NATURE_COLORS["blue"], "(c) PSA API enrichment"),
-        (axes[1, 1], "VSA", train["VSA_API_CH4"].dropna(), vsa["gcmc_VSA_API_CH4"].dropna(), benchmark["VSA_API_CH4"], NATURE_COLORS["orange"], "(d) VSA API enrichment"),
+        (axes[1, 0], "PSA", train["PSA_API_CH4"].dropna(), psa["gcmc_PSA_API_CH4"].dropna(), NATURE_COLORS["blue"], "(c) PSA API enrichment"),
+        (axes[1, 1], "VSA", train["VSA_API_CH4"].dropna(), vsa["gcmc_VSA_API_CH4"].dropna(), NATURE_COLORS["orange"], "(d) VSA API enrichment"),
     ]
 
     summary = {}
@@ -174,8 +186,8 @@ def plot_figure10(output_dir: Path) -> dict[str, float]:
             df_sub[x_col], df_sub[y_col], c=df_sub[c_col], cmap="YlGnBu", s=18,
             edgecolors="black", linewidths=0.25, alpha=0.8,
         )
-        b_wc = float(benchmark[f"{process}_WC_CH4"])
-        b_alpha = float(benchmark[f"{process}_alpha_CH4_N2"])
+        b_wc = float(benchmark_validated[f"gcmc_{process}_WC_CH4"])
+        b_alpha = float(benchmark_validated[f"gcmc_{process}_alpha_CH4_N2"])
         ax.scatter([b_wc], [b_alpha], marker="*", s=90, color="black", zorder=4)
         ax.annotate("ATC-Cu", (b_wc, b_alpha), xytext=(5, 5), textcoords="offset points", fontsize=7.0)
         ax.set_xlabel(r"CH$_4$ working capacity (mol/kg)")
@@ -185,14 +197,15 @@ def plot_figure10(output_dir: Path) -> dict[str, float]:
         cbar = fig.colorbar(sc, ax=ax, fraction=0.046, pad=0.02)
         cbar.set_label(rf"{process} API ({_format_api_unit()})")
         cbar.ax.tick_params(labelsize=7.5)
-        summary[f"{process.lower()}_benchmark_api"] = float(benchmark[f"{process}_API_CH4"])
+        summary[f"{process.lower()}_benchmark_api"] = float(benchmark_validated[f"gcmc_{process}_API_CH4"])
         summary[f"{process.lower()}_validated_mean_api"] = float(df_sub[c_col].mean())
 
-    for ax, process, training_api, validated_api, benchmark_api, color, title in enrichment_specs:
+    for ax, process, training_api, validated_api, color, title in enrichment_specs:
         sns.kdeplot(training_api, ax=ax, color=NATURE_COLORS["purple"], fill=True, alpha=0.25, linewidth=1.0, label=f"Training set (n={len(training_api):,})")
         sns.kdeplot(validated_api, ax=ax, color=color, fill=True, alpha=0.35, linewidth=1.0, label=f"{process} Elites(n={len(validated_api)})")
         ax.axvline(training_api.mean(), color=NATURE_COLORS["purple"], linestyle="--", linewidth=0.8)
         ax.axvline(validated_api.mean(), color=color, linestyle="--", linewidth=0.8)
+        benchmark_api = float(benchmark_validated[f"gcmc_{process}_API_CH4"])
         ax.axvline(benchmark_api, color="black", linestyle=":", linewidth=1.0, label=f"ATC-Cu = {benchmark_api:.3f}")
         ax.set_xlabel(rf"API ({_format_api_unit()})")
         ax.set_ylabel("Density")
@@ -213,12 +226,12 @@ def plot_figure10(output_dir: Path) -> dict[str, float]:
 
 
 def plot_figure11(output_dir: Path) -> pd.DataFrame:
-    benchmark = load_benchmark_row()
+    _benchmark_train, benchmark_validated = load_benchmark_reference()
     validated = load_validated_top100()
 
     process_specs = [
-        ("PSA", "gcmc_PSA_API_CH4", "psa_rank", float(benchmark["PSA_API_CH4"]), NATURE_COLORS["blue"]),
-        ("VSA", "gcmc_VSA_API_CH4", "vsa_rank", float(benchmark["VSA_API_CH4"]), NATURE_COLORS["orange"]),
+        ("PSA", "gcmc_PSA_API_CH4", "psa_rank", float(benchmark_validated["gcmc_PSA_API_CH4"]), NATURE_COLORS["blue"]),
+        ("VSA", "gcmc_VSA_API_CH4", "vsa_rank", float(benchmark_validated["gcmc_VSA_API_CH4"]), NATURE_COLORS["orange"]),
     ]
 
     rows = []
