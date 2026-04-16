@@ -9,7 +9,6 @@ This script is the only authoritative producer of:
   - uq_calibration.png
   - lsv_thresholds.json
   - k_sensitivity_sweep.json / .png
-  - latent_space_pca_by_targets.png
   - lsv_norm_distribution.png
   - ALIGNN_ep150_LSV_sr_analysis.png
 """
@@ -39,12 +38,11 @@ from src.alignn.uq.calibration import (
 )
 from src.alignn.uq.core import build_faiss_index, save_uncertainty_trees, calibrate_uq
 from src.alignn.uq.io import load_deployment_splits
-from src.alignn.uq.plots import (
+from src.figures.fig_uq_validation import (
     plot_calibration,
     plot_distribution_panel,
     plot_k_sweep,
-    plot_pca_by_targets,
-    plot_sr_panel,
+    plot_sr_analysis,
 )
 
 
@@ -82,11 +80,6 @@ def main() -> int:
         type=int,
         default=85,
         help="Canonical LSV percentile cutoff to serialize.",
-    )
-    parser.add_argument(
-        "--skip-pca",
-        action="store_true",
-        help="Skip PCA visualization.",
     )
     args = parser.parse_args()
 
@@ -184,18 +177,11 @@ def main() -> int:
         enriched["test"]["lsv"],
         output_dir / "lsv_norm_distribution.png",
     )
-    plot_sr_panel(
-        sr_sweep=sr_sweep,
-        threshold_value=float(threshold_payload["composite_threshold"]),
-        recommended_pct=args.recommended_pct,
+    plot_sr_analysis(
+        payload=threshold_payload,
+        lsv_composite=combined_lsv.mean(axis=1),
         out_path=output_dir / "ALIGNN_ep150_LSV_sr_analysis.png",
     )
-    if not args.skip_pca:
-        plot_pca_by_targets(
-            all_features=np.vstack([splits["train"]["features"], splits["val"]["features"], splits["test"]["features"]]),
-            all_truths=np.vstack([splits["train"]["truths"], splits["val"]["truths"], splits["test"]["truths"]]),
-            out_path=output_dir / "latent_space_pca_by_targets.png",
-        )
 
     return 0
 

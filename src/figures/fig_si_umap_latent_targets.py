@@ -136,7 +136,7 @@ def plot_si_umap_figure(
     fig, axes = plt.subplots(
         2,
         4,
-        figsize=(DOUBLE_COL_INCH, 3.8),
+        figsize=(DOUBLE_COL_INCH, 3.5),
     )
 
     idx = 0
@@ -159,10 +159,10 @@ def plot_si_umap_figure(
             idx += 1
 
     fig.subplots_adjust(
-        left=0.07, right=0.95, bottom=0.10, top=0.93,
-        wspace=0.35, hspace=-0.05,
+        left=0.07, right=0.95, bottom=0.08, top=0.95,
+        wspace=0.35, hspace=-0.10,
     )
-    save_figure(fig, "FigureS_umap_latent_targets", output_dir, tight_layout=False)
+    save_figure(fig, "fig_umap_latent_targets", output_dir, tight_layout=False)
     plt.close(fig)
 
 
