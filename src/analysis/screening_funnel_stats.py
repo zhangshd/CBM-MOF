@@ -4,8 +4,8 @@
 Experimental MOFs: IDs starting with CoRE-, MOSAEC-, ARC-DB12-, ARC-DB14-
 Hypothetical MOFs: all other ARC-* prefixes
 
-The pipeline topology (matches Table S4 in manuscript):
-  Stage 0-2: linear (Raw → Dedup → Geometric)
+The pipeline topology (matches Table S5 in SI):
+  Stage 0-2: linear (Deduplicated library → Feature extraction → Geometric)
   Stage 3:   from 2 (Elemental availability filter)
   Stage 4:   from 3 (Group IIIA metal-node exclusion — Al)
   Stage 5:   from 4 (MOFSNN stability)
@@ -234,8 +234,9 @@ def _load_mofsnn_passing_set() -> Optional[tuple[set, set]]:
 def build_funnel_table(model_dir: Path) -> pd.DataFrame:
     """Build the screening funnel statistics table.
 
-    Pipeline order (matches Table S4):
-      Raw -> Dedup -> Geometric -> Elemental -> Group IIIA -> MOFSNN -> Inference -> Top-100 -> Union
+    Pipeline order (matches SI Table S5):
+      Deduplicated library -> Feature extraction -> Geometric -> Elemental ->
+      Group IIIA -> MOFSNN -> Inference -> Top-100 -> Union
 
     Each intermediate set is computed via set operations on the cached
     precious-metal flags, Al-metal flags, MOFSNN predictions, and inference output.
@@ -317,11 +318,13 @@ def build_funnel_table(model_dir: Path) -> pd.DataFrame:
         path = model_dir / "top_candidates" / "all_top_union.csv"
         return load_ids_csv(path, "mof_id")
 
+    dedup_library = data_dir / "dedup_cifs" / "duplicate_pdd_deduplicated.txt"
+
     # (stage_num, description, parent_stage, loader)
     stages = [
-        (0, "Raw features", None,
-         lambda: load_ids_csv(data_dir / "RAC_and_zeo_features.csv", "name")),
-        (1, "Deduplicated", 0,
+        (0, "Deduplicated library", None,
+         lambda: load_ids_txt(dedup_library)),
+        (1, "Feature extraction", 0,
          lambda: load_ids_csv(data_dir / "RAC_and_zeo_features_deduplicated.csv", "name")),
         (2, "Geometric screening", 1,
          lambda: load_ids_txt(data_dir / "textural_screened" / "textural_screened_list.txt")),
