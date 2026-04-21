@@ -35,9 +35,9 @@ DEFAULT_OUTPUT_DIR = REPO / "results" / "alignn" / "model_ep150" / "figures"
 
 EXP_PREFIXES = ("CoRE-", "MOSAEC-", "ARC-DB12-", "ARC-DB14-")
 
-# Visual identity
-COLOR_EXP = NATURE_COLORS["blue"]
-COLOR_HYPO = NATURE_COLORS["orange"]
+# Visual identity aligned with Figure 7
+COLOR_EXP = NATURE_COLORS["green"]
+COLOR_HYPO = NATURE_COLORS["purple"]
 
 # Bin edges for |Drank| histogram
 BIN_EDGES = [0, 5, 10, 20, 30, 40, 50, 100]
@@ -110,16 +110,16 @@ def _plot_panel(
     x = np.arange(len(BIN_LABELS))
     bar_width = 0.65
 
-    # Stacked bars: hypothetical on bottom, experimental on top
+    # Stacked bars: experimental on bottom, hypothetical on top
     ax.bar(
-        x, hypo_counts,
-        width=bar_width, color=COLOR_HYPO, alpha=0.85,
-        label="Hypothetical", zorder=2, edgecolor="white", linewidth=0.3,
+        x, exp_counts,
+        width=bar_width, color=COLOR_EXP, alpha=0.85,
+        label="Experimental", zorder=2, edgecolor="black", linewidth=0.4,
     )
     ax.bar(
-        x, exp_counts, bottom=hypo_counts,
-        width=bar_width, color=COLOR_EXP, alpha=0.85,
-        label="Experimental", zorder=2, edgecolor="white", linewidth=0.3,
+        x, hypo_counts, bottom=exp_counts,
+        width=bar_width, color=COLOR_HYPO, alpha=0.85,
+        label="Hypothetical", zorder=2, edgecolor="black", linewidth=0.4,
     )
 
     # Vertical dashed line at threshold (between bin "0-5" and "5-10" is at x=1,
@@ -185,12 +185,12 @@ def main():
 
     fig, axes = plt.subplots(
         1, 2,
-        figsize=(layout.figure_width, layout.figure_height),
+        figsize=(DOUBLE_COL_INCH, 0.45 * DOUBLE_COL_INCH),
     )
     fig.subplots_adjust(
-        left=layout.left, right=layout.right,
-        bottom=layout.bottom, top=layout.top,
-        wspace=layout.wspace + 0.15,  # extra room for y-label
+        left=0.08, right=0.99,
+        bottom=0.24, top=0.88,
+        wspace=0.16,
     )
 
     _plot_panel(
@@ -213,7 +213,7 @@ def main():
         loc="lower center",
         ncol=2,
         fontsize=layout.tick_font,
-        bbox_to_anchor=(0.5, -0.01),
+        bbox_to_anchor=(0.5, 0.03),
         frameon=False,
     )
 

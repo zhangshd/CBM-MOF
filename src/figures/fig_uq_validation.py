@@ -198,7 +198,9 @@ def plot_sr_axis(ax, payload: dict, lsv_composite: np.ndarray) -> None:
     ax.set_xlabel(r"LSV$_{norm}$ cutoff", fontsize=LABEL_FONT_SIZE)
     ax.set_ylabel("Separation ratio", fontsize=LABEL_FONT_SIZE)
     ax.tick_params(labelsize=TICK_FONT_SIZE)
-    ax.set_ylim(bottom=0.0)
+    sr_span = sr_valid.max() - sr_valid.min()
+    sr_pad = max(0.08, 0.12 * sr_span)
+    ax.set_ylim(0.0, sr_valid.max() + sr_pad)
 
     # Retention curve (right y-axis)
     ax2 = ax.twinx()

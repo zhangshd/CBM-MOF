@@ -220,10 +220,18 @@ def _build_legend(
         color = mat_colors.get(mat, "#999999")
         short = short_names.get(mat, mat[:10])
         marker = mat_markers.get(mat, "o")
-        h = mlines.Line2D(
-            [], [], color=color, marker=marker, markersize=4,
-            linestyle="None", label=short,
-        )
+        if mat == ATC_CU_NAME:
+            h = mlines.Line2D(
+                [], [], color=color, marker="*", markersize=7,
+                linestyle="None", label=short,
+                markerfacecolor="none", markeredgecolor=color,
+                markeredgewidth=0.9,
+            )
+        else:
+            h = mlines.Line2D(
+                [], [], color=color, marker=marker, markersize=4,
+                linestyle="None", label=short,
+            )
         handles.append(h)
 
     ax.legend(

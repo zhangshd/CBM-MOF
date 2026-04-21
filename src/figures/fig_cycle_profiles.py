@@ -145,9 +145,15 @@ def _plot_spatial_profiles(ax: plt.Axes, df: pd.DataFrame, ycol: str,
         if seg.empty:
             continue
         color = STEP_COLORS.get(step_num, "#333333")
-        ax.plot(seg["z"].values, converter(seg[ycol].values),
-                color=color, linewidth=1.0, marker="o", markersize=2.0,
-                zorder=3)
+        ax.plot(
+            seg["z"].values,
+            converter(seg[ycol].values),
+            color=color,
+            linewidth=1.0,
+            marker="o",
+            markersize=2.0,
+            zorder=3,
+        )
 
 
 def _build_step_legend(fig: plt.Figure, ncols: int = 4):
@@ -195,9 +201,9 @@ def plot_cycle_profiles(
     )
 
     fig.subplots_adjust(
-        left=0.12, right=0.97,
+        left=0.10, right=0.98,
         bottom=0.19, top=0.91,
-        wspace=0.35, hspace=0.20,
+        wspace=0.22, hspace=0.20,
     )
 
     datasets = [psa_df, vsa_df]
@@ -234,8 +240,9 @@ def plot_cycle_profiles(
             bbox = a.get_position()
             y_centers.append((bbox.y0 + bbox.y1) / 2.0)
         y_mid = np.mean(y_centers)
+        x_label = max(0.02, row_axes[0].get_position().x0 - 0.06)
         fig.text(
-            0.02, y_mid, label,
+            x_label, y_mid, label,
             fontsize=BODY_FONT_SIZE, fontweight="bold",
             ha="center", va="center", rotation=90,
         )
