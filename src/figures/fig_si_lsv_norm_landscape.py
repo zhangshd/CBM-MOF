@@ -23,7 +23,7 @@ import numpy as np
 import pandas as pd
 
 # ── Project paths ────────────────────────────────────────────────────────────
-REPO_ROOT = Path(__file__).resolve().parents[4]  # CBM-MOF repo root
+REPO_ROOT = Path(__file__).resolve().parents[2]  # CBM-MOF repo root
 sys.path.insert(0, str(REPO_ROOT))
 
 from src.figures.style import (
