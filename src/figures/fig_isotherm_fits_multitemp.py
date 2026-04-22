@@ -19,12 +19,15 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.lines import Line2D
+from matplotlib.ticker import LogLocator, MaxNLocator, NullLocator
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from src.figures.style import (
     DPI,
     DOUBLE_COL_INCH,
+    NATURE_COLORS,
     compute_panel_grid_layout,
     set_publication_style,
 )
@@ -44,18 +47,25 @@ GCMC_298K = RESULTS / "isotherm_input" / "top20_pure_component.csv"
 GCMC_MULTITEMP = RESULTS / "isotherm_input" / "top20_pure_component_multitemp.csv"
 FIT_PARAMS = RESULTS / "isotherm_fits" / "ext_dsl_fits.csv"
 OUTPUT_DIR = Path(__file__).resolve().parents[2].parent / "CBM-MOF-paper" / "manuscript" / "SuppInfo_CBM" / "images"
+CH4_FIG_NAME = "fig_isotherm_fits_ch4.png"
+N2_FIG_NAME = "fig_isotherm_fits_n2.png"
 
 # ── Temperature visual identity ──────────────────────────────────────────────
 TEMP_STYLE = {
-    273.0: {"color": "#0173B2", "marker": "o", "label": "273 K"},
-    298.0: {"color": "#029E73", "marker": "s", "label": "298 K"},
-    323.0: {"color": "#D55E00", "marker": "^", "label": "323 K"},
+    273.0: {"color": NATURE_COLORS["blue"], "marker": "o", "label": "273 K"},
+    298.0: {"color": NATURE_COLORS["green"], "marker": "s", "label": "298 K"},
+    323.0: {"color": NATURE_COLORS["orange"], "marker": "^", "label": "323 K"},
+}
+
+SHORT_NAME_MAP = {
+    "CoRE-2020[Cu][pts]3[ASR]1": "ATC-Cu",
 }
 
 # Gas display names
 GAS_DISPLAY = {"methane": r"CH$_4$", "N2": r"N$_2$"}
 
 R_GAS = 8.314  # J/(mol*K)
+DEFAULT_LAYOUT_WIDTH = DOUBLE_COL_INCH
 
 
 def ext_dsl(P: np.ndarray, T: float, params: dict) -> np.ndarray:
@@ -68,27 +78,26 @@ def ext_dsl(P: np.ndarray, T: float, params: dict) -> np.ndarray:
 
 
 def simplify_mof_name(name: str) -> str:
-    """Shorten MOF ID for subplot titles."""
-    name = name.replace("_repeat", "").replace("_freeONLY", "")
-    name = name.replace("_full_REPEAT", "").replace("_full", "")
-    name = name.replace("_clean", "")
-    # Shorten prefixes
-    if name.startswith("ARC-DB0-"):
-        name = name.replace("ARC-DB0-", "")
-    elif name.startswith("ARC-DB12-"):
-        name = name.replace("ARC-DB12-", "DB12-")
-    # Collapse CoRE-20YY[Metal][topo]3[ASR]N → CoRE-YY-Metal-topo
-    m = re.match(r"CoRE-(\d{4})\[(\w+)\]\[(\w+)\]3\[ASR\](\d+)", name)
-    if m:
-        name = f"CoRE-{m.group(1)[-2:]}-{m.group(2)}-{m.group(3)}"
-        if m.group(4) != "1":
-            name += f"-{m.group(4)}"
-    # Collapse MOSAEC-XXX → XXX
-    name = name.replace("MOSAEC-", "")
-    # Strip _f0_fsc and collapse .sym.XX → -sXX
-    name = name.replace("_f0_fsc", "")
-    name = re.sub(r"\.sym\.(\d+)", r"-s\g<1>", name)
-    return name
+    """Shorten MOF ID for subplot titles using the Figure 11 naming rules."""
+    if name in SHORT_NAME_MAP:
+        return SHORT_NAME_MAP[name]
+
+    cleaned = name
+    cleaned = re.sub(r"_(full_REPEAT|clean_repeat|repeat)$", "", cleaned)
+    cleaned = cleaned.replace("_full", "")
+    cleaned = cleaned.replace("_clean", "")
+    cleaned = cleaned.replace("_freeONLY", "")
+
+    for prefix in ("CoRE-", "MOSAEC-"):
+        if cleaned.startswith(prefix):
+            cleaned = cleaned[len(prefix):]
+            break
+
+    cleaned = re.sub(r"^ARC-DB\d+-", "", cleaned)
+    cleaned = cleaned.replace("_f0_fsc", "")
+    cleaned = cleaned.replace(".sym.", ".")
+
+    return cleaned
 
 
 def load_gcmc_data() -> pd.DataFrame:
@@ -109,7 +118,7 @@ def load_fit_params() -> pd.DataFrame:
 
 
 def choose_grid(n: int) -> tuple[int, int]:
-    """Choose (nrows, ncols) to accommodate n subplots, preferring wider layouts."""
+    """Choose (nrows, ncols) to accommodate n subplots, preferring larger panels."""
     if n <= 4:
         return 1, n
     if n <= 6:
@@ -121,12 +130,26 @@ def choose_grid(n: int) -> tuple[int, int]:
     if n <= 16:
         return 4, 4
     if n <= 20:
-        return 4, 5
-    if n <= 20:
-        return 4, 5
+        return 5, 4
     if n <= 25:
         return 5, 5
     return 6, 5
+
+
+def build_figure_layout(nrows: int, ncols: int, layout_width: float = DEFAULT_LAYOUT_WIDTH):
+    """Build a page-friendly grid layout for the multi-temperature fit figure."""
+    return compute_panel_grid_layout(
+        nrows,
+        ncols,
+        layout_width,
+        panel_aspect=0.70,
+        gap_ratio_x=0.18,
+        gap_ratio_y=0.24,
+        top_margin_inch=0.26,
+        bottom_margin_inch=0.46,
+        left_margin_inch=0.48,
+        right_margin_inch=0.08,
+    )
 
 
 def plot_gas_figure(
@@ -134,7 +157,7 @@ def plot_gas_figure(
     gcmc: pd.DataFrame,
     fits: pd.DataFrame,
     output_path: Path,
-    layout_width: float = DOUBLE_COL_INCH * 2.3,
+    layout_width: float = DEFAULT_LAYOUT_WIDTH,
 ) -> None:
     """Generate one composite figure for a single gas species."""
     # Filter data
@@ -147,15 +170,7 @@ def plot_gas_figure(
 
     logger.info("Plotting %s: %d MOFs in %d x %d grid", gas, n_mofs, nrows, ncols)
 
-    # Layout — use generous spacing for subplot titles
-    gl = compute_panel_grid_layout(
-        nrows, ncols, layout_width,
-        panel_aspect=0.82,
-        top_margin_inch=0.15,
-        bottom_margin_inch=0.50,
-        left_margin_inch=0.55,
-        right_margin_inch=0.08,
-    )
+    gl = build_figure_layout(nrows, ncols, layout_width)
 
     fig, axes = plt.subplots(
         nrows, ncols,
@@ -165,8 +180,8 @@ def plot_gas_figure(
     fig.subplots_adjust(
         left=gl.left, right=gl.right,
         bottom=gl.bottom, top=gl.top,
-        wspace=gl.wspace * 2.0,
-        hspace=gl.hspace * 5.5,
+        wspace=gl.wspace * 1.05,
+        hspace=gl.hspace * 1.10,
     )
 
     # Pressure grid for smooth fit curves
@@ -205,81 +220,116 @@ def plot_gas_figure(
                 ax.scatter(
                     df_t["P"], df_t["AbsLoading"],
                     c=style["color"], marker=style["marker"],
-                    s=gl.marker_area * 1.5, zorder=5,
-                    edgecolors="none", alpha=0.85,
+                    s=gl.marker_area * 1.25, zorder=5,
+                    edgecolors="none", alpha=0.88,
+                    rasterized=True,
                 )
 
             # Fit curve
             q_fit = ext_dsl(P_fit, T, p_dict)
-            ax.plot(P_fit, q_fit, color=style["color"], lw=0.7, zorder=3)
+            ax.plot(P_fit, q_fit, color=style["color"], lw=1.0, zorder=3, solid_capstyle="round")
 
         # Axes formatting
         ax.set_xscale("log")
         ax.set_xlim(0.008, 12)
+        ax.set_ylim(bottom=0.0)
+        ax.xaxis.set_major_locator(LogLocator(base=10.0, subs=(1.0,), numticks=4))
+        ax.xaxis.set_minor_locator(NullLocator())
+        ax.yaxis.set_major_locator(MaxNLocator(nbins=4))
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
 
         # Title
         short_name = simplify_mof_name(mof_id)
-        ax.set_title(short_name, fontsize=gl.annotation_font - 0.5, fontweight="normal",
-                      loc="center", pad=3)
+        ax.set_title(
+            short_name,
+            fontsize=gl.annotation_font + 1.0,
+            fontweight="bold",
+            loc="center",
+            pad=2,
+        )
 
         # R2 annotation
-        r2_text = f"$R^2$={r2_global:.4f}"
+        r2_text = f"$R^2$ = {r2_global:.4f}"
         if model_type == "single_site":
-            r2_text += "\n(single-site)"
+            r2_text += "\n1-site"
         ax.text(
-            0.97, 0.05, r2_text,
-            transform=ax.transAxes, fontsize=gl.annotation_font - 1.0,
-            ha="right", va="bottom",
-            bbox=dict(boxstyle="round,pad=0.15", fc="white", ec="none", alpha=0.7),
+            0.04,
+            0.96,
+            r2_text,
+            transform=ax.transAxes,
+            fontsize=max(7.0, gl.annotation_font + 0.5),
+            ha="left",
+            va="top",
+            bbox=dict(boxstyle="round,pad=0.18", fc="white", ec="#CFCFCF", lw=0.35, alpha=0.88),
         )
 
         # Tick formatting
-        ax.tick_params(axis="both", which="both", labelsize=gl.tick_font - 0.5)
-        ax.minorticks_on()
+        ax.tick_params(axis="both", which="major", labelsize=gl.tick_font - 0.25, pad=1.2)
 
     # Hide unused axes
     for idx in range(n_mofs, nrows * ncols):
         row, col = divmod(idx, ncols)
         axes[row, col].set_visible(False)
 
-    # Place legend in the last empty subplot (or first hidden one)
-    legend_idx = n_mofs  # first hidden subplot
+    legend_handles = [
+        Line2D(
+            [0],
+            [0],
+            color=style["color"],
+            marker=style["marker"],
+            linewidth=1.0,
+            markersize=max(4.2, gl.tick_font - 2.0),
+            markeredgewidth=0.0,
+            solid_capstyle="round",
+            label=style["label"],
+        )
+        for style in TEMP_STYLE.values()
+    ]
+    legend_idx = n_mofs
     if legend_idx < nrows * ncols:
         row_leg, col_leg = divmod(legend_idx, ncols)
         ax_leg = axes[row_leg, col_leg]
         ax_leg.set_visible(True)
         ax_leg.axis("off")
-        handles = []
-        for T, style in TEMP_STYLE.items():
-            h = ax_leg.scatter([], [], c=style["color"], marker=style["marker"],
-                               s=gl.marker_area * 3, label=f"{style['label']} (GCMC)")
-            handles.append(h)
-        for T, style in TEMP_STYLE.items():
-            h, = ax_leg.plot([], [], color=style["color"], lw=1.0,
-                             label=f"{style['label']} (ext-DSL)")
-            handles.append(h)
         ax_leg.legend(
-            handles=handles,
+            handles=legend_handles,
             loc="center",
-            fontsize=gl.body_font,
             ncol=1,
             frameon=False,
+            fontsize=gl.body_font + 1.0,
+            handlelength=1.6,
+            handletextpad=0.55,
+            labelspacing=0.7,
+            borderaxespad=0.0,
+        )
+    else:
+        fig.legend(
+            handles=legend_handles,
+            loc="upper center",
+            bbox_to_anchor=(0.5, 0.99),
+            ncol=len(legend_handles),
+            frameon=False,
+            fontsize=gl.tick_font + 1.0,
+            columnspacing=1.1,
+            handletextpad=0.45,
+            borderaxespad=0.0,
         )
 
     # Shared axis labels
     gas_label = GAS_DISPLAY.get(gas, gas)
     fig.text(
-        0.5, 0.005, "Pressure (bar)",
-        ha="center", fontsize=gl.body_font,
+        0.5, 0.012, "Pressure (bar)",
+        ha="center", fontsize=gl.body_font + 1.0,
     )
     fig.text(
-        0.002, 0.5, f"{gas_label} uptake (mol/kg)",
-        va="center", rotation=90, fontsize=gl.body_font,
+        0.012, 0.5, f"{gas_label} uptake (mol/kg)",
+        va="center", rotation=90, fontsize=gl.body_font + 1.0,
     )
 
     # Save
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_path, dpi=DPI, bbox_inches="tight", pad_inches=0.03)
+    fig.savefig(output_path, dpi=DPI, bbox_inches="tight", pad_inches=0.02)
     logger.info("Saved: %s (%.1f KB)", output_path, output_path.stat().st_size / 1024)
     plt.close(fig)
 
@@ -308,11 +358,11 @@ def main():
     logger.info("Temperatures in GCMC data: %s", sorted(gcmc["T"].unique()))
     logger.info("MOFs in fits: %d", fits["MofName"].nunique())
 
-    # CH4 figure → img_007a.png
-    plot_gas_figure("methane", gcmc, fits, args.output_dir / "img_007a.png")
+    # CH4 figure
+    plot_gas_figure("methane", gcmc, fits, args.output_dir / CH4_FIG_NAME)
 
-    # N2 figure → img_007b.png
-    plot_gas_figure("N2", gcmc, fits, args.output_dir / "img_007b.png")
+    # N2 figure
+    plot_gas_figure("N2", gcmc, fits, args.output_dir / N2_FIG_NAME)
 
     logger.info("Done. Both figures generated.")
 
