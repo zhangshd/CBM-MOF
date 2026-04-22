@@ -105,7 +105,7 @@ def make_figure(
     cmap = plt.cm.viridis  # same colormap as Figure 4
     scatter_mappables = []
 
-    for ax, wc_col, alpha_col, label, panel_exp_ids, panel_hypo_ids in panels:
+    for panel_idx, (ax, wc_col, alpha_col, label, panel_exp_ids, panel_hypo_ids) in enumerate(panels):
         is_exp_top = df["mof_id"].isin(panel_exp_ids) & ~is_atccu
         is_hypo_top = df["mof_id"].isin(panel_hypo_ids)
         is_background = ~is_atccu & ~is_exp_top & ~is_hypo_top
@@ -155,9 +155,12 @@ def make_figure(
 
         # Axes (same labels and limits as Figure 4)
         ax.set_xlabel(r"Working Capacity (mol/kg)", fontsize=layout.body_font)
-        ax.set_ylabel(r"Selectivity $\alpha$(CH$_4$/N$_2$)", fontsize=layout.body_font)
+        if panel_idx == 0:
+            ax.set_ylabel(r"Selectivity $\alpha$(CH$_4$/N$_2$)", fontsize=layout.body_font)
+        else:
+            ax.set_ylabel("")
         ax.tick_params(labelsize=layout.tick_font)
-        ax.set_title(label, fontsize=layout.body_font, fontweight="bold")
+        ax.set_title(label, fontsize=layout.title_font, fontweight="bold")
 
         # Show ALL data: data max + 5% padding (no percentile clipping)
         wc_max = df[wc_col].dropna().max()

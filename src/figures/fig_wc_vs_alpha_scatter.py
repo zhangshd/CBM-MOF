@@ -70,7 +70,7 @@ def make_figure(
     fig.subplots_adjust(
         left=layout.left, right=layout.right,
         bottom=layout.bottom, top=layout.top,
-        wspace=layout.wspace + 0.15,
+        wspace=layout.wspace + 0.08,
     )
 
     # Panel config: (ax, wc_col, alpha_col, api_col, label, exp_ids, hypo_ids)
@@ -83,7 +83,7 @@ def make_figure(
     cmap = plt.cm.viridis
     scatter_mappables = []  # one per panel, for per-panel colorbars
 
-    for ax, wc_col, alpha_col, api_col, label, panel_exp_ids, panel_hypo_ids in panels:
+    for panel_idx, (ax, wc_col, alpha_col, api_col, label, panel_exp_ids, panel_hypo_ids) in enumerate(panels):
         # Per-panel masks
         is_exp_top = df["mof_id"].isin(panel_exp_ids) & ~is_atccu
         is_hypo_top = df["mof_id"].isin(panel_hypo_ids)
@@ -135,9 +135,12 @@ def make_figure(
 
         # Axes
         ax.set_xlabel(r"Working Capacity (mol/kg)", fontsize=layout.body_font)
-        ax.set_ylabel(r"Selectivity $\alpha$(CH$_4$/N$_2$)", fontsize=layout.body_font)
+        if panel_idx == 0:
+            ax.set_ylabel(r"Selectivity $\alpha$(CH$_4$/N$_2$)", fontsize=layout.body_font)
+        else:
+            ax.set_ylabel("")
         ax.tick_params(labelsize=layout.tick_font)
-        ax.set_title(label, fontsize=layout.body_font, fontweight="bold")
+        ax.set_title(label, fontsize=layout.title_font, fontweight="bold")
 
         # Show ALL data: use data max + 5% padding instead of percentile clipping
         wc_max = df[wc_col].dropna().max()

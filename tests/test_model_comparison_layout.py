@@ -5,18 +5,24 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
+import src.figures.fig_model_comparison as fig_model_comparison  # noqa: E402
 from src.figures.annotation_layout import (  # noqa: E402
     build_corner_annotation_candidates,
     choose_annotation_anchor,
     choose_common_annotation_anchor,
 )
+from src.figures.data_loader import MODEL_ORDER, TASK_LIST  # noqa: E402
 from src.figures.style import (  # noqa: E402
     DOUBLE_COL_INCH,
+    LABEL_FONT_SIZE,
+    TICK_FONT_SIZE,
     compute_panel_grid_layout,
     derive_word_equivalent_fonts,
 )
@@ -95,10 +101,56 @@ def test_corner_candidates_are_generated_from_panel_geometry() -> None:
     }
 
 
+def test_heatmap_keeps_mean_inside_single_panel_and_uses_larger_fonts() -> None:
+    """Figure 4 should keep the mean column inside one heatmap without a title."""
+    rows: list[dict[str, float | str]] = []
+    for model_idx, model_name in enumerate(MODEL_ORDER):
+        for task_idx, task in enumerate(TASK_LIST):
+            rows.append(
+                {
+                    "Model": model_name,
+                    "Target": task,
+                    "R2": 0.74 + 0.02 * model_idx + 0.005 * task_idx,
+                    "MAE": 0.1,
+                    "MAPE": 0.2,
+                }
+            )
+    metrics_long = pd.DataFrame(rows)
+
+    captured: dict[str, object] = {}
+    original_save = fig_model_comparison.save_figure
+
+    def capture_save(fig, name, output_dir, formats=("png",), tight_layout=True):
+        captured["fig"] = fig
+        captured["name"] = name
+
+    fig_model_comparison.save_figure = capture_save
+    try:
+        fig_model_comparison.plot_figure4(Path("/tmp"), metrics_long)
+        fig = captured["fig"]
+        assert isinstance(fig, plt.Figure)
+        ax = fig.axes[0]
+        cbar_ax = fig.axes[1]
+
+        assert captured["name"] == "Figure04_model_heatmap"
+        assert ax.get_title() == ""
+        assert [tick.get_text() for tick in ax.get_xticklabels()][-1] == "Mean"
+        assert len(ax.get_xticklabels()) == len(TASK_LIST) + 1
+        assert len(ax.lines) == 0
+        assert ax.get_xticklabels()[0].get_fontsize() == TICK_FONT_SIZE + 1.0
+        assert ax.get_yticklabels()[0].get_fontsize() == LABEL_FONT_SIZE + 1.0
+        assert cbar_ax.get_ylabel() == r"$R^2$"
+    finally:
+        fig_model_comparison.save_figure = original_save
+        if "fig" in captured:
+            plt.close(captured["fig"])
+
+
 if __name__ == "__main__":
     test_font_scaling_matches_word_target()
     test_grid_layout_compacts_two_row_parity_figure()
     test_annotation_anchor_avoids_dense_corner()
     test_common_annotation_anchor_returns_valid_corner()
     test_corner_candidates_are_generated_from_panel_geometry()
-    print("5 tests passed")
+    test_heatmap_keeps_mean_inside_single_panel_and_uses_larger_fonts()
+    print("6 tests passed")

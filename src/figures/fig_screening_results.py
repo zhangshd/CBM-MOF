@@ -32,6 +32,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from figures.style import (  # noqa: E402
+    compute_panel_grid_layout,
     DOUBLE_COL_INCH,
     NATURE_COLORS,
     save_figure,
@@ -56,6 +57,8 @@ TRAINING_ADS_R1_CSV = REPO_ROOT / "results" / "cbm_screening" / "gcmc_round1_Dre
 TRAINING_WIDOM_R1_CSV = REPO_ROOT / "results" / "cbm_screening" / "widom_round1_DREIDING" / "widom_results_0911.csv"
 TRAINING_ADS_R2_CSV = REPO_ROOT / "results" / "cbm_screening" / "raspa3_parsed_results_round2_0917.csv"
 TRAINING_WIDOM_R2_CSV = REPO_ROOT / "results" / "cbm_screening" / "widom_results_round2_0917.csv"
+FIGURE10_HEIGHT_RATIO = 0.88
+FIGURE10_W_PAD = 0.45
 
 
 def _create_integrated_dataset(ads_df: pd.DataFrame, widom_df: pd.DataFrame) -> pd.DataFrame:
@@ -166,19 +169,19 @@ def plot_figure10(output_dir: Path) -> dict[str, float]:
     vsa = validated[validated["vsa_rank"].notna()].copy()
 
     set_publication_style()
-    fig, axes = plt.subplots(2, 2, figsize=(DOUBLE_COL_INCH, 0.92 * DOUBLE_COL_INCH))
+    fig, axes = plt.subplots(2, 2, figsize=(DOUBLE_COL_INCH, FIGURE10_HEIGHT_RATIO * DOUBLE_COL_INCH))
 
     scatter_specs = [
-        (axes[0, 0], psa, "PSA", NATURE_COLORS["blue"], "(a) PSA Elites (n=100)"),
-        (axes[0, 1], vsa, "VSA", NATURE_COLORS["orange"], "(b) VSA Elites (n=100)"),
+        (axes[0, 0], psa, "PSA", NATURE_COLORS["blue"], "(a) PSA Elites (n=100)", "", r"CH$_4$/N$_2$ selectivity"),
+        (axes[0, 1], vsa, "VSA", NATURE_COLORS["orange"], "(b) VSA Elites (n=100)", rf"VSA API ({_format_api_unit()})", ""),
     ]
     enrichment_specs = [
-        (axes[1, 0], "PSA", train["PSA_API_CH4"].dropna(), psa["gcmc_PSA_API_CH4"].dropna(), NATURE_COLORS["blue"], "(c) PSA API enrichment"),
-        (axes[1, 1], "VSA", train["VSA_API_CH4"].dropna(), vsa["gcmc_VSA_API_CH4"].dropna(), NATURE_COLORS["orange"], "(d) VSA API enrichment"),
+        (axes[1, 0], "PSA", train["PSA_API_CH4"].dropna(), psa["gcmc_PSA_API_CH4"].dropna(), NATURE_COLORS["blue"], "(c) PSA API enrichment", "Density"),
+        (axes[1, 1], "VSA", train["VSA_API_CH4"].dropna(), vsa["gcmc_VSA_API_CH4"].dropna(), NATURE_COLORS["orange"], "(d) VSA API enrichment", ""),
     ]
 
     summary = {}
-    for ax, df_sub, process, color, title in scatter_specs:
+    for ax, df_sub, process, color, title, cbar_label, ylabel in scatter_specs:
         x_col = f"gcmc_{process}_WC_CH4"
         y_col = f"gcmc_{process}_alpha_CH4_N2"
         c_col = f"gcmc_{process}_API_CH4"
@@ -191,16 +194,16 @@ def plot_figure10(output_dir: Path) -> dict[str, float]:
         ax.scatter([b_wc], [b_alpha], marker="*", s=90, color="black", zorder=4)
         ax.annotate("ATC-Cu", (b_wc, b_alpha), xytext=(5, 5), textcoords="offset points", fontsize=7.0)
         ax.set_xlabel(r"CH$_4$ working capacity (mol/kg)")
-        ax.set_ylabel(r"CH$_4$/N$_2$ selectivity")
+        ax.set_ylabel(ylabel)
         ax.set_title(title)
         _apply_axis_style(ax)
         cbar = fig.colorbar(sc, ax=ax, fraction=0.046, pad=0.02)
-        cbar.set_label(rf"{process} API ({_format_api_unit()})")
+        cbar.set_label(cbar_label)
         cbar.ax.tick_params(labelsize=7.5)
         summary[f"{process.lower()}_benchmark_api"] = float(benchmark_validated[f"gcmc_{process}_API_CH4"])
         summary[f"{process.lower()}_validated_mean_api"] = float(df_sub[c_col].mean())
 
-    for ax, process, training_api, validated_api, color, title in enrichment_specs:
+    for ax, process, training_api, validated_api, color, title, ylabel in enrichment_specs:
         sns.kdeplot(training_api, ax=ax, color=NATURE_COLORS["purple"], fill=True, alpha=0.25, linewidth=1.0, label=f"Training set (n={len(training_api):,})")
         sns.kdeplot(validated_api, ax=ax, color=color, fill=True, alpha=0.35, linewidth=1.0, label=f"{process} Elites(n={len(validated_api)})")
         ax.axvline(training_api.mean(), color=NATURE_COLORS["purple"], linestyle="--", linewidth=0.8)
@@ -208,7 +211,7 @@ def plot_figure10(output_dir: Path) -> dict[str, float]:
         benchmark_api = float(benchmark_validated[f"gcmc_{process}_API_CH4"])
         ax.axvline(benchmark_api, color="black", linestyle=":", linewidth=1.0, label=f"ATC-Cu = {benchmark_api:.3f}")
         ax.set_xlabel(rf"API ({_format_api_unit()})")
-        ax.set_ylabel("Density")
+        ax.set_ylabel(ylabel)
         ax.set_title(title)
         _apply_axis_style(ax)
         # Extend x-axis to avoid legend-line overlap
@@ -216,7 +219,7 @@ def plot_figure10(output_dir: Path) -> dict[str, float]:
         ax.set_xlim(xlim[0], xlim[1] * 1.45)
         ax.legend(loc="upper right", fontsize=6.5, frameon=False)
 
-    fig.tight_layout(w_pad=0.7, h_pad=0.9)
+    fig.tight_layout(w_pad=FIGURE10_W_PAD, h_pad=0.9)
     save_figure(fig, "Figure10_screening_scatter", output_dir, formats=("png",))
 
     pd.DataFrame([
@@ -228,6 +231,7 @@ def plot_figure10(output_dir: Path) -> dict[str, float]:
 def plot_figure11(output_dir: Path) -> pd.DataFrame:
     _benchmark_train, benchmark_validated = load_benchmark_reference()
     validated = load_validated_top100()
+    legend_font = compute_panel_grid_layout(1, 2, DOUBLE_COL_INCH).tick_font
 
     process_specs = [
         ("PSA", "gcmc_PSA_API_CH4", "psa_rank", float(benchmark_validated["gcmc_PSA_API_CH4"]), NATURE_COLORS["blue"]),
@@ -275,10 +279,10 @@ def plot_figure11(output_dir: Path) -> pd.DataFrame:
         x = np.arange(len(summary))
         bar_width = 0.7
         # Stacked bars: exp on bottom, hypo on top
-        bars_exp = ax.bar(x, summary["exp"], bar_width, color=exp_color, edgecolor="black",
-                          linewidth=0.4, alpha=0.85, label="Experimental")
-        bars_hypo = ax.bar(x, summary["hypo"], bar_width, bottom=summary["exp"], color=hypo_color,
-                           edgecolor="black", linewidth=0.4, alpha=0.85, label="Hypothetical")
+        ax.bar(x, summary["exp"], bar_width, color=exp_color, edgecolor="black",
+               linewidth=0.4, alpha=0.85, label="Experimental")
+        ax.bar(x, summary["hypo"], bar_width, bottom=summary["exp"], color=hypo_color,
+               edgecolor="black", linewidth=0.4, alpha=0.85, label="Hypothetical")
         # Count labels on top
         for xi, total in zip(x, summary["total"]):
             ax.text(xi, total, f"{total}", ha="center", va="bottom", fontsize=6.5)
@@ -286,14 +290,14 @@ def plot_figure11(output_dir: Path) -> pd.DataFrame:
         ax.set_xticks(x)
         ax.set_xticklabels([_display_cluster_label(c) for c in summary["cluster"]])
         ax.set_xlabel("Cluster")
-        ax.set_ylabel("Benchmark-beating count")
+        ax.set_ylabel("Benchmark-beating count" if col_idx == 0 else "")
         n_hits = int(summary["total"].sum())
-        ax.set_title(f"{panel_labels[col_idx]} {process} (n = {n_hits}, API \u2265 {threshold:.3f})")
+        ax.set_title(f"{panel_labels[col_idx]} {process} (n = {n_hits}, API ≥ {threshold:.3f})")
         _apply_axis_style(ax)
         if col_idx == 0:
-            ax.legend(fontsize=6.5, frameon=False, loc="upper right")
+            ax.legend(fontsize=legend_font, frameon=False, loc="upper right")
 
-    fig.tight_layout(w_pad=1.0)
+    fig.tight_layout(w_pad=0.45)
     save_figure(fig, "Figure11_cluster_analysis", output_dir, formats=("png",))
     summary_df = pd.DataFrame(rows).sort_values(["process", "total"], ascending=[True, False])
     summary_df.to_csv(output_dir / "Figure11_cluster_analysis_summary.csv", index=False)

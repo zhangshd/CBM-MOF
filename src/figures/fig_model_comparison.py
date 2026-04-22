@@ -52,12 +52,27 @@ from src.figures.style import (  # noqa: E402
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 ALIGNN_CMAP = LinearSegmentedColormap.from_list(
-    "nature_magenta_cyan",
+    "cbm_blue_green_soft",
     [
-        NATURE_COLORS["magenta"],
-        NATURE_COLORS["cyan"],
+        (0.00, "#FAFCFA"),
+        (0.16, "#EEF6F0"),
+        (0.32, "#D9EEE0"),
+        (0.48, "#B9E0CF"),
+        (0.62, "#9AD2D7"),
+        (0.76, "#7EBFE0"),
+        (0.90, "#5A9FD2"),
+        (1.00, "#3A7FB6"),
     ],
+    N=256,
 )
+
+HEATMAP_AXIS_FONT_DELTA_PT = 1.0
+HEATMAP_VALUE_FONT_DELTA_PT = 1.0
+
+
+def _choose_heatmap_text_color(image, value: float) -> str:
+    """Use one consistent annotation color for the softened heatmap."""
+    return "black"
 
 
 def build_table_s3(metrics_long: pd.DataFrame) -> pd.DataFrame:
@@ -96,6 +111,9 @@ def export_table_s3(csv_path: Path, table_s3: pd.DataFrame) -> None:
 def plot_figure4(output_dir: Path, metrics_long: pd.DataFrame) -> None:
     """Plot Figure 4: test-set R^2 heatmap."""
     set_publication_style()
+    heatmap_tick_font = TICK_FONT_SIZE + HEATMAP_AXIS_FONT_DELTA_PT
+    heatmap_label_font = LABEL_FONT_SIZE + HEATMAP_AXIS_FONT_DELTA_PT
+    heatmap_value_font = TICK_FONT_SIZE + HEATMAP_VALUE_FONT_DELTA_PT
 
     r2_matrix = np.zeros((len(MODEL_ORDER), len(TASK_LIST) + 1))
     for i, model_name in enumerate(MODEL_ORDER):
@@ -109,46 +127,55 @@ def plot_figure4(output_dir: Path, metrics_long: pd.DataFrame) -> None:
 
     col_labels = [TASK_LABELS[task] for task in TASK_LIST] + ["Mean"]
 
-    fig, ax = plt.subplots(figsize=(DOUBLE_COL_INCH, 3.1))
+    fig, ax = plt.subplots(figsize=(DOUBLE_COL_INCH, 3.35))
     image = ax.imshow(
         r2_matrix,
         cmap=ALIGNN_CMAP,
         aspect="auto",
+        interpolation="nearest",
         vmin=0.72,
         vmax=0.98,
     )
 
     ax.set_xticks(range(len(col_labels)))
-    ax.set_xticklabels(col_labels, rotation=45, ha="right", fontsize=TICK_FONT_SIZE)
+    ax.set_xticklabels(
+        col_labels,
+        rotation=38,
+        ha="right",
+        rotation_mode="anchor",
+        fontsize=heatmap_tick_font,
+        color="black",
+    )
     ax.set_yticks(range(len(MODEL_ORDER)))
-    ax.set_yticklabels(["CGCNN", "MFT", "ALIGNN"], fontsize=LABEL_FONT_SIZE)
+    ax.set_yticklabels(["CGCNN", "MFT", "ALIGNN"], fontsize=heatmap_label_font, color="black")
+    ax.tick_params(axis="both", length=0, pad=3, colors="black")
+    ax.set_xticks(np.arange(-0.5, r2_matrix.shape[1], 1), minor=True)
+    ax.set_yticks(np.arange(-0.5, r2_matrix.shape[0], 1), minor=True)
+    ax.grid(which="minor", color="white", linewidth=1.2)
+    ax.tick_params(which="minor", bottom=False, left=False)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
 
     for i in range(r2_matrix.shape[0]):
         for j in range(r2_matrix.shape[1]):
             value = r2_matrix[i, j]
             fontweight = "bold" if j == r2_matrix.shape[1] - 1 else "normal"
-            text_color = "black"
+            text_color = _choose_heatmap_text_color(image, value)
             ax.text(
                 j,
                 i,
                 f"{value:.3f}",
                 ha="center",
                 va="center",
-                fontsize=TICK_FONT_SIZE,
+                fontsize=heatmap_value_font,
                 fontweight=fontweight,
                 color=text_color,
             )
 
-    ax.axvline(x=r2_matrix.shape[1] - 1.5, color="white", linewidth=1.5)
-    cbar = fig.colorbar(image, ax=ax, fraction=0.025, pad=0.04)
-    cbar.set_label(r"$R^2$", fontsize=LABEL_FONT_SIZE)
-    cbar.ax.tick_params(labelsize=TICK_FONT_SIZE)
-    ax.set_title(
-        r"Test-set $R^2$ Comparison",
-        fontsize=TITLE_FONT_SIZE,
-        fontweight="bold",
-        pad=8,
-    )
+    cbar = fig.colorbar(image, ax=ax, fraction=0.028, pad=0.025)
+    cbar.outline.set_visible(False)
+    cbar.set_label(r"$R^2$", fontsize=heatmap_label_font, color="black")
+    cbar.ax.tick_params(labelsize=heatmap_tick_font, length=0, colors="black")
 
     save_figure(fig, "Figure04_model_heatmap", output_dir)
     plt.close(fig)

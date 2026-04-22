@@ -155,13 +155,13 @@ def draw_bump_panel(
 
     # Y-axis: show rank numbers
     ax.set_yticks(range(1, 11))
-    ax.tick_params(axis="y", labelsize=LABEL_FONT_SIZE*1.4, length=3, pad=2)
+    ax.tick_params(axis="y", labelsize=LABEL_FONT_SIZE * 1.4, length=3, pad=2)
 
     # X axis: two column headers
     ax.set_xticks([x_api, x_igd])
     xtick_labels = ax.set_xticklabels(
         ["API Rank\n(molecular-scale)", "IGD Rank\n(process-scale)"],
-        fontsize=LABEL_FONT_SIZE*1.4, fontweight="bold",
+        fontsize=LABEL_FONT_SIZE * 1.4, fontweight="bold",
     )
     xtick_labels[0].set_ha("right")
     xtick_labels[0].set_multialignment("right")
@@ -178,7 +178,7 @@ def draw_bump_panel(
         ax.axhline(r, color="#eeeeee", linewidth=0.4, zorder=1)
 
     # Panel title
-    ax.set_title(title, fontsize=TITLE_FONT_SIZE*1.4, fontweight="bold",
+    ax.set_title(title, fontsize=TITLE_FONT_SIZE * 1.5, fontweight="bold",
                  loc="left", pad=10)
 
     return rho
@@ -189,10 +189,10 @@ def main():
     set_publication_style()
 
     fig, (ax1, ax2) = plt.subplots(
-        1, 2, figsize=(DOUBLE_COL_INCH*1.4, DOUBLE_COL_INCH*1.4*0.6),
+        1, 2, figsize=(DOUBLE_COL_INCH * 1.4, DOUBLE_COL_INCH * 1.4 * 0.6),
         gridspec_kw={"wspace": 0.32},
     )
-    fig.subplots_adjust(left=0.04, right=0.96, bottom=0.15, top=0.92)
+    fig.subplots_adjust(left=0.04, right=0.96, bottom=0.18, top=0.93)
 
     rho_psa = draw_bump_panel(ax1, psa_data, "(a) PSA")
     rho_vsa = draw_bump_panel(ax2, vsa_data, "(b) VSA")
@@ -206,15 +206,19 @@ def main():
         mpatches.Patch(facecolor=COLOR_STABLE, edgecolor="none",
                        label="Rank stable (|Δ| ≤ 2)"),
         plt.Line2D([0], [0], color="k", linestyle=ATC_DASH,
-                    linewidth=1.4, label="ATC-Cu (benchmark)"),
+                   linewidth=1.4, label="ATC-Cu (benchmark)"),
     ]
     fig.legend(
         handles=legend_elements,
         loc="lower center",
         ncol=4,
-        fontsize=LEGEND_FONT_SIZE*1.4,
+        fontsize=LEGEND_FONT_SIZE * 1.4,
         frameon=False,
-        bbox_to_anchor=(0.5, -0.01),
+        bbox_to_anchor=(0.535, 0.02),
+        bbox_transform=fig.transFigure,
+        borderaxespad=0.0,
+        handletextpad=0.6,
+        columnspacing=1.5,
     )
 
     # ── Save ────────────────────────────────────────────────────────────

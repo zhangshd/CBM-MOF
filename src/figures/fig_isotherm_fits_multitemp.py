@@ -144,7 +144,7 @@ def build_figure_layout(nrows: int, ncols: int, layout_width: float = DEFAULT_LA
         layout_width,
         panel_aspect=0.70,
         gap_ratio_x=0.18,
-        gap_ratio_y=0.24,
+        gap_ratio_y=0.31,
         top_margin_inch=0.26,
         bottom_margin_inch=0.46,
         left_margin_inch=0.48,

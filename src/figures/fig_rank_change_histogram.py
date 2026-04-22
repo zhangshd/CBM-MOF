@@ -99,6 +99,9 @@ def _plot_panel(
     rank_col: str,
     panel_label: str,
     layout,
+    *,
+    ylabel: str,
+    show_legend: bool,
 ):
     """Draw one stacked histogram panel (PSA or VSA)."""
     exp_mask = df["is_exp"]
@@ -135,13 +138,22 @@ def _plot_panel(
     n_total = len(df)
     pct_shifted = 100.0 * n_shifted / n_total
 
-    # Annotation text (upper-right, away from bars)
+    if show_legend:
+        ax.legend(
+            loc="upper right",
+            frameon=False,
+            fontsize=layout.tick_font,
+            handlelength=1.2,
+            borderaxespad=0.2,
+        )
+
+    # Annotation text placed below the in-panel legend and aligned to its left edge
     ax.text(
-        0.97, 0.92,
+        0.72, 0.70,
         f"|$\\Delta$rank| $\\geq$ {SHIFT_THRESHOLD}:\n{n_shifted}/{n_total} ({pct_shifted:.1f}%)",
         transform=ax.transAxes,
-        fontsize=layout.annotation_font,
-        va="top", ha="right",
+        fontsize=layout.tick_font,
+        va="top", ha="left",
         color="#555555",
     )
 
@@ -149,7 +161,7 @@ def _plot_panel(
     ax.set_xticks(x)
     ax.set_xticklabels(BIN_LABELS, fontsize=layout.tick_font)
     ax.set_xlabel(r"|$\Delta$rank|", fontsize=layout.body_font)
-    ax.set_ylabel("Number of MOFs", fontsize=layout.body_font)
+    ax.set_ylabel(ylabel, fontsize=layout.body_font)
     ax.set_title(panel_label, fontsize=layout.title_font, fontweight="bold", loc="left")
 
     # Clean up spines
@@ -187,38 +199,27 @@ def main():
         1, 2,
         figsize=(DOUBLE_COL_INCH, 0.45 * DOUBLE_COL_INCH),
     )
-    fig.subplots_adjust(
-        left=0.08, right=0.99,
-        bottom=0.24, top=0.88,
-        wspace=0.16,
-    )
 
     _plot_panel(
         axes[0], df_psa,
         rank_col="PSA_rank_change",
         panel_label="(a) PSA Case",
         layout=layout,
+        ylabel="Number of MOFs",
+        show_legend=True,
     )
     _plot_panel(
         axes[1], df_vsa,
         rank_col="VSA_rank_change",
         panel_label="(b) VSA Case",
         layout=layout,
+        ylabel="",
+        show_legend=False,
     )
 
-    # Shared legend from right panel
-    handles, labels = axes[1].get_legend_handles_labels()
-    fig.legend(
-        handles, labels,
-        loc="lower center",
-        ncol=2,
-        fontsize=layout.tick_font,
-        bbox_to_anchor=(0.5, 0.03),
-        frameon=False,
-    )
-
+    fig.tight_layout(w_pad=0.45)
     save_figure(fig, "Figure13_rank_change_distribution", args.output_dir,
-                formats=("png",), tight_layout=False)
+                formats=("png",))
     plt.close(fig)
     print("Done.")
 

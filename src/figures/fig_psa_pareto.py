@@ -147,7 +147,7 @@ def _plot_pareto_panel(
     layout,
 ) -> dict[str, str]:
     """Plot one panel (PSA or VSA) of the Pareto front comparison.
-    
+
     Returns:
         Mapping of material_name → marker string for legend construction.
     """
@@ -194,9 +194,11 @@ def _plot_pareto_panel(
     if mode == "VSA":
         ax.set_xlim(right=12)
 
-    # Axis labels
-    ax.set_xlabel("Productivity (mol/kg/h)", fontsize=layout.body_font)
-    ax.set_ylabel("Energy (kWh/ton)", fontsize=layout.body_font)
+    ax.set_xlabel(r"CH$_4$ Productivity (mol/kg/h)", fontsize=layout.body_font)
+    ax.set_ylabel(
+        r"Energy Consumption (kWh/tonne CH$_4$)" if mode == "PSA" else "",
+        fontsize=layout.body_font,
+    )
 
     return mat_markers
 
@@ -284,7 +286,7 @@ def plot_pareto_figure(analysis_csv: Path, ranking_csv: Path, output_dir: Path):
     fig.subplots_adjust(
         left=layout.left, right=layout.right,
         bottom=layout.bottom, top=layout.top,
-        wspace=layout.wspace,
+        wspace=layout.wspace * 0.82,
     )
 
     for ax, mode, label in zip(axes, ["PSA", "VSA"], ["(a)", "(b)"]):
