@@ -174,7 +174,7 @@ def plot_figure4(output_dir: Path, metrics_long: pd.DataFrame) -> None:
 
     cbar = fig.colorbar(image, ax=ax, fraction=0.028, pad=0.025)
     cbar.outline.set_visible(False)
-    cbar.set_label(r"$R^2$", fontsize=heatmap_label_font, color="black")
+    cbar.ax.set_xlabel(r"$R^2$", fontsize=heatmap_label_font, color="black", labelpad=6)
     cbar.ax.tick_params(labelsize=heatmap_tick_font, length=0, colors="black")
 
     save_figure(fig, "Figure04_model_heatmap", output_dir)

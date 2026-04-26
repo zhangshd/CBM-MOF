@@ -186,7 +186,8 @@ def _plot_pareto_panel(
         ax.scatter(
             atc_df["productivity"], atc_df["energy"],
             marker="*", s=marker_size_normal * 3,
-            facecolors="none", edgecolors="#D62728",
+            # facecolors="none", edgecolors="#D62728",
+            c = "#D62728", alpha=0.55,
             linewidths=0.8, zorder=5,
         )
 
@@ -225,7 +226,7 @@ def _build_legend(
             h = mlines.Line2D(
                 [], [], color=color, marker="*", markersize=7,
                 linestyle="None", label=short,
-                markerfacecolor="none", markeredgecolor=color,
+                markerfacecolor="#D62728", markeredgecolor=color,
                 markeredgewidth=0.9,
             )
         else:

@@ -70,7 +70,7 @@ vsa_data = {
 # ── Color helpers ───────────────────────────────────────────────────────────
 COLOR_IMPROVE = "#0173B2"   # blue — climbers (API rank worse → IGD rank better)
 COLOR_WORSEN  = "#D55E00"   # red–orange — fallers
-COLOR_STABLE  = "#949494"   # gray — roughly stable
+COLOR_STABLE  = "#6B6B6B"   # gray — roughly stable
 ATC_DASH      = (0, (4, 2)) # dashed line for ATC-Cu†
 
 RANK_THRESHOLD = 2  # |Δrank| ≤ threshold → "stable"
