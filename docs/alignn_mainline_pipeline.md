@@ -11,7 +11,8 @@ The maintained mainline covers four phases:
 1. model preparation and deployment artifacts
 2. uncertainty calibration and library screening
 3. top-candidate validation by GCMC/Widom
-4. process-level validation by pure-component fitting and breakthrough
+4. process-level validation by pure-component fitting, IAST summaries, and
+   SuperPSA input preparation
 
 The `src/alignn` root now keeps only canonical Python entrypoints. Historical
 experiments and abandoned scripts are preserved under `src/alignn/legacy/`.
@@ -28,7 +29,7 @@ results/alignn/model_epXXX/
 ├── uq/
 ├── full_library_inference/
 ├── top_candidates/
-└── bkt_candidates/
+└── process_candidates/
 ```
 
 The shared path helper is:
@@ -92,10 +93,12 @@ rerunning the downstream screening pipeline.
 - Outputs:
   - `full_library_inference/full_library_uq.csv`
 
-Consistency must be checked against `uq/lsv_thresholds.json` via:
+Consistency should be checked against `uq/lsv_thresholds.json` via:
 
 - `src/alignn/uq/consistency.py`
-- `tests/test_alignn_pipeline_consistency.py`
+
+Repository-level validation should use targeted script `--help`, dry-run modes,
+and file-level output checks for the pipeline stage being changed.
 
 ## Phase 2. Screening
 
@@ -123,7 +126,7 @@ This step applies:
 
 - Entry points:
   - `src/alignn/filter_stable_candidates.py`
-  - `src/alignn/select_top_candidates.py`
+  - `src/alignn/select_exp_top_candidates.py`
 - Outputs:
   - filtered candidate CSVs
   - top-candidate CIF collection
@@ -134,8 +137,8 @@ This step applies:
 
 - Entry points:
   - `src/alignn/submit_gcmc_validation.py`
-  - `src/alignn/parse_validation_results.py`
-  - `src/alignn/select_final_top10.py`
+  - `src/alignn/run_new_top10_pipeline.py`
+  - `src/alignn/visualize_gcmc_validation.py`
 
 ### 2. Pure-component and process validation
 
@@ -144,9 +147,14 @@ This step applies:
   - `src/alignn/parse_pure_component_results.py`
   - `src/alignn/fit_pure_component_isotherms.py`
   - `src/alignn/compute_iast_selectivity.py`
-  - `src/alignn/run_breakthrough.py`
-- Shared process helper:
-  - `src/alignn/process/curve_cache.py`
+  - `src/alignn/process/convert_params_for_superpsa.py`
+  - `src/alignn/process/generate_process_config.py`
+  - `src/alignn/process/parse_nsga2_results.py`
+  - `src/alignn/process/select_knee_points.py`
+  - `src/alignn/process/select_optimization_candidates.py`
+
+Process simulation work is maintained through the SuperPSA-centered helpers in
+`src/alignn/process`.
 
 ## Plotting Boundary
 
@@ -159,7 +167,8 @@ Examples:
 - `src/figures/fig_model_comparison.py`
 - `src/figures/fig_uq_validation.py`
 - `src/figures/fig_database_analysis.py`
-- `src/figures/fig_process_validation.py`
+- `src/figures/fig_process_pairplot.py`
+- `src/figures/fig_psa_pareto.py`
 
 ## Wrappers vs Legacy
 
@@ -185,20 +194,20 @@ The maintained end-to-end sequence is:
 5. `compute_api_metrics.py`
 6. `screen_library.py`
 7. `filter_stable_candidates.py`
-8. `select_top_candidates.py`
+8. `select_exp_top_candidates.py`
 9. `submit_gcmc_validation.py`
-10. `parse_validation_results.py`
-11. `select_final_top10.py`
+10. `run_new_top10_pipeline.py`
+11. `visualize_gcmc_validation.py`
 12. `submit_pure_component_gcmc.py`
 13. `parse_pure_component_results.py`
 14. `fit_pure_component_isotherms.py`
 15. `compute_iast_selectivity.py`
-16. `run_breakthrough.py`
+16. `process/convert_params_for_superpsa.py`
+17. `process/generate_process_config.py`
+18. `process/parse_nsga2_results.py`
+19. `process/select_knee_points.py`
+20. `process/select_optimization_candidates.py`
 
-The corresponding consistency smoke checks are currently covered by:
-
-- `tests/test_alignn_pipeline_consistency.py`
-- `tests/test_gcmc_dependency_paths.py`
-- `tests/test_parse_atc_cu_pure_component.py`
-- `tests/test_bkt_dependency_paths.py`
-- `tests/test_bkt_output_layout.py`
+No repository-level automated test suite is currently maintained. Use targeted
+script `--help`, dry-run modes, and file-level output checks when changing
+pipeline entry points.

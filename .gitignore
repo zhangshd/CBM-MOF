@@ -15,6 +15,7 @@ inference/*
 *.ipynb
 *.ipynb_checkpoints
 src/jupyter/
+archive/
 test.ipynb
 **/data
 *.sh

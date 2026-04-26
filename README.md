@@ -1,347 +1,233 @@
-# CBM-MOF: Screening Metal-Organic Frameworks used for CoalBed Methane Separation 
+# CBM-MOF
 
-This project implements machine learning models for predicting properties of Metal-Organic Frameworks (MOFs) using two different architectures:
-- **MOFTransformer**: Transformer-based architecture with grid representation
-- **CGCNN**: Crystal Graph Convolutional Neural Network
+CBM-MOF is a research workflow repository for screening metal-organic
+frameworks for coalbed methane upgrading. The repository combines structure
+data preparation, graph neural network prediction, uncertainty-aware candidate
+screening, molecular simulation validation, process-simulation interfaces, and
+analysis figure generation.
 
-## Project Structure
-    
-```
+The code is organized as a script-driven workflow. Most commands are intended
+to be run from the repository root, and result directories are part of the
+workflow contract.
+
+## Functional Modules
+
+```text
 src/
+├── alignn/                  # ALIGNN training, inference, screening, UQ, validation
+│   ├── common/              # Shared paths and target definitions
+│   ├── process/             # SuperPSA parameter conversion and result parsing
+│   ├── screening/           # Ranking and separation metric calculations
+│   ├── scripts/             # Shell and SLURM wrappers for maintained runs
+│   ├── training/            # Training helpers
+│   ├── uq/                  # Latent-space uncertainty calibration and application
+│   └── validation/          # Validation analysis utilities
+├── analysis/                # Standalone analysis utilities
+├── cgcnn/                   # CGCNN model implementation
+├── data/                    # Data transformation helpers
+├── figures/                 # Figure and table generation scripts
+├── gcmc/                    # RASPATOOLS submodule for GCMC and Widom workflows
+├── jupyter/                 # Local notebooks and scratch analysis, ignored by git
+├── ml/                      # Classical ML models and SHAP utilities
 ├── moftransformer/          # MOFTransformer implementation
-│   ├── datamodule/         # Data loading and preprocessing modules
-│   ├── module/             # Model implementation and training logic
-│   └── ...
-├── cgcnn/                  # CGCNN implementation
-│   ├── datamodule/         # Data loading and preprocessing modules
-│   ├── module/             # Model implementation and training logic
-│   └── ...
-├── ml/                     # Machine learning utilities and traditional ML models
-│   ├── module.py          # Regression and classification model classes
-│   └── ...
-└── jupyter/                # Jupyter notebooks for analysis
-
-data/
-├── processed/              # Processed datasets
-└── raw/                   # Raw data files
-
-results/
-├── cbm_screening/         # Screening results
-└── ...
+├── SuperPSA/                # SuperPSA submodule for process simulations
+└── mof_structure_visualizer.py
 ```
 
-## Models
+Repository-level directories:
 
-### MOFTransformer
-A transformer-based model that combines:
-- Crystal graph representation
-- 3D energy grid data
-- Attention mechanisms for property prediction
-
-### CGCNN
-A crystal graph convolutional neural network that:
-- Represents crystals as graphs with atoms as nodes
-- Uses bond information as edge features
-- Employs graph convolutions for property prediction
-
-### Traditional Machine Learning Models
-The project includes a comprehensive machine learning module (`src/ml/module.py`) that provides:
-- Regression models with advanced features
-- Classification models with multi-class support
-- Feature selection and scaling utilities
-- K-fold cross-validation support
-- **Target variable transformation** (NEW):
-  - Yeo-Johnson transformation for any real values
-  - Box-Cox transformation for positive values
-  - Automatic inverse transformation for predictions and metrics
-  - Improves model performance on skewed distributions
-- **SHAP Feature Importance Analysis** (NEW):
-  - Analyze feature importance using SHAP (SHapley Additive exPlanations) values
-  - Generate importance rankings and visualizations
-  - Support for tree-based and other model types
-  - Batch analysis for multiple tasks
-
-#### Target Transformation Feature
-The new target transformation feature allows you to transform the target variable before training to improve model performance:
-
-```python
-from src.ml.module import RegressionModel
-
-model = RegressionModel(random_state=42)
-model.load_data(train_X, train_y, test_X, test_y)
-
-# Apply Yeo-Johnson transformation to target variable
-model.transform_target(method="yeo-johnson", saved_dir="./models")
-
-# Continue with normal workflow
-model.scale_feature(feature_range=(0, 1))
-model.select_feature(feature_selector='f1', select_des_num=100)
-model.kfold_split(k=5, kfold_type="normal")
-
-# Train model - metrics are calculated on original scale
-estimator = RandomForestRegressor(n_estimators=100)
-model.train(estimator, params={}, saved_dir="./models")
+```text
+configs/                    # RASPA, Widom, force-field, and ML config files
+data/                       # Raw, processed, and model-ready datasets
+docs/                       # Pipeline notes and workflow documentation
+logs/                       # Local run logs
+results/                    # Model outputs, screening results, validation data, figures
+slurm_logs/                 # Cluster job stdout/stderr logs
 ```
 
-**Key Features:**
-- **Optional**: Only activated when `transform_target()` is called
-- **Automatic**: Predictions and metrics are automatically on original scale
-- **Saved**: Transformer object is saved with the model
-- **Flexible**: Supports both Yeo-Johnson and Box-Cox methods
+## Submodules
 
-## Features
-
-Both models support:
-- Multi-task learning for multiple MOF properties
-- Classification and regression tasks
-- PyTorch Lightning framework for training
-- Comprehensive evaluation metrics
-- Uncertainty quantification
-- Advanced data normalization with PowerTransformerNormalizer
-
-## Data Normalization
-
-The project includes an advanced data normalization system with the new `PowerTransformerNormalizer` that provides superior handling of non-Gaussian distributions:
-
-### PowerTransformerNormalizer Features
-
-- **Advanced Power Transformations**: Supports both Box-Cox (for positive data) and Yeo-Johnson (for any real values) transformations
-- **GPU Acceleration**: Pure PyTorch implementation for efficient GPU computation during training and inference
-- **Backward Compatibility**: Drop-in replacement for the original Normalizer with identical interface
-- **Robust Handling**: Automatically handles NaN values, outliers, and edge cases
-- **State Persistence**: Full serialization support for model checkpoints
-
-### Usage Examples
-
-```python
-from moftransformer.datamodule.power_transformer import PowerTransformerNormalizer
-
-# Basic usage with Yeo-Johnson transformation (recommended)
-normalizer = PowerTransformerNormalizer(method='yeo-johnson')
-normalizer.fit(training_data)
-
-# Normalize data for training
-normalized_data = normalizer.norm(raw_data)
-
-# Denormalize predictions back to original scale
-predictions = normalizer.denorm(model_output)
-
-# For positive-only data, use Box-Cox transformation
-box_cox_normalizer = PowerTransformerNormalizer(method='box-cox')
-
-```
-
-### Key Advantages
-
-1. **Better Distribution Handling**: Power transformations can make highly skewed data more Gaussian-like, improving model performance
-2. **Numerical Stability**: Advanced numerical techniques prevent overflow/underflow issues
-3. **Device Flexibility**: Seamless handling of CPU/GPU data transfers during training
-4. **Scientific Accuracy**: Maintains precision for scientific applications with careful handling of edge cases
-
-## Usage
-
-The models can be trained and evaluated using the provided configuration files and command-line interfaces. Each model follows a consistent PyTorch Lightning structure for easy experimentation and comparison.
-
-## Requirements
-
-- Python 3.9+
-- PyTorch
-- PyTorch Lightning
-- Additional dependencies listed in requirements files
-
-## Installation
+Initialize active submodules after cloning:
 
 ```bash
-pip install -r requirements.txt
+git submodule update --init --recursive src/gcmc src/SuperPSA
 ```
 
-## Training
+Submodule responsibilities:
 
-Example training command:
-```bash
-python src/moftransformer/main.py --task_cfg ads_qst_ch4_n2  --load_path /home/zhangsd/repos/CBM-MOF/src/moftransformer/models/pmtransformer.ckpt  --model_name moftransformer  --learning_rate 1e-06  --lr_mult 100  --devices 2  --root_dataset /home/zhangsd/repos/CBM-MOF/src/moftransformer/data/round1/mof_split_val500_test0_seed3  --noise_var 0.0 
-python -u src/cgcnn/main.py --task_cfg ads_qst_ch4_n2 --model_cfg att_cgcnn --batch_size 32 --max_epochs 500 --max_graph_len 200 --atom_fea_len 256 --extra_fea_len 16 --h_fea_len 128 --n_conv 6 --n_h 4 --dropout_prob 0.5 --loss_aggregation fixed_weight_sum
-```
+- `src/gcmc`: RASPA-side utilities for mixture GCMC, pure-component GCMC, and
+  Widom insertion workflows.
+- `src/SuperPSA`: pressure-swing adsorption process simulation and optimization.
 
-## Inference
+## ALIGNN Workflow
 
-The project includes a comprehensive inference script for MOFTransformer models that can predict MOF properties for CBM separation applications. The model predicts adsorption capacities and heat of adsorption directly from MOF crystal structure.
+The `src/alignn` module is the primary screening workflow. It supports:
 
-### Command Line Usage
+- model training and evaluation
+- split embedding extraction
+- latent-space uncertainty calibration
+- full-library inference
+- API-style separation metric calculation
+- candidate filtering and ranking
+- GCMC/Widom validation job preparation
+- pure-component isotherm parsing and fitting
+- IAST selectivity calculation
+- SuperPSA parameter and result handling
 
-```bash
-# Basic usage
-python src/moftransformer/inference.py \
-    --cif_dir /path/to/cif/files \
-    --model_dir /path/to/trained/model \
-    --output_dir /path/to/output
-
-# Advanced usage with uncertainty quantification
-python src/moftransformer/inference.py \
-    --cif_dir /path/to/cif/files \
-    --model_dir /path/to/trained/model \
-    --output_dir /path/to/output \
-    --uncertainty_trees /path/to/uncertainty_trees.pkl \
-    --batch_size 16
-```
-
-### Programmatic Usage
-
-```python
-from src.moftransformer.inference import inference
-from pathlib import Path
-
-# Define paths
-cif_files = ["structure1.cif", "structure2.cif"]
-model_dir = "results/moftransformer_models/trained_model"
-output_dir = "inference_results"
-
-# Run inference
-results = inference(
-    cif_list=cif_files,
-    model_dir=model_dir,
-    saved_dir=output_dir,
-    clean=True
-)
-```
-
-### Inference Parameters
-
-- `--cif_dir`: Directory containing CIF files or path to single CIF file
-- `--model_dir`: Directory containing trained MOFTransformer model
-- `--output_dir`: Directory to save inference results (default: 'inference_results')
-- `--uncertainty_trees`: Path to uncertainty quantification trees file (optional)
-- `--clean`: Clean CIF files before processing (default: True)
-- `--batch_size`: Batch size for inference (default: 8)
-
-### Model Outputs
-
-The model predicts the following properties directly from MOF structure:
-- `logAdsCH4_10kPa`: Log adsorption capacity of CH4 at 10 kPa
-- `logAdsCH4_100kPa`: Log adsorption capacity of CH4 at 100 kPa  
-- `logAdsCH4_1000kPa`: Log adsorption capacity of CH4 at 1000 kPa
-- `logAdsN2_10kPa`: Log adsorption capacity of N2 at 10 kPa
-- `logAdsN2_100kPa`: Log adsorption capacity of N2 at 100 kPa
-- `logAdsN2_1000kPa`: Log adsorption capacity of N2 at 1000 kPa
-- `QstCH4`: Heat of adsorption for CH4
-- `QstN2`: Heat of adsorption for N2
-
-### Output
-
-The inference script generates:
-- CSV files with predictions for each task
-- Uncertainty quantification when available (requires uncertainty trees)
-- Organized results by MOF structure
-
-### Traditional ML Inference
-
-Use the machine learning inference pipeline in `src/ml/inference.py` to evaluate the classical models on new structures or precomputed features.
+Typical maintained entry points:
 
 ```bash
-# Run end-to-end inference from CIF files
-python src/ml/inference.py --input_path /path/to/cifs --output_path results.csv
-
-# Skip featurization by providing a precomputed feature table generated by the helper script
-python src/ml/inference.py --features_path features.csv --output_path results.csv
+python src/alignn/train_alignn.py --help
+python src/alignn/evaluate_alignn.py --help
+python src/alignn/extract_split_embeddings.py --help
+python src/alignn/calibrate_uq.py --help
+python src/alignn/full_library_inference.py --help
+python src/alignn/apply_uq_to_library.py --help
+python src/alignn/compute_api_metrics.py --help
+python src/alignn/screen_library.py --help
+python src/alignn/filter_stable_candidates.py --help
+python src/alignn/select_exp_top_candidates.py --help
 ```
 
-Key options:
-- `--input_path`: Single CIF file or directory; the script cleans structures, generates features, and predicts all seven stability properties.
-- `--features_path`: Precomputed feature table matching the schema of `generate_features`; bypasses CIF processing and runs predictions directly.
-- `--prob_radius`: Probe radius for Zeo++ feature generation (used only with `--input_path`).
-
-### SHAP Feature Importance Analysis
-
-Analyze the importance of features in trained machine learning models using SHAP (SHapley Additive exPlanations) values.
-
-#### Installation
-
-First, install the SHAP library:
+Validation and process-oriented entry points:
 
 ```bash
-pip install shap
+python src/alignn/submit_gcmc_validation.py --help
+python src/alignn/run_new_top10_pipeline.py --help
+python src/alignn/visualize_gcmc_validation.py --help
+python src/alignn/submit_pure_component_gcmc.py --help
+python src/alignn/parse_pure_component_results.py --help
+python src/alignn/fit_pure_component_isotherms.py --help
+python src/alignn/fit_extended_dsl.py --help
+python src/alignn/compute_iast_selectivity.py --help
+python src/alignn/compute_iast_multicomp.py --help
 ```
 
-#### Usage
-
-Analyze all trained models specified in the configuration file:
+Process helper entry points:
 
 ```bash
-# Run SHAP analysis for all tasks
-python src/ml/shap_analysis.py \
-    --config configs/ml_model_config.yaml \
-    --output_dir results/shap_analysis
-
-# Or use the provided shell script
-bash src/ml/run_shap_analysis.sh
+python src/alignn/process/convert_params_for_superpsa.py --help
+python src/alignn/process/generate_process_config.py --help
+python src/alignn/process/parse_nsga2_results.py --help
+python src/alignn/process/select_knee_points.py --help
+python src/alignn/process/select_optimization_candidates.py --help
 ```
 
-Analyze specific tasks only:
+For one model directory, the active ALIGNN result layout is:
+
+```text
+results/alignn/model_epXXX/
+├── deployment/
+├── uq/
+├── full_library_inference/
+├── top_candidates/
+└── process_candidates/
+```
+
+Shared path and target definitions live in:
+
+- `src/alignn/common/paths.py`
+- `src/alignn/common/constants.py`
+
+## Molecular Simulation Workflow
+
+GCMC and Widom workflows are driven through `src/gcmc` and the configuration
+files under `configs/`.
+
+Common configuration files:
+
+- `configs/custom_force_field.json`
+- `configs/custom_simulation.json`
+- `configs/custom_simulation_analysis.json`
+- `configs/custom_widom_component.json`
+- `configs/custom_widom_simulation.json`
+
+Typical ALIGNN-side simulation orchestration:
 
 ```bash
-# Analyze specific tasks
-python src/ml/shap_analysis.py \
-    --config configs/ml_model_config.yaml \
-    --output_dir results/shap_analysis \
-    --tasks AdsCH4_10kPa QstCH4 PSA_API_CH4
+python src/alignn/submit_gcmc_validation.py --test
+python src/alignn/submit_pure_component_gcmc.py --help
+python src/alignn/parse_pure_component_results.py --help
 ```
 
-Test the analysis on a single model:
+## Process Simulation Workflow
+
+SuperPSA-facing utilities live under `src/alignn/process`. They convert fitted
+adsorption parameters into process-simulation inputs and parse optimization
+outputs back into CSV tables for ranking and plotting.
+
+Key files:
+
+- `src/alignn/process/convert_params_for_superpsa.py`
+- `src/alignn/process/generate_process_config.py`
+- `src/alignn/process/parse_nsga2_results.py`
+- `src/alignn/process/select_knee_points.py`
+- `src/alignn/process/select_optimization_candidates.py`
+
+## Figure And Table Generation
+
+Figure scripts live under `src/figures` and consume existing CSV, JSON, and
+model-output files from `results/`.
+
+Common entry points:
 
 ```bash
-python src/ml/test_shap_analysis.py
+python src/figures/generate_all.py
+python src/figures/fig_model_comparison.py
+python src/figures/fig_uq_validation.py
+python src/figures/fig_database_analysis.py
+python src/figures/fig_top100_validation.py
+python src/figures/fig_process_pairplot.py
+python src/figures/fig_psa_pareto.py
+python src/figures/generate_table1.py
 ```
 
-#### Outputs
+Shared figure utilities:
 
-For each analyzed task, the script generates:
+- `src/figures/style.py`
+- `src/figures/data_loader.py`
+- `src/figures/annotation_layout.py`
 
-1. **Feature importance rankings** (`{task}_shap_importance.csv`):
-   - Feature names with mean absolute SHAP values
-   - Importance rankings
+## Data And Results
 
-2. **Bar plot** (`{task}_shap_importance_bar.png`):
-   - Shows top 20 features by mean absolute SHAP value
-   - Indicates overall feature importance
+Data directories:
 
-3. **Beeswarm plot** (`{task}_shap_importance_beeswarm.png`):
-   - Shows SHAP value distribution for each feature
-   - Color indicates feature value (red = high, blue = low)
-   - Helps understand feature effects on predictions
+- `data/raw`: source datasets
+- `data/processed`: processed CIFs, descriptors, and merged tables
+- `data/cbm_mof`: project-specific CBM-MOF data assets
+- `data/alignn*`: ALIGNN-ready datasets and transformed variants
 
-#### Combined Visualizations (NEW)
+Result directories:
 
-Generate publication-quality combined figures with all tasks in Nature journal style:
+- `results/alignn`: ALIGNN predictions, UQ outputs, screening results,
+  validation data, and process-candidate files
+- `results/figures`: generated figure assets
+- `results/summary`: compact JSON summaries
+- `results/ml_models*`: classical ML outputs
+- `results/cgcnn_models*`: CGCNN outputs
+- `results/moftransformer_models*`: MOFTransformer outputs
 
-```bash
-# Generate combined SHAP plots for all tasks
-python src/ml/plot_combined_shap.py \
-    --config configs/ml_model_config.yaml \
-    --output_dir results/shap_analysis \
-    --max_display 10 \
-    --plot_type both
+## Environment Notes
 
-# Or use the provided shell script
-bash src/ml/run_combined_shap.sh
-```
+This repository does not define a single universal environment file. The active
+workflow uses a Python scientific stack plus model- and simulator-specific
+packages.
 
-Options for combined plots:
-- `--max_display`: Number of top features to show per subplot (default: 10)
-- `--plot_type`: Choose 'beeswarm', 'bar', or 'both' (default: both)
-- `--tasks`: Specify which tasks to include (default: all tasks)
+Expected Python packages include:
 
-Output files:
-- `combined_shap_beeswarm.png`: Multi-panel beeswarm plots for all tasks
-- `combined_shap_bar.png`: Multi-panel bar plots for all tasks
+- numpy, pandas, scipy
+- matplotlib, seaborn
+- scikit-learn
+- torch
+- ALIGNN and JARVIS-related dependencies for graph neural network workflows
+- simulator-specific dependencies for RASPA/GCMC and SuperPSA workflows
 
-#### Key Features
+Use each script's `--help` output as the command-line source of truth.
 
-- **Model-agnostic**: Works with tree-based models (XGBoost, RandomForest) and other model types
-- **Automatic feature extraction**: Reads feature names from training data
-- **Batch processing**: Analyze multiple tasks in one run
-- **Comprehensive outputs**: Rankings, bar plots, and beeswarm plots for detailed analysis
-- **Publication-ready**: Combined figures in Nature journal style with consistent formatting
+## Operating Conventions
 
-## Data Preparation
-
-Use the provided Jupyter notebooks in `src/jupyter/` for data preprocessing and analysis.
+- Run scripts from the repository root unless the script documents otherwise.
+- Keep generated notebooks and scratch exploration under `src/jupyter/`.
+- Use `src/alignn/common/paths.py` for model-directory path handling.
+- Use `src/alignn/common/constants.py` for target names and screening constants.
+- Store generated outputs under `results/` rather than under `src/`.
