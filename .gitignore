@@ -27,10 +27,6 @@ test.ipynb
 */figures
 !src/figures/
 !src/figures/*.py
-results/*
-results/test_run/         # isolated output for --test mode (exp scripts)
-!results/summary/
-results/summary/*
-!results/summary/*.json
+results/
 **/graphs_grids
 .serena
