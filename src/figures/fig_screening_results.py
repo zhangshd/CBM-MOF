@@ -249,7 +249,7 @@ def plot_figure11(output_dir: Path) -> pd.DataFrame:
     for col_idx, (process, api_col, rank_col, threshold, color) in enumerate(process_specs):
         ax = axes[col_idx]
         top = validated[validated[rank_col].notna()].copy()
-        top["beat"] = top[api_col] >= threshold
+        top["beat"] = (top[api_col] > threshold) & (top["mof_id"] != BENCHMARK_MOF)
         beaters = top[top["beat"]].copy()
 
         # Aggregate by cluster and group (exp/hypo)
@@ -292,7 +292,7 @@ def plot_figure11(output_dir: Path) -> pd.DataFrame:
         ax.set_xlabel("Cluster")
         ax.set_ylabel("Benchmark-beating count" if col_idx == 0 else "")
         n_hits = int(summary["total"].sum())
-        ax.set_title(f"{panel_labels[col_idx]} {process} (n = {n_hits}, API ≥ {threshold:.3f})")
+        ax.set_title(f"{panel_labels[col_idx]} {process} (n = {n_hits}, API > {threshold:.3f})")
         _apply_axis_style(ax)
         if col_idx == 0:
             ax.legend(fontsize=legend_font, frameon=False, loc="upper right")

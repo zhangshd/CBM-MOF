@@ -58,9 +58,17 @@ def load_scatter_data() -> pd.DataFrame:
     psa_api_threshold = float(benchmark_row.iloc[0]["gcmc_PSA_API_CH4"])
     vsa_api_threshold = float(benchmark_row.iloc[0]["gcmc_VSA_API_CH4"])
 
-    merged["is_psa_beater"] = (merged["in_psa100"] == True) & (merged["gcmc_PSA_API_CH4"] >= psa_api_threshold)
-    merged["is_vsa_beater"] = (merged["in_vsa100"] == True) & (merged["gcmc_VSA_API_CH4"] >= vsa_api_threshold)
     merged["is_benchmark"] = merged["mof_id"] == BENCHMARK_MOF
+    merged["is_psa_beater"] = (
+        (merged["in_psa100"] == True)
+        & (merged["gcmc_PSA_API_CH4"] > psa_api_threshold)
+        & ~merged["is_benchmark"]
+    )
+    merged["is_vsa_beater"] = (
+        (merged["in_vsa100"] == True)
+        & (merged["gcmc_VSA_API_CH4"] > vsa_api_threshold)
+        & ~merged["is_benchmark"]
+    )
 
     logger.info(
         "Scatter data: %d total, %d with PLD, %d PSA beaters, %d VSA beaters",
@@ -87,13 +95,13 @@ def plot_structural_origin_panel_a(data: pd.DataFrame, output_dir: Path) -> None
     psa = plot_df[plot_df["is_psa_beater"] & ~plot_df["is_benchmark"]]
     ax.scatter(psa["Di"], psa["QstCH4_gcmc"], s=28, c=COLOR_PSA, alpha=0.8,
                edgecolors="white", linewidths=0.3, zorder=3,
-               label=f"PSA beaters ($n$={len(psa) + 1})")
+               label=f"PSA beaters ($n$={len(psa)})")
 
     # VSA beaters (excluding benchmark)
     vsa = plot_df[plot_df["is_vsa_beater"] & ~plot_df["is_benchmark"]]
     ax.scatter(vsa["Di"], vsa["QstCH4_gcmc"], s=28, c=COLOR_VSA, alpha=0.8,
                edgecolors="white", linewidths=0.3, zorder=3,
-               label=f"VSA beaters ($n$={len(vsa) + 1})")
+               label=f"VSA beaters ($n$={len(vsa)})")
 
     # ATC-Cu benchmark
     bm = plot_df[plot_df["is_benchmark"]]
