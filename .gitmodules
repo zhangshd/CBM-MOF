@@ -1,6 +1,7 @@
 [submodule "src/gcmc"]
 	path = src/gcmc
 	url = git@github.com:zhangshd/RASPATOOLS.git
+	branch = cbm
 [submodule "src/SuperPSA"]
 	path = src/SuperPSA
 	url = git@github.com:ZG58/SuperPSA.git

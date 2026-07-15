@@ -59,6 +59,10 @@ Submodule responsibilities:
   Widom insertion workflows.
 - `src/SuperPSA`: pressure-swing adsorption process simulation and optimization.
 
+The parent repository pins each submodule to an exact gitlink. For `src/gcmc`,
+the `cbm` branch is used only by `git submodule update --remote`; normal
+initialization continues to check out the committed gitlink.
+
 ## ALIGNN Workflow
 
 The `src/alignn` module is the primary screening workflow. It supports:
