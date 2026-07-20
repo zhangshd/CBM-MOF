@@ -6,10 +6,10 @@ representative linkers, with functional group highlighting suitable for
 Figure 11 Panel (c) of the CBM-MOF manuscript.
 
 Output:
-    linker_PSA_polycarboxylate.png  -- pyrene tetracarboxylate (o13/o82)
+    linker_PSA_polycarboxylate.png  -- pyrene-1,2,6,7-tetracarboxylate (o80)
     linker_PSA_Ndonor.png           -- large N-donor pillar (o47/o156)
     linker_VSA_polycarboxylate.png  -- pyromellitate/BTEC (o118)
-    linker_VSA_Ndonor.png           -- benzimidazole (o14)
+    linker_VSA_Ndonor.png           -- quinoxaline (o14)
 """
 
 import argparse
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 LINKERS = {
     "PSA_polycarboxylate": {
         "smiles": "[O-]C(=O)c1c(cc2c3c1ccc1c3c(cc2)c(c(c1)C(=O)[O-])C(=O)[O-])C(=O)[O-]",
-        "label": "Pyrene tetracarboxylate",
+        "label": "Pyrene-1,2,6,7-tetracarboxylate",
         "highlight_type": "carboxylate",
         "process": "PSA",
     },
@@ -49,7 +49,7 @@ LINKERS = {
     },
     "VSA_Ndonor": {
         "smiles": "c1ccc2c(c1)nccn2",
-        "label": "Benzimidazole",
+        "label": "Quinoxaline",
         "highlight_type": "nitrogen",
         "process": "VSA",
     },

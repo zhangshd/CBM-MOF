@@ -220,8 +220,8 @@ def plot_gas_figure(
                 ax.scatter(
                     df_t["P"], df_t["AbsLoading"],
                     c=style["color"], marker=style["marker"],
-                    s=gl.marker_area * 1.25, zorder=5,
-                    edgecolors="none", alpha=0.88,
+                    s=gl.marker_area * 2.0, zorder=5,
+                    edgecolors="white", linewidths=0.25, alpha=0.95,
                     rasterized=True,
                 )
 

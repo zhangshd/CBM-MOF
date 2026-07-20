@@ -1,9 +1,10 @@
-"""
-Figure 13b: Rank-change distribution histogram for composition sensitivity.
+"""Composition-sensitivity rank-change histograms.
 
-Two-panel stacked histogram showing the distribution of absolute rank changes
-(|Drank|) when MOF rankings are compared between CH4:N2 = 20:80 and 50:50
-compositions. Experimental and hypothetical MOFs are shown as stacked bars.
+The script generates the two-panel API figure used as Figure 9 and a separate
+four-panel Supporting Information figure for methane working capacity and
+selectivity. Ranks compare CH4:N2 = 20:80 and 50:50 compositions, while the
+displayed distributions track the process-specific 20:80 API top-100 sets.
+Experimental and hypothetical MOFs are shown as stacked bars.
 """
 
 from __future__ import annotations
@@ -102,6 +103,7 @@ def _plot_panel(
     *,
     ylabel: str,
     show_legend: bool,
+    annotation_x: float = 0.72,
 ):
     """Draw one stacked histogram panel (PSA or VSA)."""
     exp_mask = df["is_exp"]
@@ -149,7 +151,7 @@ def _plot_panel(
 
     # Annotation text placed below the in-panel legend and aligned to its left edge
     ax.text(
-        0.72, 0.70,
+        annotation_x, 0.70,
         f"|$\\Delta$rank| $\\geq$ {SHIFT_THRESHOLD}:\n{n_shifted}/{n_total} ({pct_shifted:.1f}%)",
         transform=ax.transAxes,
         fontsize=layout.tick_font,
@@ -174,8 +176,8 @@ def _plot_panel(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Generate Figure 13b: Rank-change distribution histogram "
-                    "(20:80 vs 50:50 composition sensitivity)."
+        description="Generate API and individual-metric rank-change histograms "
+                    "for 20:80 vs 50:50 composition sensitivity."
     )
     parser.add_argument(
         "--output-dir",
@@ -220,6 +222,43 @@ def main():
     fig.tight_layout(w_pad=0.45)
     save_figure(fig, "Figure13_rank_change_distribution", args.output_dir,
                 formats=("png",))
+    plt.close(fig)
+
+    si_layout = compute_panel_grid_layout(2, 2, DOUBLE_COL_INCH)
+    fig, axes = plt.subplots(
+        2, 2,
+        figsize=(DOUBLE_COL_INCH, 0.88 * DOUBLE_COL_INCH),
+    )
+
+    panels = [
+        (axes[0, 0], df_psa, "PSA_working_capacity_rank_change",
+         "(a) PSA working capacity", "Number of MOFs", True),
+        (axes[0, 1], df_vsa, "VSA_working_capacity_rank_change",
+         "(b) VSA working capacity", "", False),
+        (axes[1, 0], df_psa, "PSA_selectivity_rank_change",
+         "(c) PSA selectivity", "Number of MOFs", False),
+        (axes[1, 1], df_vsa, "VSA_selectivity_rank_change",
+         "(d) VSA selectivity", "", False),
+    ]
+    for ax, df, rank_col, title, ylabel, show_legend in panels:
+        _plot_panel(
+            ax,
+            df,
+            rank_col=rank_col,
+            panel_label=title,
+            layout=si_layout,
+            ylabel=ylabel,
+            show_legend=show_legend,
+            annotation_x=0.58,
+        )
+
+    fig.tight_layout(w_pad=0.45, h_pad=0.70)
+    save_figure(
+        fig,
+        "FigureS13_metric_rank_change_distribution",
+        args.output_dir,
+        formats=("png",),
+    )
     plt.close(fig)
     print("Done.")
 

@@ -166,7 +166,7 @@ def _plot_pareto_panel(
     for m in materials_sorted:
         mat_markers[m] = panel_marker  # ATC-Cu also gets panel marker (star overlay added later)
 
-    marker_size_normal = max(8, layout.marker_area * 0.8)
+    marker_size_normal = max(10, layout.marker_area * 1.05)
 
     # Plot each material
     for mat in materials_sorted:
@@ -177,7 +177,7 @@ def _plot_pareto_panel(
         ax.scatter(
             mat_df["productivity"], mat_df["energy"],
             c=color, marker=marker, s=marker_size_normal,
-            alpha=0.55, edgecolors="none", zorder=2,
+            alpha=0.35, edgecolors="none", zorder=2,
         )
 
     # ATC-Cu star marker overlay
@@ -186,9 +186,8 @@ def _plot_pareto_panel(
         ax.scatter(
             atc_df["productivity"], atc_df["energy"],
             marker="*", s=marker_size_normal * 3,
-            # facecolors="none", edgecolors="#D62728",
-            c = "#D62728", alpha=0.55,
-            linewidths=0.8, zorder=5,
+            c="#D62728", alpha=1.0, edgecolors="black",
+            linewidths=0.45, zorder=5,
         )
 
     # VSA: extend x-axis to give legend more room

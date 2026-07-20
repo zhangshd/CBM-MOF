@@ -48,7 +48,7 @@ COLOR_BENCHMARK = "black"
 def load_scatter_data() -> pd.DataFrame:
     """Load and merge geometry + GCMC data for the scatter plot."""
     gcmc = pd.read_csv(GCMC_CSV)
-    zeo = pd.read_csv(ZEO_CSV, usecols=["name", "Di"])[["name", "Di"]]
+    zeo = pd.read_csv(ZEO_CSV, usecols=["name", "Df"])[["name", "Df"]]
     zeo = zeo.rename(columns={"name": "mof_id"})
     merged = gcmc.merge(zeo, on="mof_id", how="left")
 
@@ -72,7 +72,7 @@ def load_scatter_data() -> pd.DataFrame:
 
     logger.info(
         "Scatter data: %d total, %d with PLD, %d PSA beaters, %d VSA beaters",
-        len(merged), merged["Di"].notna().sum(),
+        len(merged), merged["Df"].notna().sum(),
         merged["is_psa_beater"].sum(), merged["is_vsa_beater"].sum(),
     )
     return merged
@@ -87,27 +87,39 @@ def plot_structural_origin_panel_a(data: pd.DataFrame, output_dir: Path) -> None
     tick_fs = LABEL_FONT_SIZE + 3
     legend_fs = LEGEND_FONT_SIZE + 3
 
-    plot_df = data.dropna(subset=["Di", "QstCH4_gcmc"]).copy()
+    plot_df = data.dropna(subset=["Df", "QstCH4_gcmc"]).copy()
 
     fig, ax = plt.subplots(figsize=(4.5, 3.8))
 
     # PSA beaters (excluding benchmark)
     psa = plot_df[plot_df["is_psa_beater"] & ~plot_df["is_benchmark"]]
-    ax.scatter(psa["Di"], psa["QstCH4_gcmc"], s=28, c=COLOR_PSA, alpha=0.8,
-               edgecolors="white", linewidths=0.3, zorder=3,
-               label=f"PSA beaters ($n$={len(psa)})")
+    ax.errorbar(
+        psa["Df"], psa["QstCH4_gcmc"], yerr=psa.get("QstCH4_gcmc_error"),
+        fmt="o", markersize=4.8, color=COLOR_PSA, alpha=0.8,
+        ecolor=COLOR_PSA, elinewidth=0.55, capsize=1.5, capthick=0.55,
+        markeredgecolor="white", markeredgewidth=0.3, zorder=3,
+        label=f"PSA beaters ($n$={len(psa)})",
+    )
 
     # VSA beaters (excluding benchmark)
     vsa = plot_df[plot_df["is_vsa_beater"] & ~plot_df["is_benchmark"]]
-    ax.scatter(vsa["Di"], vsa["QstCH4_gcmc"], s=28, c=COLOR_VSA, alpha=0.8,
-               edgecolors="white", linewidths=0.3, zorder=3,
-               label=f"VSA beaters ($n$={len(vsa)})")
+    ax.errorbar(
+        vsa["Df"], vsa["QstCH4_gcmc"], yerr=vsa.get("QstCH4_gcmc_error"),
+        fmt="o", markersize=4.8, color=COLOR_VSA, alpha=0.8,
+        ecolor=COLOR_VSA, elinewidth=0.55, capsize=1.5, capthick=0.55,
+        markeredgecolor="white", markeredgewidth=0.3, zorder=3,
+        label=f"VSA beaters ($n$={len(vsa)})",
+    )
 
     # ATC-Cu benchmark
     bm = plot_df[plot_df["is_benchmark"]]
     if not bm.empty:
-        ax.scatter(bm["Di"], bm["QstCH4_gcmc"], s=100, c=COLOR_BENCHMARK,
-                   marker="*", zorder=5, label="ATC-Cu (benchmark)")
+        ax.errorbar(
+            bm["Df"], bm["QstCH4_gcmc"], yerr=bm.get("QstCH4_gcmc_error"),
+            fmt="*", markersize=11, color=COLOR_BENCHMARK,
+            ecolor=COLOR_BENCHMARK, elinewidth=0.7, capsize=2.0,
+            zorder=5, label="ATC-Cu (benchmark)",
+        )
 
     ax.set_xlabel(r"PLD ($\AA$)", fontsize=label_fs)
     ax.set_ylabel(r"$Q_{\mathrm{st,CH_4}}$ (kJ/mol)", fontsize=label_fs)

@@ -41,6 +41,7 @@ DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "results" / "alignn" / "model_ep150" / "figu
 # ── Data constants ───────────────────────────────────────────────────────────
 ATC_CU_NAME = "CoRE-2020[Cu][pts]3[ASR]1"
 P_MAX = 1.1  # bar — clip simulation data to experimental pressure range
+LITERATURE_UPTAKE_1BAR = {"CH4": 2.90, "N2": 0.75}  # mol/kg, Niu et al. (2019)
 
 
 # ── Data loading ─────────────────────────────────────────────────────────────
@@ -99,6 +100,16 @@ def load_simulation(sim_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     sim_ch4 = sim_ch4[sim_ch4["Pressure_bar"] <= P_MAX].sort_values("Pressure_bar")
     sim_n2 = sim_n2[sim_n2["Pressure_bar"] <= P_MAX].sort_values("Pressure_bar")
     return sim_ch4, sim_n2
+
+
+def relative_deviation_at_1bar(simulation: pd.DataFrame, literature: float) -> float:
+    """Return signed relative deviation from the published 1-bar uptake."""
+    at_1bar = simulation.loc[
+        simulation["Pressure_bar"].round(6).eq(1.0), "Loading_mean"
+    ]
+    if len(at_1bar) != 1:
+        raise ValueError(f"Expected one simulated 1-bar point, found {len(at_1bar)}")
+    return 100.0 * (float(at_1bar.iloc[0]) - literature) / literature
 
 
 # ── Figure construction ──────────────────────────────────────────────────────
@@ -263,6 +274,11 @@ def main() -> None:
     sim_ch4, sim_n2 = load_simulation(args.sim_csv)
     logger.info("  CH₄ sim: %d points ≤ %.1f bar", len(sim_ch4), P_MAX)
     logger.info("  N₂  sim: %d points ≤ %.1f bar", len(sim_n2), P_MAX)
+    logger.info(
+        "  1-bar relative deviations vs Niu et al.: CH₄ %.2f%%; N₂ %.2f%%",
+        relative_deviation_at_1bar(sim_ch4, LITERATURE_UPTAKE_1BAR["CH4"]),
+        relative_deviation_at_1bar(sim_n2, LITERATURE_UPTAKE_1BAR["N2"]),
+    )
 
     # ── Build and save ───────────────────────────────────────────────────────
     fig = make_figure(exp_ch4, exp_n2, sim_ch4, sim_n2)

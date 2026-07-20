@@ -5,13 +5,14 @@ Post-GCMC analysis: Compare separation performance at 20:80 vs 50:50
 CH4:N2 feed compositions across ALL available MOFs.
 
 Data sources (all under results/alignn/model_ep150/):
-  - gcmc_exp_top/       (86 exp MOFs: GCMC 20:80 + 50:50 + Widom)
+  - gcmc_exp_top/       (93 exp MOFs: GCMC 20:80 + 50:50 + Widom)
   - gcmc_hypo_top/      (100 hypo MOFs: GCMC 20:80 + 50:50 + Widom)
 
 Computes:
   1. API at both compositions for all MOFs with both 20:80 and 50:50 data
-  2. Spearman rank correlation (rank_2080 vs rank_5050)
-  3. Rank-switching MOFs (rank change >= threshold)
+  2. Rank changes for API, working capacity, and selectivity
+  3. Rank-change summaries for the full comparison pool and process-specific
+     top-100 tracks
   4. Exp vs hypo comparison
 
 Usage:
@@ -25,7 +26,6 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
-from scipy.stats import spearmanr
 
 # ---------------------------------------------------------------------------
 # Ensure repo root is on sys.path for imports
@@ -41,6 +41,7 @@ from src.alignn.run_new_top10_pipeline import parse_gcmc, parse_widom
 # ---------------------------------------------------------------------------
 MODEL_DIR = REPO_ROOT / "results" / "alignn" / "model_ep150"
 DEFAULT_OUTPUT_DIR = MODEL_DIR / "composition_sensitivity"
+TOP_CANDIDATES_DIR = MODEL_DIR / "top_candidates"
 
 # Feed mole fractions
 COMP_2080 = {"y_ch4": 0.20, "y_n2": 0.80}
@@ -169,6 +170,81 @@ def compute_api_from_gcmc(
 def classify_exp_hypo(mof_id: str) -> bool:
     """Return True if experimental MOF."""
     return any(mof_id.startswith(p) for p in EXP_PREFIXES)
+
+
+def load_top_candidate_ids(process: str) -> set[str]:
+    """Load the exact experimental+hypothetical top-100 track for a process."""
+    prefix = process.lower()
+    paths = [
+        TOP_CANDIDATES_DIR / f"exp_top50_{prefix}.csv",
+        TOP_CANDIDATES_DIR / f"hypo_top50_{prefix}.csv",
+    ]
+    ids: set[str] = set()
+    for path in paths:
+        values = pd.read_csv(path, usecols=["mof_id"])["mof_id"].dropna()
+        ids.update(values.astype(str))
+    if len(ids) != 100:
+        raise ValueError(
+            f"Expected 100 unique {process} candidate IDs, found {len(ids)}"
+        )
+    return ids
+
+
+def add_metric_rank_changes(df_comp: pd.DataFrame) -> pd.DataFrame:
+    """Rank all common MOFs and add absolute changes for each screening metric."""
+    metric_suffixes = {
+        "API": "API",
+        "working_capacity": "WC",
+        "selectivity": "alpha",
+    }
+    for process in ["PSA", "VSA"]:
+        for metric, suffix in metric_suffixes.items():
+            col_2080 = f"{process}_{suffix}_2080"
+            col_5050 = f"{process}_{suffix}_5050"
+            mask = df_comp[col_2080].notna() & df_comp[col_5050].notna()
+            subset = df_comp.loc[mask, [col_2080, col_5050]].copy()
+            rank_2080 = subset[col_2080].rank(ascending=False, method="min")
+            rank_5050 = subset[col_5050].rank(ascending=False, method="min")
+            prefix = f"{process}_{metric}"
+            df_comp.loc[mask, f"{prefix}_rank_2080"] = rank_2080
+            df_comp.loc[mask, f"{prefix}_rank_5050"] = rank_5050
+            df_comp.loc[mask, f"{prefix}_rank_change"] = (
+                rank_2080 - rank_5050
+            ).abs()
+
+        # Preserve the historical API column names consumed by Figure 9.
+        for suffix in ["rank_2080", "rank_5050", "rank_change"]:
+            df_comp[f"{process}_{suffix}"] = df_comp[f"{process}_API_{suffix}"]
+    return df_comp
+
+
+def summarize_rank_changes(
+    df_comp: pd.DataFrame, rank_threshold: int
+) -> pd.DataFrame:
+    """Summarize rank changes for all common MOFs and exact top-100 tracks."""
+    rows = []
+    for process in ["PSA", "VSA"]:
+        top_ids = load_top_candidate_ids(process)
+        pools = {
+            "all_common": df_comp,
+            "20:80_API_top100": df_comp[df_comp["mof_id"].isin(top_ids)],
+        }
+        for pool_name, pool in pools.items():
+            for metric in ["API", "working_capacity", "selectivity"]:
+                values = pool[f"{process}_{metric}_rank_change"].dropna()
+                n_total = int(len(values))
+                n_shifted = int((values >= rank_threshold).sum())
+                rows.append({
+                    "process": process,
+                    "pool": pool_name,
+                    "metric": metric,
+                    "n_total": n_total,
+                    "n_shift_ge_threshold": n_shifted,
+                    "threshold": rank_threshold,
+                    "percent_shift_ge_threshold": 100.0 * n_shifted / n_total,
+                    "max_rank_displacement": float(values.max()),
+                })
+    return pd.DataFrame(rows)
 
 
 def load_all_sources() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -307,44 +383,11 @@ def run_analysis(
     print(f"  Final comparison table: {len(df_comp)} MOFs", flush=True)
     print(f"  Exp: {df_comp['is_exp'].sum()}, Hypo: {(~df_comp['is_exp']).sum()}", flush=True)
 
-    # Step 4: Spearman rank correlation
-    print(f"\nStep 4: Spearman rank correlations (API_2080 vs API_5050)", flush=True)
-    spearman_results = {}
-    for proc in ["PSA", "VSA"]:
-        col_2080 = f"{proc}_API_2080"
-        col_5050 = f"{proc}_API_5050"
-        mask = df_comp[col_2080].notna() & df_comp[col_5050].notna()
-        n = mask.sum()
-        if n >= 3:
-            rho, pval = spearmanr(
-                df_comp.loc[mask, col_2080], df_comp.loc[mask, col_5050]
-            )
-        else:
-            rho, pval = np.nan, np.nan
-        spearman_results[proc] = {"rho": rho, "pval": pval, "n": n}
-        print(f"  {proc}: rho = {rho:.4f}, p = {pval:.2e}, n = {n}", flush=True)
-
-    # Step 5: Rank switching analysis
-    print(f"\nStep 5: Rank-switching MOFs (threshold >= {rank_threshold})", flush=True)
-    for proc in ["PSA", "VSA"]:
-        col_2080 = f"{proc}_API_2080"
-        col_5050 = f"{proc}_API_5050"
-        mask = df_comp[col_2080].notna() & df_comp[col_5050].notna()
-        subset = df_comp.loc[mask].copy()
-
-        # Rank descending (higher API = better = rank 1)
-        subset[f"{proc}_rank_2080"] = subset[col_2080].rank(
-            ascending=False, method="min"
-        )
-        subset[f"{proc}_rank_5050"] = subset[col_5050].rank(
-            ascending=False, method="min"
-        )
-        subset[f"{proc}_rank_change"] = np.abs(
-            subset[f"{proc}_rank_2080"] - subset[f"{proc}_rank_5050"]
-        )
-
-        for rc in [f"{proc}_rank_2080", f"{proc}_rank_5050", f"{proc}_rank_change"]:
-            df_comp.loc[mask, rc] = subset[rc].values
+    # Step 4: Rank changes for all screening metrics
+    print(f"\nStep 4: Rank changes (threshold >= {rank_threshold})", flush=True)
+    df_comp = add_metric_rank_changes(df_comp)
+    df_rank_summary = summarize_rank_changes(df_comp, rank_threshold)
+    print(df_rank_summary.to_string(index=False), flush=True)
 
     switching_psa = df_comp[
         df_comp["PSA_rank_change"].notna()
@@ -354,11 +397,11 @@ def run_analysis(
         df_comp["VSA_rank_change"].notna()
         & (df_comp["VSA_rank_change"] >= rank_threshold)
     ]
-    print(f"  PSA switching: {len(switching_psa)} MOFs", flush=True)
-    print(f"  VSA switching: {len(switching_vsa)} MOFs", flush=True)
+    print(f"  PSA API switching in full pool: {len(switching_psa)} MOFs", flush=True)
+    print(f"  VSA API switching in full pool: {len(switching_vsa)} MOFs", flush=True)
 
-    # Step 6: Exp vs Hypo hit-rate analysis
-    print(f"\nStep 6: Exp vs Hypo hit-rate analysis", flush=True)
+    # Step 5: Exp vs Hypo hit-rate analysis
+    print(f"\nStep 5: Exp vs Hypo hit-rate analysis", flush=True)
     hit_rate_rows = []
     for proc in ["PSA", "VSA"]:
         for comp_label, col in [
@@ -401,8 +444,8 @@ def run_analysis(
 
     df_hit_rate = pd.DataFrame(hit_rate_rows)
 
-    # Step 7: Summary statistics for API distributions
-    print(f"\nStep 7: API distribution statistics", flush=True)
+    # Step 6: Summary statistics for API distributions
+    print(f"\nStep 6: API distribution statistics", flush=True)
     for proc in ["PSA", "VSA"]:
         for comp, sfx in [("20:80", "2080"), ("50:50", "5050")]:
             col = f"{proc}_API_{sfx}"
@@ -415,7 +458,7 @@ def run_analysis(
                     flush=True,
                 )
 
-    # Step 8: Save CSV
+    # Step 7: Save CSV
     csv_path = output_dir / "composition_sensitivity_results.csv"
     df_comp.to_csv(csv_path, index=False)
     print(f"\nSaved: {csv_path}", flush=True)
@@ -425,7 +468,11 @@ def run_analysis(
         df_hit_rate.to_csv(hr_path, index=False)
         print(f"Saved: {hr_path}", flush=True)
 
-    # Step 9: Write summary markdown
+    rank_summary_path = output_dir / "composition_rank_change_summary.csv"
+    df_rank_summary.to_csv(rank_summary_path, index=False)
+    print(f"Saved: {rank_summary_path}", flush=True)
+
+    # Step 8: Write summary markdown
     summary_path = output_dir / "composition_sensitivity_summary.md"
     with open(summary_path, "w") as f:
         f.write("# Composition Sensitivity Analysis: 20:80 vs 50:50 CH4:N2\n\n")
@@ -447,15 +494,10 @@ def run_analysis(
             f.write(f"| {label} | {n2080} | {n5050} | {nw} |\n")
         f.write("\n")
 
-        # Spearman correlation
-        f.write("## Spearman Rank Correlation (API_2080 vs API_5050)\n\n")
-        f.write("| Process | rho | p-value | n |\n")
-        f.write("|---------|-----|---------|---|\n")
-        for proc, vals in spearman_results.items():
-            rho_s = f"{vals['rho']:.4f}" if np.isfinite(vals["rho"]) else "N/A"
-            p_s = f"{vals['pval']:.2e}" if np.isfinite(vals["pval"]) else "N/A"
-            f.write(f"| {proc} | {rho_s} | {p_s} | {vals['n']} |\n")
-        f.write("\n")
+        # Rank-change summary
+        f.write("## Rank-Change Summary\n\n")
+        f.write(df_rank_summary.to_markdown(index=False, floatfmt=".1f"))
+        f.write("\n\n")
 
         # Rank switching
         f.write(f"## Rank-Switching MOFs (rank change >= {rank_threshold})\n\n")
@@ -488,10 +530,6 @@ def run_analysis(
         # Interpretation
         f.write("---\n\n")
         f.write("## Interpretation Guide\n\n")
-        f.write("- **High Spearman rho** (> 0.8): rankings are robust "
-                "across compositions.\n")
-        f.write("- **Low rho** (< 0.5): composition significantly "
-                "affects which MOFs appear best.\n")
         f.write("- **Switching MOFs**: investigate whether structural "
                 "features explain sensitivity.\n")
         f.write("- **Hit rate**: if hypo >> exp, experimental MOFs may "

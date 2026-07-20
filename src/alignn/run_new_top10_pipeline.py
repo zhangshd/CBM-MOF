@@ -122,13 +122,22 @@ def parse_widom(widom_dir: Path) -> pd.DataFrame:
     print(f"  Widom raw: {len(df_raw):,} rows from {len(csv_files)} files")
 
     df_raw = df_raw[df_raw["Temperature[K]"].round(1) == 298.0].copy()
+    value_columns = ["AdsorptionHeat"]
+    if "AdsorptionHeatError" in df_raw.columns:
+        value_columns.append("AdsorptionHeatError")
     df_ch4 = (df_raw[df_raw["GasName"] == "methane"]
-              .groupby("MofName")["AdsorptionHeat"].mean()
-              .rename("QstCH4_gcmc").reset_index()
+              .groupby("MofName")[value_columns].mean()
+              .rename(columns={
+                  "AdsorptionHeat": "QstCH4_gcmc",
+                  "AdsorptionHeatError": "QstCH4_gcmc_error",
+              }).reset_index()
               .rename(columns={"MofName": "mof_id"}))
     df_n2 = (df_raw[df_raw["GasName"] == "N2"]
-             .groupby("MofName")["AdsorptionHeat"].mean()
-             .rename("QstN2_gcmc").reset_index()
+             .groupby("MofName")[value_columns].mean()
+             .rename(columns={
+                 "AdsorptionHeat": "QstN2_gcmc",
+                 "AdsorptionHeatError": "QstN2_gcmc_error",
+             }).reset_index()
              .rename(columns={"MofName": "mof_id"}))
     df_widom = df_ch4.merge(df_n2, on="mof_id", how="outer")
     print(f"  Widom pivoted: {len(df_widom):,} unique MOFs")
@@ -257,46 +266,65 @@ def select_top_n(
     n: int = 10,
     label: str = "PSA",
 ) -> pd.DataFrame:
-    """Select top-N benchmark-beating MOFs with cluster-aware diversity."""
-    # Filter to benchmark beaters with valid GCMC API
-    subset = df[df[api_col].notna() & (df[api_col] >= benchmark)].copy()
+    """Select N-1 benchmark beaters by cluster and append the ATC-Cu benchmark."""
+    benchmark_row = df[df["mof_id"] == BENCHMARK_MOF].copy()
+    if len(benchmark_row) != 1:
+        raise ValueError(
+            f"Expected one {BENCHMARK_MOF} row for {label}, found {len(benchmark_row)}"
+        )
+
+    candidate_slots = n - 1
+    if candidate_slots < 1:
+        raise ValueError("Top-N must reserve at least one candidate slot plus ATC-Cu")
+
+    # Exclude the benchmark itself and retain candidates that strictly exceed it.
+    subset = df[
+        df[api_col].notna()
+        & (df["mof_id"] != BENCHMARK_MOF)
+        & (df[api_col] > benchmark)
+    ].copy()
     print(f"\n{'='*60}")
     print(f"[{label}] Benchmark threshold: {benchmark:.3f}")
-    print(f"[{label}] Benchmark-beating candidates: {len(subset)}")
+    print(f"[{label}] Candidates strictly above ATC-Cu: {len(subset)}")
     print(f"{'='*60}")
 
     if len(subset) == 0:
         print(f"  [WARN] No benchmark-beating candidates for {label}!")
         return pd.DataFrame()
 
-    if len(subset) <= n:
+    if len(subset) <= candidate_slots:
         print(f"  [INFO] Only {len(subset)} candidates, selecting all.")
-        result = subset.sort_values(api_col, ascending=False).copy()
-        result[f"{label.lower()}_top10_rank"] = range(1, len(result) + 1)
-        return result
+        selected_candidates = subset.sort_values(api_col, ascending=False).copy()
+    else:
+        # Cluster distribution among benchmark-beating candidates
+        cluster_counts = subset[cluster_col].value_counts().to_dict()
+        print(f"  Candidate cluster distribution: {dict(sorted(cluster_counts.items()))}")
 
-    # Cluster distribution among benchmark beaters
-    cluster_counts = subset[cluster_col].value_counts().to_dict()
-    print(f"  Cluster distribution: {dict(sorted(cluster_counts.items()))}")
+        allocation = allocate_slots(cluster_counts, total_slots=candidate_slots)
+        print(f"  Candidate slot allocation:      {dict(sorted(allocation.items()))}")
 
-    allocation = allocate_slots(cluster_counts, total_slots=n)
-    print(f"  Slot allocation:      {dict(sorted(allocation.items()))}")
+        selected = []
+        for cid, n_slots in sorted(allocation.items()):
+            cluster_df = subset[subset[cluster_col] == cid].sort_values(
+                api_col, ascending=False
+            )
+            picked = cluster_df.head(n_slots)
+            selected.append(picked)
+            print(
+                f"  Cluster {cid:>2d}: picked {len(picked)}/{len(cluster_df)} "
+                f"(best {api_col}={picked[api_col].iloc[0]:.4f})"
+            )
 
-    selected = []
-    for cid, n_slots in sorted(allocation.items()):
-        cluster_df = subset[subset[cluster_col] == cid].sort_values(
-            api_col, ascending=False
-        )
-        picked = cluster_df.head(n_slots)
-        selected.append(picked)
-        print(
-            f"  Cluster {cid:>2d}: picked {len(picked)}/{len(cluster_df)} "
-            f"(best {api_col}={picked[api_col].iloc[0]:.4f})"
-        )
+        selected_candidates = pd.concat(selected).sort_values(api_col, ascending=False)
 
-    result = pd.concat(selected).sort_values(api_col, ascending=False)
+    result = pd.concat([selected_candidates, benchmark_row]).sort_values(
+        api_col, ascending=False
+    )
     result[f"{label.lower()}_top10_rank"] = range(1, len(result) + 1)
-    print(f"\n  Selected {len(result)} MOFs for {label} Top-{n}")
+    print(
+        f"\n  Selected {len(selected_candidates)} candidates across "
+        f"{selected_candidates[cluster_col].nunique()} clusters + ATC-Cu"
+    )
     return result
 
 
@@ -384,13 +412,19 @@ def main():
     # Identify benchmark beaters within each process-specific Top-100
     psa_pool = df_all[df_all["in_psa100"]]
     vsa_pool = df_all[df_all["in_vsa100"]]
-    psa_beaters = psa_pool[psa_pool["gcmc_PSA_API_CH4"] >= benchmark_psa]
-    vsa_beaters = vsa_pool[vsa_pool["gcmc_VSA_API_CH4"] >= benchmark_vsa]
+    psa_beaters = psa_pool[
+        (psa_pool["mof_id"] != BENCHMARK_MOF)
+        & (psa_pool["gcmc_PSA_API_CH4"] > benchmark_psa)
+    ]
+    vsa_beaters = vsa_pool[
+        (vsa_pool["mof_id"] != BENCHMARK_MOF)
+        & (vsa_pool["gcmc_VSA_API_CH4"] > benchmark_vsa)
+    ]
     print(f"\nBenchmark-beating candidates (within respective Top-100):")
-    print(f"  PSA (>={benchmark_psa:.4f}): {len(psa_beaters)}/{len(psa_pool)} "
+    print(f"  PSA (>{benchmark_psa:.4f}): {len(psa_beaters)}/{len(psa_pool)} "
           f"(exp: {(psa_beaters['group']=='exp').sum()}, "
           f"hypo: {(psa_beaters['group']=='hypo').sum()})")
-    print(f"  VSA (>={benchmark_vsa:.4f}): {len(vsa_beaters)}/{len(vsa_pool)} "
+    print(f"  VSA (>{benchmark_vsa:.4f}): {len(vsa_beaters)}/{len(vsa_pool)} "
           f"(exp: {(vsa_beaters['group']=='exp').sum()}, "
           f"hypo: {(vsa_beaters['group']=='hypo').sum()})")
 
@@ -442,10 +476,14 @@ def main():
     # Export benchmark-beating MOFs to CSV (SI Tables S6/S7)
     # ------------------------------------------------------------------
     psa_beaters_clust = df_clustered[
-        df_clustered["in_psa100"] & (df_clustered["gcmc_PSA_API_CH4"] >= benchmark_psa)
+        df_clustered["in_psa100"]
+        & (df_clustered["mof_id"] != BENCHMARK_MOF)
+        & (df_clustered["gcmc_PSA_API_CH4"] > benchmark_psa)
     ].copy()
     vsa_beaters_clust = df_clustered[
-        df_clustered["in_vsa100"] & (df_clustered["gcmc_VSA_API_CH4"] >= benchmark_vsa)
+        df_clustered["in_vsa100"]
+        & (df_clustered["mof_id"] != BENCHMARK_MOF)
+        & (df_clustered["gcmc_VSA_API_CH4"] > benchmark_vsa)
     ].copy()
 
     # PSA beaters — clean columns for SI Table S6
@@ -488,8 +526,8 @@ def main():
     vsa_beaters_csv = OUTPUT_DIR / "vsa_beaters.csv"
     psa_beaters_out.to_csv(psa_beaters_csv, index=False)
     vsa_beaters_out.to_csv(vsa_beaters_csv, index=False)
-    print(f"\nSaved: {psa_beaters_csv} ({len(psa_beaters_out)} MOFs, API >= {benchmark_psa:.4f})")
-    print(f"Saved: {vsa_beaters_csv} ({len(vsa_beaters_out)} MOFs, API >= {benchmark_vsa:.4f})")
+    print(f"\nSaved: {psa_beaters_csv} ({len(psa_beaters_out)} MOFs, API > {benchmark_psa:.4f})")
+    print(f"Saved: {vsa_beaters_csv} ({len(vsa_beaters_out)} MOFs, API > {benchmark_vsa:.4f})")
 
     # Select PSA Top-10 from PSA Top-100 subset only
     psa_top = select_top_n(

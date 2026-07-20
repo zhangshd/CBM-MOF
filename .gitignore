@@ -21,6 +21,7 @@ test.ipynb
 *.sh
 # Track SLURM job scripts in src/ (deployment scripts, not data)
 !src/**/*.sh
+!release_zenodo.sh
 *.csv
 *.ckpt
 */feature_folders
@@ -28,5 +29,6 @@ test.ipynb
 !src/figures/
 !src/figures/*.py
 results/
+release/zenodo_r1/
 **/graphs_grids
 .serena

@@ -19,6 +19,7 @@ import matplotlib as mpl
 mpl.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+import matplotlib.patheffects as path_effects
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 import numpy as np
@@ -140,6 +141,33 @@ def make_figure(df: pd.DataFrame, sampled_ids: set[str]) -> plt.Figure:
         edgecolors="k", linewidths=0.1, rasterized=True,
     )
 
+    # Direct labels preserve cluster identity in grayscale. Place each label
+    # on the observed point nearest the cluster median to keep it in-region.
+    label_offsets = {
+        15: (8, 8),
+        18: (-10, -4),
+        19: (10, -8),
+        20: (-10, 8),
+    }
+    for cid in sorted(np.unique(clusters)):
+        cluster_idx = np.flatnonzero(clusters == cid)
+        cluster_x = x[cluster_idx]
+        cluster_y = y[cluster_idx]
+        center_x = np.median(cluster_x)
+        center_y = np.median(cluster_y)
+        nearest = np.argmin((cluster_x - center_x) ** 2 + (cluster_y - center_y) ** 2)
+        label = ax_a.annotate(
+            str(cid + 1),
+            xy=(cluster_x[nearest], cluster_y[nearest]),
+            xytext=label_offsets.get(cid, (0, 0)),
+            textcoords="offset points", ha="center", va="center",
+            fontsize=6.5, fontweight="bold", color="black", zorder=5,
+        )
+        label.set_path_effects([
+            path_effects.Stroke(linewidth=2.0, foreground="white"),
+            path_effects.Normal(),
+        ])
+
     ax_a.set_xlabel("UMAP 1", fontsize=layout.body_font)
     ax_a.set_ylabel("UMAP 2", fontsize=layout.body_font)
     ax_a.tick_params(labelbottom=False, labelleft=False)
@@ -161,11 +189,11 @@ def make_figure(df: pd.DataFrame, sampled_ids: set[str]) -> plt.Figure:
         )
     ax_legend.legend(
         handles=legend_patches,
-        title="Cluster",
+        title="Clusters (a)",
         loc="center left",
         ncol=1,
-        fontsize=layout.tick_font - 2.0,
-        title_fontsize=layout.tick_font - 0.5,
+        fontsize=max(6.5, layout.tick_font - 1.0),
+        title_fontsize=layout.tick_font,
         frameon=True,
         fancybox=False,
         edgecolor="k",
@@ -206,8 +234,10 @@ def make_figure(df: pd.DataFrame, sampled_ids: set[str]) -> plt.Figure:
     ]
     ax_b.legend(
         handles=legend_handles,
+        title="Sampling (b)",
         loc="upper right",
         fontsize=layout.tick_font - 1,
+        title_fontsize=layout.tick_font,
         frameon=True,
         fancybox=False,
         edgecolor="k",

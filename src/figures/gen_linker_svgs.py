@@ -33,7 +33,7 @@ LINKERS = [
         "smiles": "[O-]C(=O)c1c(cc2c3c1ccc1c3c(cc2)c(c(c1)C(=O)[O-])C(=O)[O-])C(=O)[O-]",
         "highlight_red": "[C](=O)[O-]",
         "highlight_blue": None,
-        "scale": 1.00,  # 4-ring pyrene core (reference)
+        "scale": 1.00,  # pyrene-1,2,6,7-tetracarboxylate (o80)
     },
     {
         "filename": "linker_PSA_Ndonor",
@@ -54,7 +54,7 @@ LINKERS = [
         "smiles": "c1ccc2c(c1)nccn2",
         "highlight_red": None,
         "highlight_blue": "[#7]",
-        "scale": 0.50,  # benzimidazole (smallest)
+        "scale": 0.50,  # quinoxaline (o14; smallest)
     },
 ]
 

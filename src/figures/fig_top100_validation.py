@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -278,6 +279,13 @@ def plot_figure9_2x4(output_dir: Path) -> None:
         gap_ratio_x=0.20,
         gap_ratio_y=0.32,
         panel_aspect=0.94,
+    )
+    layout = replace(
+        layout,
+        title_font=layout.title_font + 0.5,
+        body_font=layout.body_font + 0.5,
+        tick_font=layout.tick_font + 0.5,
+        annotation_font=layout.annotation_font + 0.5,
     )
 
     fig, axes = plt.subplots(2, 4, figsize=(layout.figure_width, layout.figure_height))

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import matplotlib as mpl
@@ -61,6 +62,13 @@ def make_figure(
         nrows=1, ncols=2,
         figure_width_inch=DOUBLE_COL_INCH,
         right_margin_inch=0.55,
+    )
+    layout = replace(
+        layout,
+        title_font=layout.title_font + 0.5,
+        body_font=layout.body_font + 0.5,
+        tick_font=layout.tick_font + 0.5,
+        annotation_font=layout.annotation_font + 0.5,
     )
 
     fig, axes = plt.subplots(
