@@ -51,10 +51,11 @@ CH4_FIG_NAME = "fig_isotherm_fits_ch4.png"
 N2_FIG_NAME = "fig_isotherm_fits_n2.png"
 
 # ── Temperature visual identity ──────────────────────────────────────────────
+# Colorblind-safe colors with separated grayscale luminance.
 TEMP_STYLE = {
-    273.0: {"color": NATURE_COLORS["blue"], "marker": "o", "label": "273 K"},
-    298.0: {"color": NATURE_COLORS["green"], "marker": "s", "label": "298 K"},
-    323.0: {"color": NATURE_COLORS["orange"], "marker": "^", "label": "323 K"},
+    273.0: {"color": "#004488", "marker": "o", "label": "273 K"},
+    298.0: {"color": "#BB5566", "marker": "s", "label": "298 K"},
+    323.0: {"color": "#DDAA33", "marker": "^", "label": "323 K"},
 }
 
 SHORT_NAME_MAP = {

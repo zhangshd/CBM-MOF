@@ -53,6 +53,8 @@ DEFAULT_RANKING = MODEL_DIR / "psa_optimization" / "material_ranking.csv"
 DEFAULT_OUTPUT = REPO_ROOT.parent / "CBM-MOF-paper" / "manuscript" / "figures"
 
 ATC_CU_NAME = "CoRE-2020[Cu][pts]3[ASR]1"
+MAX_FRONT_MARKERS = 24
+MAX_BENCHMARK_MARKERS = 16
 
 # ---------------------------------------------------------------------------
 # Material name shortening
@@ -138,6 +140,19 @@ def _assign_colors_per_panel(materials: list[str]) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 # Plotting
 # ---------------------------------------------------------------------------
+def _sample_front_for_display(
+    front: pd.DataFrame,
+    max_markers: int,
+) -> pd.DataFrame:
+    """Evenly sample a front for plotting while retaining both endpoints."""
+    ordered = front.sort_values(["productivity", "energy"], kind="stable")
+    if len(ordered) <= max_markers:
+        return ordered
+
+    positions = np.linspace(0, len(ordered) - 1, max_markers, dtype=int)
+    return ordered.iloc[positions]
+
+
 def _plot_pareto_panel(
     ax: plt.Axes,
     df: pd.DataFrame,
@@ -166,26 +181,37 @@ def _plot_pareto_panel(
     for m in materials_sorted:
         mat_markers[m] = panel_marker  # ATC-Cu also gets panel marker (star overlay added later)
 
-    marker_size_normal = max(10, layout.marker_area * 1.05)
+    base_marker_area = max(10, layout.marker_area * 1.05)
+    non_benchmark_marker_area = (np.sqrt(base_marker_area) + 1.0) ** 2
 
     # Plot each material
     for mat in materials_sorted:
         mat_df = sub[sub["material_name"] == mat]
+        max_markers = (
+            MAX_BENCHMARK_MARKERS if mat == ATC_CU_NAME else MAX_FRONT_MARKERS
+        )
+        display_df = _sample_front_for_display(mat_df, max_markers)
         color = mat_colors.get(mat, "#999999")
         marker = mat_markers[mat]
+        marker_area = (
+            base_marker_area if mat == ATC_CU_NAME else non_benchmark_marker_area
+        )
 
         ax.scatter(
-            mat_df["productivity"], mat_df["energy"],
-            c=color, marker=marker, s=marker_size_normal,
+            display_df["productivity"], display_df["energy"],
+            c=color, marker=marker, s=marker_area,
             alpha=0.35, edgecolors="none", zorder=2,
         )
 
     # ATC-Cu star marker overlay
     atc_df = sub[sub["material_name"] == ATC_CU_NAME]
     if not atc_df.empty:
+        atc_display_df = _sample_front_for_display(
+            atc_df, MAX_BENCHMARK_MARKERS,
+        )
         ax.scatter(
-            atc_df["productivity"], atc_df["energy"],
-            marker="*", s=marker_size_normal * 3,
+            atc_display_df["productivity"], atc_display_df["energy"],
+            marker="*", s=base_marker_area * 3,
             c="#D62728", alpha=1.0, edgecolors="black",
             linewidths=0.45, zorder=5,
         )
@@ -225,12 +251,12 @@ def _build_legend(
             h = mlines.Line2D(
                 [], [], color=color, marker="*", markersize=7,
                 linestyle="None", label=short,
-                markerfacecolor="#D62728", markeredgecolor=color,
+                markerfacecolor="#D62728", markeredgecolor="black",
                 markeredgewidth=0.9,
             )
         else:
             h = mlines.Line2D(
-                [], [], color=color, marker=marker, markersize=4,
+                [], [], color=color, marker=marker, markersize=5,
                 linestyle="None", label=short,
             )
         handles.append(h)

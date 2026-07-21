@@ -2,8 +2,10 @@
 
 Panels
 ------
-(a) UMAP of 235,141 MOFs colored by 22 cluster assignments.
-(b) Same projection highlighting the 21,976 sampled structures (train+val+test)
+(a-e) Five views of the same UMAP coordinates. Each view highlights four or
+    five clusters against a common gray background so that cluster identity does
+    not depend on distinguishing 22 colors in one panel.
+(f) Same projection highlighting the 21,976 sampled structures (train+val+test)
     against the full-library background.
 """
 
@@ -18,10 +20,7 @@ import matplotlib as mpl
 
 mpl.use("Agg")
 import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
-import matplotlib.patheffects as path_effects
 from matplotlib.lines import Line2D
-from matplotlib.patches import Patch
 import numpy as np
 import pandas as pd
 
@@ -43,6 +42,37 @@ CLUSTER_CSV = (
 )
 STRAT_DIR = PROJECT_ROOT / "data" / "processed" / "stratified_datasets"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "results" / "alignn" / "model_ep150" / "figures"
+
+# Cluster IDs are zero-based here and displayed as one-based labels. The groups
+# separate nearby robust centers to minimize label collisions without changing
+# the cluster assignments.
+CLUSTER_DISPLAY_GROUPS = (
+    (9, 17, 19, 20, 21),
+    (1, 7, 8, 14, 15),
+    (0, 2, 4, 16),
+    (6, 11, 12, 13),
+    (3, 5, 10, 18),
+)
+
+# Six high-contrast colors from the Okabe-Ito family. Colors are reused between
+# subpanels because the numeric labels provide the definitive cluster identity.
+HIGHLIGHT_COLORS = (
+    "#0072B2",  # blue
+    "#D55E00",  # vermillion
+    "#009E73",  # bluish green
+    "#CC79A7",  # reddish purple
+    "#E69F00",  # orange
+    "#000000",  # black
+)
+BACKGROUND_COLOR = "#D9D9D9"
+SAMPLED_COLOR = "#005A8D"
+
+# Short point-space offsets separate the only close pair that remains after
+# grouping. Their leader lines retain the exact anchor locations.
+CLUSTER_LABEL_OFFSETS = {
+    19: (8, -2),
+    20: (-8, 2),
+}
 
 
 # ── Data loading ────────────────────────────────────────────────────────────
@@ -67,37 +97,45 @@ def load_data() -> tuple[pd.DataFrame, set[str]]:
     return df, sampled_ids
 
 
-# ── Colormap for 22 clusters ───────────────────────────────────────────────
-def _build_cluster_cmap(n_clusters: int = 22) -> mcolors.ListedColormap:
-    """Create a qualitative colormap for *n_clusters* categories.
+def _validate_display_groups(clusters: np.ndarray) -> None:
+    """Ensure that every observed cluster appears in exactly one display group."""
+    configured = [cid for group in CLUSTER_DISPLAY_GROUPS for cid in group]
+    observed = set(np.unique(clusters).astype(int))
+    if len(configured) != len(set(configured)) or set(configured) != observed:
+        raise ValueError(
+            "CLUSTER_DISPLAY_GROUPS must contain every observed cluster exactly once."
+        )
 
-    Combines ``tab20`` (20 colors) with two extra distinguishable hues so that
-    all 22 clusters get unique colors.
-    """
-    tab20 = plt.cm.tab20(np.linspace(0, 1, 20))
-    extras = np.array([
-        [0.40, 0.00, 0.40, 1.0],  # dark purple
-        [0.00, 0.40, 0.40, 1.0],  # teal
-    ])
-    colors = np.vstack([tab20, extras])[:n_clusters]
-    return mcolors.ListedColormap(colors, name="cluster22")
+
+def _cluster_anchor(
+    x: np.ndarray,
+    y: np.ndarray,
+    clusters: np.ndarray,
+    cluster_id: int,
+) -> tuple[float, float]:
+    """Return the observed point nearest a cluster's coordinate-wise median."""
+    cluster_idx = np.flatnonzero(clusters == cluster_id)
+    cluster_x = x[cluster_idx]
+    cluster_y = y[cluster_idx]
+    center_x = np.median(cluster_x)
+    center_y = np.median(cluster_y)
+    nearest = np.argmin((cluster_x - center_x) ** 2 + (cluster_y - center_y) ** 2)
+    return float(cluster_x[nearest]), float(cluster_y[nearest])
 
 
 # ── Figure construction ─────────────────────────────────────────────────────
 def make_figure(df: pd.DataFrame, sampled_ids: set[str]) -> plt.Figure:
-    """Build the two-panel UMAP figure.
-
-    Layout: [panel_a | legend | gap | panel_b]
-    Legend sits snug against panel (a); panel (b) has no y-label.
-    """
+    """Build grouped cluster views and the stratified-sampling UMAP."""
     set_publication_style()
 
     layout = compute_panel_grid_layout(
-        nrows=1,
-        ncols=2,
+        nrows=2,
+        ncols=3,
         figure_width_inch=DOUBLE_COL_INCH,
         right_margin_inch=0.08,
-        panel_aspect=0.85,
+        gap_ratio_x=0.16,
+        gap_ratio_y=0.18,
+        panel_aspect=0.92,
     )
 
     from matplotlib.gridspec import GridSpec
@@ -105,137 +143,147 @@ def make_figure(df: pd.DataFrame, sampled_ids: set[str]) -> plt.Figure:
     fig_h = layout.figure_height
     fig = plt.figure(figsize=(DOUBLE_COL_INCH, fig_h))
 
-    # 4-column grid: panel_a (4) | legend (0.9) | gap (0.3) | panel_b (4)
+    # Five cluster views and one binary sampling view form a regular 2 x 3 grid.
     gs = GridSpec(
-        1, 4,
+        2, 3,
         figure=fig,
-        width_ratios=[4, 0.9, 0.3, 4],
+        width_ratios=[1, 1, 1],
         left=layout.left,
         right=layout.right,
         bottom=layout.bottom,
         top=layout.top,
-        wspace=0.0,
+        wspace=layout.wspace,
+        hspace=layout.hspace,
     )
-    ax_a = fig.add_subplot(gs[0, 0])
-    ax_legend = fig.add_subplot(gs[0, 1])
-    # gs[0, 2] is the gap — no axis
-    ax_b = fig.add_subplot(gs[0, 3])
-    ax_legend.set_axis_off()
+    cluster_axes = (
+        fig.add_subplot(gs[0, 0]),
+        fig.add_subplot(gs[0, 1]),
+        fig.add_subplot(gs[0, 2]),
+        fig.add_subplot(gs[1, 0]),
+        fig.add_subplot(gs[1, 1]),
+    )
+    ax_b = fig.add_subplot(gs[1, 2])
 
     x = df["UMAP1"].values
     y = df["UMAP2"].values
     clusters = df["Cluster"].values
 
-    n_clusters = int(clusters.max()) + 1
-    cmap = _build_cluster_cmap(n_clusters)
-    norm = mcolors.BoundaryNorm(np.arange(-0.5, n_clusters + 0.5, 1), n_clusters)
-
-    # ── Panel (a): cluster-colored UMAP ─────────────────────────────────
+    _validate_display_groups(clusters)
     rng = np.random.default_rng(42)
     order = rng.permutation(len(df))
 
-    ax_a.scatter(
-        x[order], y[order],
-        c=clusters[order], cmap=cmap, norm=norm,
-        s=layout.marker_area * 0.15, alpha=0.6,
-        edgecolors="k", linewidths=0.1, rasterized=True,
-    )
+    x_padding = 0.03 * (x.max() - x.min())
+    y_padding = 0.03 * (y.max() - y.min())
+    common_xlim = (x.min() - x_padding, x.max() + x_padding)
+    common_ylim = (y.min() - y_padding, y.max() + y_padding)
 
-    # Direct labels preserve cluster identity in grayscale. Place each label
-    # on the observed point nearest the cluster median to keep it in-region.
-    label_offsets = {
-        15: (8, 8),
-        18: (-10, -4),
-        19: (10, -8),
-        20: (-10, 8),
-    }
-    for cid in sorted(np.unique(clusters)):
-        cluster_idx = np.flatnonzero(clusters == cid)
-        cluster_x = x[cluster_idx]
-        cluster_y = y[cluster_idx]
-        center_x = np.median(cluster_x)
-        center_y = np.median(cluster_y)
-        nearest = np.argmin((cluster_x - center_x) ** 2 + (cluster_y - center_y) ** 2)
-        label = ax_a.annotate(
-            str(cid + 1),
-            xy=(cluster_x[nearest], cluster_y[nearest]),
-            xytext=label_offsets.get(cid, (0, 0)),
-            textcoords="offset points", ha="center", va="center",
-            fontsize=6.5, fontweight="bold", color="black", zorder=5,
+    background_size = max(0.25, layout.marker_area * 0.035)
+    highlight_size = max(0.45, layout.marker_area * 0.065)
+
+    # ── Panels (a-e): four or five highlighted clusters per view ────────
+    for panel_idx, (ax, group) in enumerate(
+        zip(cluster_axes, CLUSTER_DISPLAY_GROUPS, strict=True)
+    ):
+        ax.scatter(
+            x[order], y[order],
+            c=BACKGROUND_COLOR, s=background_size, alpha=0.32,
+            edgecolors="none", rasterized=True, zorder=1,
         )
-        label.set_path_effects([
-            path_effects.Stroke(linewidth=2.0, foreground="white"),
-            path_effects.Normal(),
-        ])
 
-    ax_a.set_xlabel("UMAP 1", fontsize=layout.body_font)
-    ax_a.set_ylabel("UMAP 2", fontsize=layout.body_font)
-    ax_a.tick_params(labelbottom=False, labelleft=False)
-    ax_a.set_title("(a) Cluster assignments", fontweight="bold", loc="left",
-                    fontsize=layout.title_font)
-    ax_a.spines["top"].set_visible(False)
-    ax_a.spines["right"].set_visible(False)
+        legend_handles = []
+        for color, cid in zip(HIGHLIGHT_COLORS, group, strict=False):
+            mask = clusters == cid
+            ax.scatter(
+                x[mask], y[mask],
+                c=color, s=highlight_size, alpha=0.72,
+                edgecolors="none", rasterized=True, zorder=2,
+            )
+            anchor_x, anchor_y = _cluster_anchor(x, y, clusters, cid)
+            label_offset = CLUSTER_LABEL_OFFSETS.get(cid, (0, 0))
+            ax.annotate(
+                str(cid + 1), xy=(anchor_x, anchor_y),
+                xytext=label_offset, textcoords="offset points",
+                ha="center", va="center",
+                fontsize=layout.annotation_font,
+                fontweight="bold", color="black", zorder=5,
+                bbox={
+                    "boxstyle": "circle,pad=0.16",
+                    "facecolor": "white",
+                    "edgecolor": "black",
+                    "linewidth": 0.6,
+                    "alpha": 0.92,
+                },
+                arrowprops=(
+                    {
+                        "arrowstyle": "-",
+                        "color": "black",
+                        "linewidth": 0.45,
+                        "shrinkA": 5,
+                        "shrinkB": 1,
+                    }
+                    if label_offset != (0, 0)
+                    else None
+                ),
+            )
+            legend_handles.append(
+                Line2D(
+                    [0], [0], marker="o", color="none",
+                    markerfacecolor=color, markeredgecolor="none",
+                    markersize=3.5, linestyle="None", label=str(cid + 1),
+                )
+            )
 
-    # ── Legend column (flush against panel a) ────────────────────────────
-    unique_clusters = sorted(np.unique(clusters))
-    legend_patches = []
-    for cid in unique_clusters:
-        cnt = int((clusters == cid).sum())
-        pct = 100.0 * cnt / len(clusters)
-        color = cmap(cid / max(n_clusters - 1, 1))
-        legend_patches.append(
-            Patch(facecolor=color, edgecolor="k", linewidth=0.3,
-                  label=f"{cid + 1}: {pct:.2f}%")
+        panel_label = chr(ord("a") + panel_idx)
+        ax.set_title(f"({panel_label})", fontweight="bold", loc="left",
+                     fontsize=layout.title_font)
+        ax.legend(
+            handles=legend_handles,
+            loc="upper right", bbox_to_anchor=(1.0, 1.07),
+            ncol=len(legend_handles), frameon=False,
+            fontsize=max(6.0, layout.tick_font - 1.5),
+            handlelength=0.5, handletextpad=0.15,
+            columnspacing=0.45, borderaxespad=0.0,
         )
-    ax_legend.legend(
-        handles=legend_patches,
-        title="Clusters (a)",
-        loc="center left",
-        ncol=1,
-        fontsize=max(6.5, layout.tick_font - 1.0),
-        title_fontsize=layout.tick_font,
-        frameon=True,
-        fancybox=False,
-        edgecolor="k",
-        framealpha=0.7,
-        handlelength=0.8,
-        handletextpad=0.3,
-        labelspacing=0.2,
-        borderpad=0.4,
-    )
+        ax.set_xlim(common_xlim)
+        ax.set_ylim(common_ylim)
+        ax.tick_params(labelbottom=False, labelleft=False)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
 
-    # ── Panel (b): sampled vs full library ──────────────────────────────
+    cluster_axes[3].set_xlabel("UMAP 1", fontsize=layout.body_font)
+    cluster_axes[4].set_xlabel("UMAP 1", fontsize=layout.body_font)
+    cluster_axes[0].set_ylabel("UMAP 2", fontsize=layout.body_font)
+    cluster_axes[3].set_ylabel("UMAP 2", fontsize=layout.body_font)
+
+    # ── Panel (f): sampled vs full library ──────────────────────────────
     is_sampled = df["CifId"].isin(sampled_ids).values
-    n_all = len(df)
-    n_sampled = int(is_sampled.sum())
     is_unsampled = ~is_sampled
-    n_unsampled = n_all - n_sampled
 
     ax_b.scatter(
         x[is_unsampled], y[is_unsampled],
-        c="#AAAAAA", s=layout.marker_area * 0.45, alpha=0.55,
+        c="#BFBFBF", s=background_size, alpha=0.50,
         edgecolors="none", rasterized=True, zorder=1,
     )
 
-    highlight_color = "#E41A1C"
     ax_b.scatter(
         x[is_sampled], y[is_sampled],
-        c=highlight_color, s=layout.marker_area * 0.08, alpha=0.45,
+        c=SAMPLED_COLOR, s=background_size * 0.75, alpha=0.72,
         edgecolors="none", rasterized=True, zorder=2,
     )
 
     legend_handles = [
-        Line2D([0], [0], marker="o", color="none", markerfacecolor="#AAAAAA",
+        Line2D([0], [0], marker="o", color="none", markerfacecolor="#BFBFBF",
                markeredgecolor="none", markersize=4, linestyle="None",
-               label=f"Unsampled ({n_unsampled:,})"),
-        Line2D([0], [0], marker="o", color="none", markerfacecolor=highlight_color,
+               label="Unsampled"),
+        Line2D([0], [0], marker="o", color="none", markerfacecolor=SAMPLED_COLOR,
                markeredgecolor="none", markersize=4, linestyle="None",
-               label=f"Sampled ({n_sampled:,})"),
+               label="Sampled"),
     ]
-    ax_b.legend(
+    sampling_legend = ax_b.legend(
         handles=legend_handles,
-        title="Sampling (b)",
+        title="Sampling",
         loc="upper right",
+        bbox_to_anchor=(1.0, 1.05),
         fontsize=layout.tick_font - 1,
         title_fontsize=layout.tick_font,
         frameon=True,
@@ -243,16 +291,17 @@ def make_figure(df: pd.DataFrame, sampled_ids: set[str]) -> plt.Figure:
         edgecolor="k",
         framealpha=0.7,
         handletextpad=0.3,
+        borderaxespad=0.0,
     )
+    sampling_legend.get_frame().set_linewidth(0.5)
 
     ax_b.set_xlabel("UMAP 1", fontsize=layout.body_font)
-    # Extend x-axis to give legend more room
-    xmin_b, xmax_b = ax_b.get_xlim()
-    ax_b.set_xlim(xmin_b, xmax_b + (xmax_b - xmin_b) * 0.12)
-    # No y-label on panel (b) — same coordinate space as panel (a)
+    ax_b.set_ylabel("UMAP 2", fontsize=layout.body_font)
+    ax_b.set_xlim(common_xlim)
+    ax_b.set_ylim(common_ylim)
     ax_b.tick_params(labelbottom=False, labelleft=False)
-    ax_b.set_title("(b) Stratified sample", fontweight="bold", loc="left",
-                    fontsize=layout.title_font)
+    ax_b.set_title("(f)", fontweight="bold", loc="left",
+                   fontsize=layout.title_font)
     ax_b.spines["top"].set_visible(False)
     ax_b.spines["right"].set_visible(False)
 
