@@ -32,3 +32,4 @@ results/
 release/zenodo_r1/
 **/graphs_grids
 .serena
+.env

@@ -1,9 +1,19 @@
 {
   "metadata": {
-    "title": "Machine Learning Accelerated Discovery of Metal-Organic Frameworks for Low-Concentration Coalbed Methane Upgrading: Model Weights and Key Data",
+    "title": "Process-Aware High-Throughput Discovery of Metal–Organic Frameworks for Upgrading Low-Concentration Coalbed Methane: Model Weights and Key Data",
     "upload_type": "dataset",
     "description": "Model weights and key processed data supporting a multistage screening, molecular-simulation validation, and PSA/VSA process evaluation of metal-organic frameworks for 20:80 CH4/N2 separation.",
-    "creators": [],
+    "creators": [
+      {
+        "name": "Zhang, Shengde"
+      },
+      {
+        "name": "Wang, Zhenguang"
+      },
+      {
+        "name": "Zhou, Teng"
+      }
+    ],
     "version": "1.0.0-r1",
     "license": "cc-by-4.0",
     "keywords": [

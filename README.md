@@ -211,6 +211,10 @@ Result directories:
 - `results/cgcnn_models*`: CGCNN outputs
 - `results/moftransformer_models*`: MOFTransformer outputs
 
+The final model weights and key processed data are archived at
+[Zenodo](https://doi.org/10.5281/zenodo.21478723). The record metadata are
+public, and the archived files have restricted visibility.
+
 ## Environment Notes
 
 This repository does not define a single universal environment file. The active
